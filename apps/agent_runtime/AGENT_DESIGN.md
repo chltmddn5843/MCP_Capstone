@@ -62,7 +62,7 @@ flowchart TD
 | 구성요소 | 위치 | 적용 기준 (강의 표 6-3) |
 | --- | --- | --- |
 | Instructions | `harness/instructions.py`, `prompts/*.md` | 역할·규칙·금지·출력형식을 md로 버전 관리. 코드에 프롬프트 없음 |
-| Tools | `harness/tools.py` | MCP Client(langchain-mcp-adapters) 또는 로컬 REST. 결과 4,000자 제한, 오류는 ToolMessage |
+| Tools | `harness/tools.py` | MCP Client(FastMCP Client, Streamable HTTP) 또는 로컬 REST. 결과 4,000자 제한, 오류는 ToolMessage |
 | Agent Loop | `graph.py` `check_limits` | 최대 8턴, 120초, 같은 도구 3회 |
 | Context | `harness/context.py` | 토큰 예산 24k. 넘으면 오래된 대화를 자른다 (system·마지막 human 유지) |
 | State·Memory | `AsyncSqliteSaver`, `tasks.TaskStore` | thread_id 단위 저장, 승인 대기 후 그대로 재개, 작업 이력 SQLite |

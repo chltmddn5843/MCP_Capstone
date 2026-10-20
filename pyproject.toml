@@ -18,7 +18,7 @@ agent = [
     "langchain>=1.4",
     "langchain-anthropic>=1.7",
     "langchain-openai>=1.7",
-    "langchain-mcp-adapters>=0.3",
+    "fastmcp>=4.1,<5",   # MCP Client (mcp 2.x). langchain-mcp-adapters는 mcp 1.x 전용이라 쓰지 않는다
     "langgraph-checkpoint-sqlite>=3.1",
     "python-dotenv>=1.0",
 ]

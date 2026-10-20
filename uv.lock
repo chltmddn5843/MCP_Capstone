@@ -27,9 +27,9 @@ dependencies = [
 
 [package.optional-dependencies]
 agent = [
+    { name = "fastmcp" },
     { name = "langchain" },
     { name = "langchain-anthropic" },
-    { name = "langchain-mcp-adapters" },
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
@@ -53,11 +53,11 @@ ui = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastmcp", marker = "extra == 'agent'", specifier = ">=4.1,<5" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=4.1,<5" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain", marker = "extra == 'agent'", specifier = ">=1.4" },
     { name = "langchain-anthropic", marker = "extra == 'agent'", specifier = ">=1.7" },
-    { name = "langchain-mcp-adapters", marker = "extra == 'agent'", specifier = ">=0.3" },
     { name = "langchain-openai", marker = "extra == 'agent'", specifier = ">=1.7" },
     { name = "langgraph", marker = "extra == 'agent'", specifier = ">=1.2" },
     { name = "langgraph-checkpoint-sqlite", marker = "extra == 'agent'", specifier = ">=3.1" },
@@ -1191,20 +1191,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/12/c2/9779d64322d4e270f6d5392bc86b30f735581a87b5eefd6ad15a0828a169/langchain_core-1.6.12.tar.gz", hash = "sha256:dc6b2a965c351b4cc94df1c80220bcf3c5472e14437d2186c8290ea22f4d0219", size = 1015639, upload-time = "2026-10-16T19:28:31.055Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c6/7b/49de1d4d6b9ff62e7c40a6fceb6aeecd8c190ac5f49dd7a99948c6650c16/langchain_core-1.6.12-py3-none-any.whl", hash = "sha256:39b07aed976baac14c47b7a21e3c7d4073362bccf06cf8799c585dcc9548547d", size = 573838, upload-time = "2026-10-16T19:28:29.466Z" },
-]
-
-[[package]]
-name = "langchain-mcp-adapters"
-version = "0.3.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "langchain-core" },
-    { name = "mcp" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/5d/1f43b6a14cf448ea47bceb2860e9a6e3b0a911de0719aba43ed3eb927195/langchain_mcp_adapters-0.3.1.tar.gz", hash = "sha256:e08d4a74a0934d558ddb807ecbb8f89466c93a0d06c1fb58974b93b4703de01c", size = 47140, upload-time = "2026-07-27T18:36:45.792Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/8d/934946caf18559158678099ac00e6eed67d78e68c4e73c7afd01e19d31ec/langchain_mcp_adapters-0.3.1-py3-none-any.whl", hash = "sha256:1e354d9466db9fab9e30f24419adffbd39a84229e7f452927f99ea799e1937f9", size = 28877, upload-time = "2026-07-27T18:36:44.762Z" },
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 """Harness 2. Tools — MCP Client로 도구를 가져오고, 결과 길이를 제한하고, 오류는 ToolMessage로 돌려준다.
 
 두 모드:
-- MCP 모드 (MCP_WORK_URL 설정): langchain-mcp-adapters로 업무 MCP·문서 검색 MCP의 tools/list를 받는다.
+- MCP 모드 (MCP_WORK_URL 설정): FastMCP Client로 업무 MCP·문서 검색 MCP의 tools/list를 받아 LangChain 도구로 감싼다.
   요청자 토큰을 헤더로 넘기므로 역할별로 보이는 도구가 다르다.
 - 로컬 모드 (기본): schemas.mcp_tools.TOOLS 정의 그대로 백엔드 REST를 직접 부른다.
   MCP 서버가 준비되기 전 개발·시연용이며, 도구 이름·입출력은 MCP 모드와 같다.
@@ -137,26 +137,70 @@ def _local_tool(spec: ToolSpec, token: str) -> BaseTool:
 
 
 # ---------- MCP 모드 ----------
-_MCP_CACHE: dict[str, list[BaseTool]] = {}
+import time as _time
+
+_MCP_CACHE: dict[str, tuple[float, list[BaseTool]]] = {}
+MCP_CLIENT_FACTORY = None  # 테스트에서 인메모리 FastMCP 서버로 바꾼다: (server_key, token) -> fastmcp.Client
+
+
+def _mcp_client(server_key: str, url: str, token: str):
+    if MCP_CLIENT_FACTORY is not None:
+        return MCP_CLIENT_FACTORY(server_key, token)
+    from fastmcp import Client
+    from fastmcp.client.transports import StreamableHttpTransport
+
+    return Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {token}"}), timeout=60)
+
+
+def _mcp_result(result) -> object:
+    """CallToolResult → 도구 결과. 오류도 raise 하지 않고 {"error": ...} 데이터로 돌려준다."""
+    if result.structured_content:
+        sc = result.structured_content
+        return sc.get("result", sc) if isinstance(sc, dict) and set(sc) == {"result"} else sc
+    text = "\n".join(getattr(b, "text", "") for b in result.content if getattr(b, "text", None))
+    if result.is_error:
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) and "error" in parsed else {"error": {"code": "tool_error", "message": text[:500]}}
+        except Exception:  # noqa: BLE001
+            return {"error": {"code": "tool_error", "message": text[:500]}}
+    return text
+
+
+def _mcp_tool(server_key: str, url: str, token: str, spec) -> BaseTool:
+    name, description, schema = spec.name, spec.description or "", spec.input_schema or {"type": "object", "properties": {}}
+
+    async def run(**kwargs):
+        async with _mcp_client(server_key, url, token) as client:
+            result = await client.call_tool(name, kwargs, raise_on_error=False)
+        return _mcp_result(result)
+
+    return StructuredTool.from_function(coroutine=run, name=name, description=description, args_schema=schema)
 
 
 async def _mcp_tools(token: str) -> list[BaseTool]:
-    from langchain_mcp_adapters.client import MultiServerMCPClient
-
-    if token in _MCP_CACHE:
-        return _MCP_CACHE[token]
-    headers = {"Authorization": f"Bearer {token}"}
-    conns = {"work": {"url": MCP_WORK_URL, "transport": "streamable_http", "headers": headers}}
-    if MCP_DOCS_URL:
-        conns["docs"] = {"url": MCP_DOCS_URL, "transport": "streamable_http", "headers": headers}
-    client = MultiServerMCPClient(conns)
-    tools = await client.get_tools()
-    _MCP_CACHE[token] = tools
+    hit = _MCP_CACHE.get(token)
+    if hit and _time.time() - hit[0] < 60:
+        return hit[1]
+    servers = {"work": MCP_WORK_URL}
+    if MCP_DOCS_URL or MCP_CLIENT_FACTORY:
+        servers["docs"] = MCP_DOCS_URL
+    tools: list[BaseTool] = []
+    for key, url in servers.items():
+        try:
+            async with _mcp_client(key, url, token) as client:
+                specs = await client.list_tools()  # 서버가 역할에 맞는 도구만 내려준다
+        except Exception as exc:  # noqa: BLE001
+            if key == "docs":
+                continue  # 문서 MCP는 선택
+            raise RuntimeError(f"업무 MCP({url})에 연결하지 못했습니다: {exc}") from exc
+        tools += [_mcp_tool(key, url, token, t) for t in specs]
+    _MCP_CACHE[token] = (_time.time(), tools)
     return tools
 
 
 async def load_tools(token: str, role: Role) -> list[BaseTool]:
-    if MCP_WORK_URL:
+    if MCP_WORK_URL or MCP_CLIENT_FACTORY is not None:
         return await _mcp_tools(token)
     return [_local_tool(spec, token) for spec in tools_for_role(role)]
 
