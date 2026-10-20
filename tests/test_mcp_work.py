@@ -214,7 +214,9 @@ async def test_resources_and_prompts_match_spec(monkeypatch):
         rendered = await c.get_prompt("investigate_anomaly", {"anomaly_id": "anm_001"})
     assert uris == set(RESOURCES)
     assert prompts == PROMPTS
-    assert "제6조 이용권 회수" in policy and '"unassigned": 2' in contract and "purchase_review | high" in matrix
+    assert "제5조 이용권 회수" in policy and "제8조 개인정보" in policy and '"unassigned": 2' in contract
+    assert "| 테스트 환경 모델 변경 (model_change) | 중간 | 자산관리 + 프로젝트 오너 | 승인 후 실행 |" in matrix
+    assert "본인 확인 응답 필수" in matrix and "(purchase_review) | 높음" in matrix
     text = rendered.messages[0].content.text
     assert "anm_001" in text and "execute_approved_plan을 부르지 않는다" in text
 
@@ -234,3 +236,18 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
         result = await c.call_tool("create_action_plan", {"type": "model_change", "items": [{"project_id": "prj_faq"}],
                                                           "rationale": "x", "evidence": []}, raise_on_error=False)
     assert error_of(result)["code"] == "invalid"
+
+
+@pytest.mark.parametrize("name, args, principle", [
+    ("draft_role_guide", {"job_title": "교육기획"}, "개인 이름이나 개인 지표는 쓰지 않는다"),
+    ("investigate_anomaly", {"anomaly_id": "anm_001"}, "원인을 단정하지 말고"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
+    ("compare_candidates", {"capability_tag": "contract_compare"}, "문서에 없는 성능·가격은 쓰지 않는다"),
+    ("review_update", {"update_id": "upd_ai_a_doc_compare"}, "제안하지 말고 이유만 답한다"),
+    ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
+])
+async def test_prompts_carry_design_principles(monkeypatch, name, args, principle):
+    """설계 문서 7절 Prompt 표의 '담긴 판단 원칙'이 템플릿에 들어 있다."""
+    async with connect(mcp, monkeypatch, "asset") as c:
+        rendered = await c.get_prompt(name, args)
+    assert principle in rendered.messages[0].content.text

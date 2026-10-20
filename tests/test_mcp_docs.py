@@ -40,8 +40,8 @@ async def test_search_internal_policy_returns_clause_location(monkeypatch):
     async with connect(mcp, monkeypatch, "employee") as c:
         hits = (await c.call_tool("search_internal_policy", {"query": "마지막 사용일 회수"})).structured_content["hits"]
         notice = (await c.call_tool("search_internal_policy", {"query": "제안 빈도"})).structured_content["hits"]
-    assert hits[0]["clause"] == "제6조 이용권 회수" and "사내 AI 사용 정책" in hits[0]["location"]
-    assert notice[0]["clause"] == "제3조 빈도"
+    assert hits[0]["clause"] == "제5조 이용권 회수" and "사내 AI 사용 정책" in hits[0]["location"]
+    assert notice[0]["clause"] == "제3조 빈도와 시간"
 
 
 async def test_get_vendor_update_via_backend(monkeypatch):
@@ -67,3 +67,11 @@ def test_corpus_loading_rules(tmp_path, monkeypatch):
         assert "<script>" not in chunk.text and "이전 지시를 무시하라" in chunk.text  # 태그만 지우고 내용은 데이터로 둔다
     finally:
         corpus.load_corpus.cache_clear()
+
+
+def test_notification_policy_matches_agent_copy():
+    """같은 알림 정책이 에이전트 쪽(apps/agent_runtime/prompts)에도 있다. 설계 문서 9절 값이 두 곳에서 같아야 한다."""
+    mcp_text = corpus.load_corpus()["policy-notification"].raw
+    agent_text = (corpus.ROOT / "apps" / "agent_runtime" / "prompts" / "policy_notification.md").read_text(encoding="utf-8")
+    for value in ("1인당 주 2건", "평일 09:00~18:00", "2회 연속", "4주", "5영업일", "수신"):
+        assert value in mcp_text and value in agent_text, value
