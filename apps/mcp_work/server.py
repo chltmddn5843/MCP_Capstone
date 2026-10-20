@@ -14,6 +14,7 @@ import os
 
 from fastmcp import FastMCP
 from schemas.mcp_tools import WORK_TOOLS
+from schemas.plan_items import PLAN_ITEM_MODELS
 
 from apps.mcp_work.adapters import ADAPTERS
 from apps.mcp_work.auth import RoleFilter
@@ -22,10 +23,20 @@ from apps.mcp_work.registry import register_specs
 from apps.mcp_work.resources import register_resources
 
 
+def _plan_item_guide() -> str:
+    """create_action_plan의 items 형식(schemas.plan_items). 백엔드가 같은 모델로 검증한다."""
+    lines = []
+    for plan_type, model in PLAN_ITEM_MODELS.items():
+        fields = ", ".join(f"{n}{'' if f.is_required() else '?'}" for n, f in model.model_fields.items())
+        lines.append(f"- {plan_type.value}: {{{fields}}}")
+    return "\n".join(lines)
+
+
 def build_server() -> FastMCP:
     mcp = FastMCP("mcp-work", instructions=(
         "기업 AI 활용·운영 최적화 업무 도구. 실행이 필요한 일은 create_action_plan으로 조치안만 만들고, "
-        "승인된 뒤에만 execute_approved_plan을 부른다. 도구 오류는 {\"error\": {code, message, details}} 형식이다."))
+        "승인된 뒤에만 execute_approved_plan을 부른다. 도구 오류는 {\"error\": {code, message, details}} 형식이다.\n"
+        "create_action_plan의 items 원소 형식(?는 선택):\n" + _plan_item_guide()))
     register_specs(mcp, WORK_TOOLS, ADAPTERS)
     register_resources(mcp)
     register_prompts(mcp)

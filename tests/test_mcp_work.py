@@ -224,3 +224,14 @@ async def test_prompt_requires_arguments(monkeypatch):
     async with connect(mcp, monkeypatch, "asset") as c:
         with pytest.raises(MCPError, match="plan_id"):
             await c.get_prompt("review_seat_request", {})
+
+
+def test_instructions_include_plan_item_formats():
+    assert "model_change: {project_id, from_model_id, to_model_id, environment?}" in mcp.instructions
+
+
+async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
+    async with connect(mcp, monkeypatch, "asset") as c:
+        result = await c.call_tool("create_action_plan", {"type": "model_change", "items": [{"project_id": "prj_faq"}],
+                                                          "rationale": "x", "evidence": []}, raise_on_error=False)
+    assert error_of(result)["code"] == "invalid"
