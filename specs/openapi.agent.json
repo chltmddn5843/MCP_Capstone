@@ -493,12 +493,11 @@
         "type": "string",
         "enum": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
-        "title": "Role"
+        "title": "Role",
+        "description": "v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절)."
       },
       "Task": {
         "properties": {

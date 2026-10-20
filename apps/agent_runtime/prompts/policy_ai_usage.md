@@ -1,8 +1,8 @@
 사내 AI 사용 정책 (요약)
 
-제1조 허용 도구. 승인 도구 카탈로그에 approved로 등록된 도구만 업무에 쓴다. 검토 중(under_review) 도구는 개인 테스트만 허용하고 사내 데이터를 넣지 않는다.
+제1조 허용 도구. 승인 제품 카탈로그에 approved로 등록된 도구만 업무에 쓴다. 검토 중(under_review) 도구는 개인 테스트만 허용하고 사내 데이터를 넣지 않는다.
 
-제2조 데이터 등급. 공개(public) 자료는 모든 승인 도구에, 내부(internal) 자료는 allowed_data_class가 internal 이상인 도구에만 넣는다. 고객 개인정보와 기밀(confidential) 자료는 어떤 외부 AI에도 넣지 않는다.
+제2조 데이터 등급. 공개(public) 자료는 모든 승인 제품에, 내부(internal) 자료는 allowed_data_class가 internal 이상인 도구에만 넣는다. 고객 개인정보와 기밀(confidential) 자료는 어떤 외부 AI에도 넣지 않는다.
 
 제3조 결과 책임. AI가 만든 결과물은 담당자가 확인한 뒤 사용한다. 외부 발송 문서는 반드시 사람이 검토한다.
 

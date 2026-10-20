@@ -19,14 +19,16 @@ def login(employee_id: str) -> dict:
     return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}
 
 
-HRD, EMP, ASSET, APPROVER, SYS = (login(i) for i in ["emp_hrd_01", "emp_mkt_01", "emp_asset_01", "emp_approver_01", "sys"])
+EMP, ASSET, SYS = (login(i) for i in ["emp_mkt_01", "emp_asset_01", "sys"])
+HRD = login("emp_hrd_01")  # v2: HRD 담당도 일반 직원 역할
+APPROVER = ASSET  # v2: 책임자 결정도 관리자
 
 
 def test_envelope_success_and_error():
     assert set(client.get("/me", headers=EMP).json()) == {"data", "meta"}
     r = client.get("/me")
     assert r.status_code == 401 and r.json()["error"]["code"] == "unauthorized"
-    r = client.get("/inventory", headers=HRD)
+    r = client.get("/inventory", headers=EMP)
     assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
 
 
@@ -38,8 +40,8 @@ def test_routes_table_matches_app():
 
 
 def test_hrd_sees_team_only_candidates():
-    data = client.get("/updates/upd_ai_a_doc_compare/relevant-tasks", headers=HRD).json()["data"]
-    assert all(c["employee_id"] is None for c in data["candidates"])
+    data = client.get("/updates/upd_ai_a_doc_compare/relevant-tasks", headers=ASSET).json()["data"]
+    assert all(c["employee_id"] is None for c in data["candidates"])  # 관리자는 팀 단위만
     data = client.get("/updates/upd_ai_a_doc_compare/relevant-tasks", headers=SYS).json()["data"]
     assert all(c["employee_id"] for c in data["candidates"])
 
@@ -90,8 +92,8 @@ def test_high_risk_only_approver_and_never_executed():
     plan = client.post("/plans", json={"type": "purchase_review", "items": [{"tool_id": "tool_cand_x"}], "rationale": "수요 3건", "evidence": []}, headers=ASSET).json()["data"]
     pid = plan["id"]
     assert plan["risk_level"] == "high"
-    assert client.post(f"/plans/{pid}/approve", json={"reason": "ok"}, headers=ASSET).status_code == 403
-    assert client.post(f"/plans/{pid}/approve", json={"reason": "ok"}, headers=APPROVER).status_code == 200
+    assert client.post(f"/plans/{pid}/approve", json={"reason": "ok"}, headers=EMP).status_code == 403
+    assert client.post(f"/plans/{pid}/approve", json={"reason": "ok"}, headers=ASSET).status_code == 200  # v2: 관리자가 책임자 결정
     assert client.post(f"/plans/{pid}/execute", headers={**ASSET, "Idempotency-Key": "k2"}).status_code == 403
 
 
@@ -105,7 +107,7 @@ def test_mcp_registry_roles_and_schemas():
     names = [t.name for t in TOOLS]
     assert len(names) == len(set(names)) == 23
     assert "execute_approved_plan" not in {t.name for t in tools_for_role(Role.employee)}
-    assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.asset)}
+    assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.admin)}
     for t in TOOLS:
         t.input_model.model_json_schema()
         t.output_model.model_json_schema()
@@ -113,7 +115,7 @@ def test_mcp_registry_roles_and_schemas():
 
 @pytest.mark.parametrize("method,path", [(m, p) for m, p, _, _ in ROUTES if "{" not in p and m == "GET" and p not in ("/usage", "/eval-results")])
 def test_every_simple_get_responds_in_envelope(method, path):
-    r = client.get(path, headers=SYS if path not in ("/adoption/teams", "/me/tasks", "/savings", "/audit-log", "/unmet-needs") else {**HRD, **({} if path in ("/adoption/teams", "/unmet-needs") else ASSET)})
+    r = client.get(path, headers=SYS if path not in ("/adoption/teams", "/me/tasks", "/savings", "/audit-log", "/unmet-needs") else ASSET)
     assert r.status_code in (200, 403), (path, r.text)
     assert ("data" in r.json()) or ("error" in r.json())
 
@@ -131,7 +133,7 @@ def test_confirmation_create_and_answer():
     assert r.status_code == 201, r.text
     c = r.json()["data"]
     assert c["id"].startswith("cfm_") and c["due_at"] and c["answer"] is None and c["answered_at"] is None
-    assert client.post("/confirmations", json={"employee_id": "emp_sales_02", "plan_id": "plan_002", "question": "?"}, headers=HRD).status_code == 403
+    assert client.post("/confirmations", json={"employee_id": "emp_sales_02", "plan_id": "plan_002", "question": "?"}, headers=EMP).status_code == 403
     assert client.post("/confirmations", json={"employee_id": "nobody", "plan_id": "plan_002", "question": "?"}, headers=ASSET).status_code == 404
 
 

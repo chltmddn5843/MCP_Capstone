@@ -81,7 +81,7 @@ from schemas.rest import (
     UsageResponse,
 )
 
-ALL = (Role.employee, Role.hrd, Role.asset, Role.approver, Role.system)
+ALL = (Role.employee, Role.admin, Role.system)
 ERR = {401: {"model": ErrorEnvelope}, 403: {"model": ErrorEnvelope}, 404: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope}, 422: {"model": ErrorEnvelope}}
 
 app = FastAPI(title="AI 활용·운영 최적화 에이전트 — Backend API", version="0.1.0", responses=ERR)
@@ -163,7 +163,7 @@ def get_update(update_id: str, user: Employee = Depends(current_user)):
 
 
 @app.get("/updates/{update_id}/relevant-tasks", response_model=Envelope[RelevantTasksResponse], tags=["F1"])
-def relevant_tasks(update_id: str, job_filter: list[str] | None = Query(None), user: Employee = Depends(require(Role.system, Role.hrd))):
+def relevant_tasks(update_id: str, job_filter: list[str] | None = Query(None), user: Employee = Depends(require(Role.system, Role.admin))):
     upd = fx.UPDATES.get(update_id)
     if not upd:
         raise ApiError(ErrorCode.not_found, "업데이트 없음")
@@ -172,20 +172,20 @@ def relevant_tasks(update_id: str, job_filter: list[str] | None = Query(None), u
         emp = fx.EMPLOYEES[t.employee_id]
         cands.append(RelevantTaskCandidate(
             task_id=t.id, job_title=emp.job_title, team_id=emp.dept_id,
-            employee_id=emp.id if user.role == Role.system else None,  # HRD는 팀 단위만
+            employee_id=emp.id if user.role == Role.system else None,  # 관리자는 팀 단위만
             summary=f"{t.title}: {t.description}",
         ))
     return ok(RelevantTasksResponse(update=upd, candidates=cands))
 
 
 @app.get("/suggestions", response_model=Envelope[Page[Suggestion]], tags=["F1"])
-def list_suggestions(status: SuggestionStatus | None = None, update_id: str | None = None, user: Employee = Depends(require(Role.system, Role.hrd))):
+def list_suggestions(status: SuggestionStatus | None = None, update_id: str | None = None, user: Employee = Depends(require(Role.system, Role.admin))):
     items = [s for s in fx.SUGGESTIONS.values() if (not status or s.status == status) and (not update_id or s.update_id == update_id)]
     return ok(Page(items=items, total=len(items)))
 
 
 @app.post("/suggestions", response_model=Envelope[Suggestion], status_code=201, tags=["F1"])
-def create_suggestion(body: SuggestionCreate, user: Employee = Depends(require(Role.system, Role.hrd))):
+def create_suggestion(body: SuggestionCreate, user: Employee = Depends(require(Role.system, Role.admin))):
     if body.status == SuggestionStatus.on_hold:
         if not (body.hold_reason or "").strip():
             raise ApiError(ErrorCode.invalid, "보류(on_hold)에는 hold_reason이 필요합니다")
@@ -201,27 +201,15 @@ def create_suggestion(body: SuggestionCreate, user: Employee = Depends(require(R
     return ok(s)
 
 
-@app.post("/suggestions/{suggestion_id}/approve", response_model=Envelope[Suggestion], tags=["F1"])
-def approve_suggestion(suggestion_id: str, user: Employee = Depends(require(Role.hrd))):
-    s = fx.SUGGESTIONS.get(suggestion_id)
-    if not s:
-        raise ApiError(ErrorCode.not_found, "제안 없음")
-    if s.status != SuggestionStatus.pending_approval:
-        raise ApiError(ErrorCode.conflict, f"승인 대기 상태가 아님: {s.status.value}")
-    s = s.model_copy(update={"status": SuggestionStatus.sent, "sent_at": _now()})
-    fx.SUGGESTIONS[suggestion_id] = s
-    return ok(s)
-
-
 @app.post("/suggestions/{suggestion_id}/feedback", response_model=Envelope[dict], status_code=201, tags=["F1"])
-def feedback(suggestion_id: str, body: FeedbackCreate, user: Employee = Depends(require(Role.employee, Role.hrd, Role.asset, Role.approver))):
+def feedback(suggestion_id: str, body: FeedbackCreate, user: Employee = Depends(require(Role.employee, Role.admin))):
     if suggestion_id not in fx.SUGGESTIONS:
         raise ApiError(ErrorCode.not_found, "제안 없음")
     return ok({"feedback_id": _new_id("fb"), "suggestion_id": suggestion_id, "reaction": body.reaction.value})
 
 
 @app.get("/adoption/teams", response_model=Envelope[list[TeamAdoption]], tags=["F1"])
-def adoption(team_id: str | None = None, user: Employee = Depends(require(Role.hrd))):
+def adoption(team_id: str | None = None, user: Employee = Depends(require(Role.admin))):
     rows = [
         TeamAdoption(team_id="dept_mkt", team_name="마케팅", headcount=24, suggestions_sent=18, useful=11, irrelevant=4, questions=3, active_ratio=0.71, top_questions=["이미지 생성 결과를 브랜드 가이드에 맞추는 법"]),
         TeamAdoption(team_id="dept_cs", team_name="고객지원", headcount=31, suggestions_sent=22, useful=9, irrelevant=10, questions=3, active_ratio=0.45),
@@ -231,7 +219,7 @@ def adoption(team_id: str | None = None, user: Employee = Depends(require(Role.h
 
 # ---------- F2 ----------
 @app.get("/eval-results", response_model=Envelope[list[EvalResult]], tags=["F2"])
-def eval_results(task_type: str, model_ids: list[str] | None = Query(None), user: Employee = Depends(require(Role.employee, Role.asset, Role.system))):
+def eval_results(task_type: str, model_ids: list[str] | None = Query(None), user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
     rows = [r for r in fx.EVAL_RESULTS if r.task_type == task_type and (not model_ids or r.model_id in model_ids)]
     return ok(rows)
 
@@ -250,7 +238,7 @@ def estimate(body: TaskCostEstimateRequest, user: Employee = Depends(current_use
 
 # ---------- F5 ----------
 @app.get("/unmet-needs", response_model=Envelope[list[UnmetNeedAggregate]], tags=["F5"])
-def list_unmet(min_count: int = 1, capability_tag: str | None = None, user: Employee = Depends(require(Role.hrd, Role.asset, Role.approver))):
+def list_unmet(min_count: int = 1, capability_tag: str | None = None, user: Employee = Depends(require(Role.admin))):
     tags: dict[str, list] = {}
     for n in fx.UNMET_NEEDS:
         tags.setdefault(n.capability_tag, []).append(n)
@@ -264,7 +252,7 @@ def list_unmet(min_count: int = 1, capability_tag: str | None = None, user: Empl
 
 
 @app.post("/unmet-needs", response_model=Envelope[UnmetNeedCreateResponse], status_code=201, tags=["F5"])
-def record_unmet(body: UnmetNeedCreate, user: Employee = Depends(require(Role.employee, Role.hrd, Role.asset))):
+def record_unmet(body: UnmetNeedCreate, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
     from schemas.entities import UnmetNeed
     need = UnmetNeed(id=_new_id("need"), employee_id=user.id, dept_id=user.dept_id, created_at=_now(), **body.model_dump())
     fx.UNMET_NEEDS.append(need)
@@ -275,7 +263,7 @@ def record_unmet(body: UnmetNeedCreate, user: Employee = Depends(require(Role.em
 
 # ---------- F4 ----------
 @app.get("/inventory", response_model=Envelope[list[ContractInventory]], tags=["F4"])
-def inventory(contract_id: str | None = None, user: Employee = Depends(require(Role.asset, Role.approver, Role.system))):
+def inventory(contract_id: str | None = None, user: Employee = Depends(require(Role.admin, Role.system))):
     c = fx.CONTRACTS["ctr_ai_a_2026"]
     inv = ContractInventory(contract=c, tool_name="AI-A Enterprise Chat", purchased=60, assigned=58, unassigned=2, low_usage_candidates=[
         LowUsageCandidate(employee_id="emp_sales_02", employee_name="한도윤", dept_name="영업", last_activity_at=fx.NOW - timedelta(days=75), flag=LicenseFlag.on_leave, needs_confirmation=True),
@@ -298,7 +286,7 @@ def _series(days: int, base_usd: float, spike_last: int = 0, factor: float = 1.0
 
 
 @app.get("/usage", response_model=Envelope[UsageResponse], tags=["F3"])
-def usage(scope: UsageScope, scope_id: str, start: datetime, end: datetime, granularity: Granularity = Granularity.day, group_by: BreakdownBy | None = None, user: Employee = Depends(require(Role.employee, Role.asset, Role.system))):
+def usage(scope: UsageScope, scope_id: str, start: datetime, end: datetime, granularity: Granularity = Granularity.day, group_by: BreakdownBy | None = None, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
     if user.role == Role.employee and not (scope == UsageScope.employee and scope_id == user.id):
         raise ApiError(ErrorCode.forbidden, "직원은 본인 사용량만 조회할 수 있습니다")
     spike = scope_id == "prj_quote_summary"
@@ -318,12 +306,12 @@ def usage(scope: UsageScope, scope_id: str, start: datetime, end: datetime, gran
 
 
 @app.get("/anomalies", response_model=Envelope[list[Anomaly]], tags=["F3"])
-def anomalies(status: str | None = None, user: Employee = Depends(require(Role.asset, Role.system))):
+def anomalies(status: str | None = None, user: Employee = Depends(require(Role.admin, Role.system))):
     return ok([a for a in fx.ANOMALIES.values() if not status or a.status.value == status])
 
 
 @app.get("/anomalies/{anomaly_id}", response_model=Envelope[AnomalyDetail], tags=["F3"])
-def anomaly_detail(anomaly_id: str, user: Employee = Depends(require(Role.asset, Role.system))):
+def anomaly_detail(anomaly_id: str, user: Employee = Depends(require(Role.admin, Role.system))):
     a = fx.ANOMALIES.get(anomaly_id)
     if not a:
         raise ApiError(ErrorCode.not_found, "경보 없음")
@@ -344,8 +332,8 @@ def list_plans(status: PlanStatus | None = None, type: PlanType | None = None, u
 
 
 @app.post("/plans", response_model=Envelope[ActionPlan], status_code=201, tags=["plans"])
-def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee, Role.hrd, Role.asset, Role.system))):
-    allowed = {Role.employee: {PlanType.seat_assign, PlanType.model_change}, Role.hrd: {PlanType.notice_send}}
+def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
+    allowed = {Role.employee: {PlanType.seat_assign, PlanType.model_change}}
     if user.role in allowed and body.type not in allowed[user.role]:
         raise ApiError(ErrorCode.forbidden, f"{user.role.value} 역할은 {body.type.value} 조치안을 만들 수 없습니다")
     if user.role == Role.employee and body.type == PlanType.seat_assign and any(i.get("employee_id") != user.id for i in body.items):
@@ -387,10 +375,6 @@ def _decide(plan_id: str, body: PlanDecision, user: Employee, approve: bool) -> 
         raise ApiError(ErrorCode.not_found, "조치안 없음")
     if p.status != PlanStatus.pending_approval:
         raise ApiError(ErrorCode.conflict, f"승인 대기 상태가 아님: {p.status.value}")
-    if p.risk_level == RiskLevel.high and user.role != Role.approver:
-        raise ApiError(ErrorCode.forbidden, "높은 위험도는 승인자(IT·보안 책임자)만 결정할 수 있습니다")
-    if p.type == PlanType.notice_send and user.role not in (Role.hrd, Role.approver):
-        raise ApiError(ErrorCode.forbidden, "공지 발송은 HRD가 승인합니다")
     update = {"approver_id": user.id, "approved_at": _now(), "status": PlanStatus.approved} if approve else {"approver_id": user.id, "status": PlanStatus.rejected, "reject_reason": body.reason}
     p = p.model_copy(update=update)
     fx.PLANS[plan_id] = p
@@ -398,12 +382,12 @@ def _decide(plan_id: str, body: PlanDecision, user: Employee, approve: bool) -> 
 
 
 @app.post("/plans/{plan_id}/approve", response_model=Envelope[ActionPlan], tags=["plans"])
-def approve_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(require(Role.hrd, Role.asset, Role.approver))):
+def approve_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(require(Role.admin))):
     return ok(_decide(plan_id, body, user, approve=True))
 
 
 @app.post("/plans/{plan_id}/reject", response_model=Envelope[ActionPlan], tags=["plans"])
-def reject_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(require(Role.hrd, Role.asset, Role.approver))):
+def reject_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(require(Role.admin))):
     return ok(_decide(plan_id, body, user, approve=False))
 
 
@@ -427,7 +411,7 @@ def _execute(p: ActionPlan, idempotency_key: str) -> PlanExecuteResponse:
 
 
 @app.post("/plans/{plan_id}/execute", response_model=Envelope[PlanExecuteResponse], tags=["plans"])
-def execute_plan(plan_id: str, idempotency_key: str = Header(alias="Idempotency-Key"), user: Employee = Depends(require(Role.asset, Role.system))):
+def execute_plan(plan_id: str, idempotency_key: str = Header(alias="Idempotency-Key"), user: Employee = Depends(require(Role.admin, Role.system))):
     p = fx.PLANS.get(plan_id)
     if not p:
         raise ApiError(ErrorCode.not_found, "조치안 없음")
@@ -444,7 +428,7 @@ def _add_business_days(start: datetime, days: int) -> datetime:
 
 
 @app.post("/confirmations", response_model=Envelope[Confirmation], status_code=201, tags=["F4"])
-def create_confirmation(body: ConfirmationCreate, user: Employee = Depends(require(Role.asset, Role.system))):
+def create_confirmation(body: ConfirmationCreate, user: Employee = Depends(require(Role.admin, Role.system))):
     if body.employee_id not in fx.EMPLOYEES:
         raise ApiError(ErrorCode.not_found, "직원 없음")
     if body.plan_id not in fx.PLANS:
@@ -468,7 +452,7 @@ def answer_confirmation(confirmation_id: str, body: ConfirmationAnswerRequest, u
 
 # ---------- savings / audit / jobs ----------
 @app.get("/savings", response_model=Envelope[SavingsSummary], tags=["F4"])
-def savings(user: Employee = Depends(require(Role.asset, Role.approver))):
+def savings(user: Employee = Depends(require(Role.admin))):
     by: dict = {}
     for s in fx.SAVINGS:
         by[s.kind] = by.get(s.kind, 0) + s.amount_krw
@@ -476,7 +460,7 @@ def savings(user: Employee = Depends(require(Role.asset, Role.approver))):
 
 
 @app.get("/audit-log", response_model=Envelope[Page[AuditEntry]], tags=["audit"])
-def audit_log(limit: int = 50, offset: int = 0, user: Employee = Depends(require(Role.asset, Role.approver))):
+def audit_log(limit: int = 50, offset: int = 0, user: Employee = Depends(require(Role.admin))):
     return ok(Page(items=fx.AUDIT[offset : offset + limit], total=len(fx.AUDIT), limit=limit, offset=offset))
 
 
@@ -484,7 +468,7 @@ JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "aggregate
 
 
 @app.post("/internal/jobs/{job_name}/run", response_model=Envelope[JobRunResponse], tags=["internal"])
-def run_job(job_name: str, user: Employee = Depends(require(Role.system, Role.asset))):
+def run_job(job_name: str, user: Employee = Depends(require(Role.system, Role.admin))):
     if job_name not in JOBS:
         raise ApiError(ErrorCode.not_found, f"배치 없음. 가능: {sorted(JOBS)}")
     t = _now()

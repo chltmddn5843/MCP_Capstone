@@ -25,11 +25,10 @@ DEPARTMENTS = {d.id: d for d in [
 ]}
 
 EMPLOYEES = {e.id: e for e in [
-    Employee(id="emp_hrd_01", name="김하나", email="hana.kim@hanbit.example", dept_id="dept_hrd", dept_name="HRD", role=Role.hrd, job_title="교육기획", slack_user_id="U_HRD01"),
+    Employee(id="emp_hrd_01", name="김하나", email="hana.kim@hanbit.example", dept_id="dept_hrd", dept_name="HRD", role=Role.employee, job_title="교육기획", slack_user_id="U_HRD01"),
     Employee(id="emp_mkt_01", name="박서준", email="seojun.park@hanbit.example", dept_id="dept_mkt", dept_name="마케팅", role=Role.employee, job_title="콘텐츠 마케터", slack_user_id="U_MKT01"),
     Employee(id="emp_cs_01", name="이지우", email="jiwoo.lee@hanbit.example", dept_id="dept_cs", dept_name="고객지원", role=Role.employee, job_title="CS 운영", slack_user_id="U_CS01"),
-    Employee(id="emp_asset_01", name="최민준", email="minjun.choi@hanbit.example", dept_id="dept_mgmt", dept_name="경영지원", role=Role.asset, job_title="IT 자산관리", slack_user_id="U_AST01"),
-    Employee(id="emp_approver_01", name="정수아", email="sua.jung@hanbit.example", dept_id="dept_mgmt", dept_name="경영지원", role=Role.approver, job_title="IT·보안 책임자", slack_user_id="U_APR01"),
+    Employee(id="emp_asset_01", name="최민준", email="minjun.choi@hanbit.example", dept_id="dept_mgmt", dept_name="경영지원", role=Role.admin, job_title="IT 자산·보안 관리자", slack_user_id="U_ADM01"),
     Employee(id="emp_sales_02", name="한도윤", email="doyun.han@hanbit.example", dept_id="dept_sales", dept_name="영업", role=Role.employee, job_title="영업 담당", status=EmployeeStatus.on_leave),
     Employee(id="sys", name="system", email="system@hanbit.example", dept_id="dept_mgmt", role=Role.system, job_title="batch"),
 ]}
@@ -104,6 +103,6 @@ UNMET_NEEDS = [
 
 SAVINGS = [SavingsEntry(id="sav_001", plan_id="plan_001", kind=SavingsKind.purchase_avoided, amount_krw=45000 * 2, basis="재배정 1석 × 월 45,000원 × 남은 2개월")]
 
-AUDIT = [AuditEntry(id="aud_001", actor_id="emp_asset_01", actor_role=Role.asset, action="plan.approve", target="plan_001", before={"status": "pending_approval"}, after={"status": "approved"}, created_at=NOW - timedelta(minutes=20))]
+AUDIT = [AuditEntry(id="aud_001", actor_id="emp_asset_01", actor_role=Role.admin, action="plan.approve", target="plan_001", before={"status": "pending_approval"}, after={"status": "approved"}, created_at=NOW - timedelta(minutes=20))]
 
 EXECUTIONS: dict[str, dict] = {}  # idempotency_key -> 첫 실행 결과

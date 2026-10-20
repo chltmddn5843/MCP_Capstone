@@ -14,10 +14,10 @@ class StrEnum(str, Enum):
 
 # ---------- 역할·권한 (3절) ----------
 class Role(StrEnum):
+    """v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절)."""
+
     employee = "employee"
-    hrd = "hrd"
-    asset = "asset"
-    approver = "approver"
+    admin = "admin"
     system = "system"
 
 
@@ -173,7 +173,6 @@ class PlanType(StrEnum):
     seat_assign = "seat_assign"
     seat_reclaim = "seat_reclaim"
     model_change = "model_change"
-    notice_send = "notice_send"
     budget_review = "budget_review"
     purchase_review = "purchase_review"
 
@@ -196,7 +195,6 @@ class RiskLevel(StrEnum):
 # 11절 승인 기준. 백엔드가 create_action_plan 시 risk_level을 자동 산정할 때 쓴다.
 RISK_BY_PLAN_TYPE: dict[PlanType, RiskLevel] = {
     PlanType.seat_assign: RiskLevel.low,
-    PlanType.notice_send: RiskLevel.medium,
     PlanType.seat_reclaim: RiskLevel.medium,
     PlanType.model_change: RiskLevel.medium,  # prod 환경이면 high (items.environment 기준)
     PlanType.budget_review: RiskLevel.medium,

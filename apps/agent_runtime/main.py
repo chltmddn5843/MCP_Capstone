@@ -75,7 +75,7 @@ async def create_task(body: TaskCreate, user: Employee = Depends(current_user), 
 
 @app.get("/ai/tasks", response_model=Envelope[list[Task]])
 async def list_tasks(mine: bool = True, limit: int = 50, user: Employee = Depends(current_user)):
-    if not mine and user.role not in (Role.asset, Role.approver, Role.hrd):
+    if not mine and user.role not in (Role.admin, Role.system):
         raise ApiError(ErrorCode.forbidden, "다른 사람의 작업 이력은 관리자만 볼 수 있습니다")
     return ok(runner().store.list(user.id if mine else None, limit))
 
@@ -113,8 +113,8 @@ async def approve_task(task_id: str, body: ApprovalDecision, user: Employee = De
     task = _get(task_id, user)
     if task.status != TaskStatus.waiting_approval:
         raise ApiError(ErrorCode.conflict, f"승인 대기 상태가 아님: {task.status.value}")
-    if user.role not in (Role.asset, Role.approver, Role.hrd, Role.system):
-        raise ApiError(ErrorCode.forbidden, "변경 실행은 자산관리·승인자·HRD만 승인할 수 있습니다")
+    if user.role not in (Role.admin, Role.system):
+        raise ApiError(ErrorCode.forbidden, "처리 확인은 관리자만 할 수 있습니다")
     try:
         task = await runner().resume(task, {"approved": body.approved, "reason": body.reason, "by": user.id})
     except RuntimeError as exc:

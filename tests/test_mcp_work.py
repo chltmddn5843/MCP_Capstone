@@ -32,8 +32,7 @@ async def test_every_spec_registered_with_its_schemas(monkeypatch):
         assert tools[name].meta["roles"] == [r.value for r in spec.roles]
 
 
-@pytest.mark.parametrize("who, role", [("employee", Role.employee), ("hrd", Role.hrd), ("asset", Role.asset),
-                                       ("approver", Role.approver), ("system", Role.system)])
+@pytest.mark.parametrize("who, role", [("employee", Role.employee), ("admin", Role.admin), ("system", Role.system)])
 async def test_tools_list_follows_role(monkeypatch, who, role):
     async with connect(mcp, monkeypatch, who) as c:
         visible = {t.name for t in await c.list_tools()}
@@ -96,8 +95,8 @@ async def test_f1_relevant_tasks_and_suggestion(monkeypatch):
     assert saved["status"] == "draft"
 
 
-async def test_f1_hrd_sees_team_level_only(monkeypatch):
-    async with connect(mcp, monkeypatch, "hrd") as c:
+async def test_f1_admin_sees_team_level_only(monkeypatch):
+    async with connect(mcp, monkeypatch, "admin") as c:
         found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_ai_a_doc_compare"})).structured_content
         adoption = (await c.call_tool("get_team_adoption", {"period": PERIOD})).structured_content
     assert all(cand["employee_id"] is None for cand in found["candidates"])
@@ -168,7 +167,7 @@ async def test_f4_plan_lifecycle(monkeypatch):
             "type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026"}],
             "rationale": "휴직 중, 본인 확인 응답: 반납",
             "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]})).structured_content
-        assert plan["status"] == "pending_approval" and plan["approvers_required"] == ["asset"]
+        assert plan["status"] == "pending_approval" and plan["approvers_required"] == ["admin"]
 
         early = await c.call_tool("execute_approved_plan", {"plan_id": plan["plan_id"], "idempotency_key": "mcp-k1"},
                                   raise_on_error=False)
@@ -184,17 +183,17 @@ async def test_f4_plan_lifecycle(monkeypatch):
     assert status["plan"]["status"] == "executed"
 
 
-async def test_f4_high_risk_needs_approver(monkeypatch):
+async def test_f4_high_risk_is_decided_by_admin(monkeypatch):
     async with connect(mcp, monkeypatch, "asset") as c:
         plan = (await c.call_tool("create_action_plan", {"type": "purchase_review", "items": [{"tool_id": "tool_cand_x"}],
                                                          "rationale": "계약서 비교 수요 3건", "evidence": []})).structured_content
-    assert plan["risk_level"] == "high" and plan["approvers_required"] == ["approver"]
+    assert plan["risk_level"] == "high" and plan["approvers_required"] == ["admin"]
 
 
 # ---------- F5 미충족 수요 ----------
 
 async def test_f5_unmet_need_threshold(monkeypatch):
-    async with connect(mcp, monkeypatch, "hrd") as c:
+    async with connect(mcp, monkeypatch, "admin") as c:
         recorded = (await c.call_tool("record_unmet_need", {"summary": "규정집 두 버전 비교",
                                                             "capability_tag": "contract_compare"})).structured_content
         listed = (await c.call_tool("list_unmet_needs", {"capability_tag": "contract_compare"})).structured_content
@@ -215,8 +214,8 @@ async def test_resources_and_prompts_match_spec(monkeypatch):
     assert uris == set(RESOURCES)
     assert prompts == PROMPTS
     assert "제5조 이용권 회수" in policy and "제8조 개인정보" in policy and '"unassigned": 2' in contract
-    assert "| 테스트 환경 모델 변경 (model_change) | 중간 | 자산관리 + 프로젝트 오너 | 승인 후 실행 |" in matrix
-    assert "본인 확인 응답 필수" in matrix and "(purchase_review) | 높음" in matrix
+    assert "| 테스트 환경 모델 변경 (model_change) | 담당자 승인 | 관리자 | 승인 후 실행 |" in matrix
+    assert "본인 확인 응답 필수" in matrix and "(purchase_review) | 책임자 결정" in matrix
     text = rendered.messages[0].content.text
     assert "anm_001" in text and "execute_approved_plan을 부르지 않는다" in text
 
@@ -239,7 +238,6 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
 
 
 @pytest.mark.parametrize("name, args, principle", [
-    ("draft_role_guide", {"job_title": "교육기획"}, "개인 이름이나 개인 지표는 쓰지 않는다"),
     ("investigate_anomaly", {"anomaly_id": "anm_001"}, "원인을 단정하지 말고"),
     ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
     ("compare_candidates", {"capability_tag": "contract_compare"}, "문서에 없는 성능·가격은 쓰지 않는다"),

@@ -5,16 +5,13 @@
 
 from __future__ import annotations
 
-ROLE = {"employee": "직원", "hrd": "HRD (교육 담당)", "asset": "관리자", "admin": "관리자", "approver": "관리자 (책임자)", "system": "시스템"}
+ROLE = {"employee": "직원", "admin": "관리자", "system": "시스템"}
 ROLE_DESC = {
     "employee": "AI 비서에게 업무를 설명하면 승인 제품·모델을 추천받고, 이용권을 신청할 수 있습니다. 본인 업무와 본인 사용량만 봅니다.",
-    "hrd": "팀 단위 활용 현황과 자동 제안 기록을 봅니다. 개인별 지표는 보이지 않습니다.",
-    "asset": "이용권, 비용 급증 알림, 승인 대기, 미지원 요청을 한곳에서 관리합니다. 보안 책임과 승인 권한을 함께 가집니다.",
     "admin": "이용권, 비용 급증 알림, 승인 대기, 미지원 요청을 한곳에서 관리합니다. 보안 책임과 승인 권한을 함께 가집니다.",
-    "approver": "책임자 결정이 필요한 요청(구매, 운영 환경 변경)과 승인 대기 요청을 결정합니다.",
     "system": "배치 계정입니다.",
 }
-PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "notice_send": "공지 발송", "budget_review": "예산 검토", "purchase_review": "구매 검토"}
+PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "budget_review": "예산 검토", "purchase_review": "구매 검토"}
 PLAN_STATUS = {"draft": "작성 중", "pending_approval": "승인 대기", "approved": "승인됨 · 처리 전", "executed": "처리 완료", "failed": "처리 실패", "rejected": "반려"}
 RISK = {"low": "바로 처리", "medium": "담당자 승인", "high": "책임자 결정 · 요청만 기록"}
 FLAG = {"unused": "장기 미사용", "on_leave": "휴직 중", "no_record": "사용 기록 없음 → 본인 확인 필요", "recent_hire": "최근 입사 (정상)"}
@@ -41,11 +38,8 @@ ERROR_CODE = {"unauthorized": "로그인이 필요합니다", "forbidden": "권�
 
 QUICK_PROMPTS = {
     "employee": ["AI-A 이용권 신청하고 싶어요", "고객 문의 1,000건을 매일 10개 유형으로 분류하는데 비용을 줄일 수 있을까요?", "문서 비교 기능을 회사 플랜에서 써도 되나요?", "내 등록 업무 알려줘"],
-    "hrd": ["최근 업데이트 중 직원 업무에 도움 되는 게 있는지 검토해줘", "마케팅 팀 활용 현황 요약해줘"],
-    "asset": ["견적서 요약 프로젝트 비용이 왜 늘었는지 조사해줘", "안 쓰는 것으로 보이는 이용권을 검토해서 처리 요청을 제안해줘", "박서준 님 AI-A 이용권 배정해줘", "이번 달 절감 기록 요약해줘"],
-    "approver": ["승인 대기 중인 요청을 참고 데이터와 함께 요약해줘"],
+    "admin": ["견적서 요약 프로젝트 비용이 왜 늘었는지 조사해줘", "안 쓰는 것으로 보이는 이용권을 검토해서 처리 요청을 제안해줘", "박서준 님 AI-A 이용권 배정해줘", "이번 달 절감 기록 요약해줘"],
 }
-QUICK_PROMPTS["admin"] = QUICK_PROMPTS["asset"]
 
 
 def cap(tag: str) -> str:

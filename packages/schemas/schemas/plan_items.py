@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from schemas.common import Environment, PlanType, TargetType
+from schemas.common import Environment, PlanType
 
 
 class SeatAssignItem(BaseModel):
@@ -28,12 +28,6 @@ class ModelChangeItem(BaseModel):
     environment: Environment = Environment.test  # prod면 risk_level=high
 
 
-class NoticeSendItem(BaseModel):
-    suggestion_id: str
-    target_type: TargetType
-    target_id: str | None = None
-
-
 class BudgetReviewItem(BaseModel):
     project_id: str
     current_budget_krw: int
@@ -53,7 +47,6 @@ PLAN_ITEM_MODELS: dict[PlanType, type[BaseModel]] = {
     PlanType.seat_assign: SeatAssignItem,
     PlanType.seat_reclaim: SeatReclaimItem,
     PlanType.model_change: ModelChangeItem,
-    PlanType.notice_send: NoticeSendItem,
     PlanType.budget_review: BudgetReviewItem,
     PlanType.purchase_review: PurchaseReviewItem,
 }
