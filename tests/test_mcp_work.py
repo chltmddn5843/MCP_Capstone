@@ -243,11 +243,51 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
     ("investigate_anomaly", {"anomaly_id": "anm_001"}, "원인을 단정하지 말고"),
     ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
     ("compare_candidates", {"capability_tag": "contract_compare"}, "문서에 없는 성능·가격은 쓰지 않는다"),
-    ("review_update", {"update_id": "upd_ai_a_doc_compare"}, "제안하지 말고 이유만 답한다"),
+    ("review_update", {"update_id": "upd_ai_a_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
+    ("recommend_model", {"task_description": "문의 분류"}, "현재 모델도 estimate_task_cost로 계산"),
+    ("investigate_anomaly", {"anomaly_id": "anm_001"}, "get_anomaly_detail로 대상 프로젝트의 등록 목적"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "이미 executed면 다시 실행하지 말고"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "create_action_plan(seat_reclaim, items=[{employee_id, contract_id, confirmation_id"),
 ])
 async def test_prompts_carry_design_principles(monkeypatch, name, args, principle):
     """설계 문서 7절 Prompt 표의 '담긴 판단 원칙'이 템플릿에 들어 있다."""
     async with connect(mcp, monkeypatch, "asset") as c:
         rendered = await c.get_prompt(name, args)
     assert principle in rendered.messages[0].content.text
+
+
+async def test_prompts_only_mention_registered_tools():
+    """Prompt가 안내하는 도구 이름이 실제 명세에 있어야 한다 (명세에서 도구 이름이 바뀌면 여기서 걸린다)."""
+    import re
+
+    from schemas.mcp_tools import TOOLS
+
+    from apps.mcp_work.prompts import TEMPLATES
+    tool_names = {t.name for t in TOOLS}
+    verbs = ("get_", "list_", "search_", "save_", "create_", "execute_", "estimate_", "record_", "request_", "find_",
+             "upsert_")
+    for name, template in TEMPLATES.items():
+        mentioned = {w for w in re.findall(r"[a-z]+_[a-z_]+", template) if w.startswith(verbs)}
+        assert mentioned <= tool_names, (name, mentioned - tool_names)
+
+
+async def test_role_cache_expires(monkeypatch):
+    from apps.mcp_work import auth, backend
+    calls = []
+    real_call = backend.call
+
+    async def counting_call(method, path, **kwargs):
+        if path == "/me":
+            calls.append(path)
+        return await real_call(method, path, **kwargs)
+
+    monkeypatch.setattr(backend, "call", counting_call)
+    async with connect(mcp, monkeypatch, "asset") as c:
+        monkeypatch.setattr(auth, "ROLE_CACHE_SECONDS", 300)
+        await c.list_tools()
+        await c.list_tools()
+        assert len(calls) == 1                                  # 캐시 안이면 백엔드에 다시 묻지 않는다
+        monkeypatch.setattr(auth, "ROLE_CACHE_SECONDS", 0)
+        await c.list_tools()
+        assert len(calls) == 2                                  # 만료되면 다시 확인한다
