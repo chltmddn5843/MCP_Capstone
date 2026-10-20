@@ -53,6 +53,7 @@ from schemas.plan_items import validate_items
 from schemas.rest import (
     AnomalyDetail,
     ConfirmationAnswerRequest,
+    ConfirmationCreate,
     ContractInventory,
     DevLoginRequest,
     DevLoginResponse,
@@ -335,9 +336,18 @@ def list_plans(status: PlanStatus | None = None, type: PlanType | None = None, u
 
 @app.post("/plans", response_model=Envelope[ActionPlan], status_code=201, tags=["plans"])
 def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee, Role.hrd, Role.asset, Role.system))):
-    allowed = {Role.employee: {PlanType.seat_assign}, Role.hrd: {PlanType.notice_send}}
+    allowed = {Role.employee: {PlanType.seat_assign, PlanType.model_change}, Role.hrd: {PlanType.notice_send}}
     if user.role in allowed and body.type not in allowed[user.role]:
         raise ApiError(ErrorCode.forbidden, f"{user.role.value} 역할은 {body.type.value} 조치안을 만들 수 없습니다")
+    if user.role == Role.employee and body.type == PlanType.seat_assign and any(i.get("employee_id") != user.id for i in body.items):
+        raise ApiError(ErrorCode.forbidden, "직원은 본인 이용권만 신청할 수 있습니다")
+    if user.role == Role.employee and body.type == PlanType.model_change:  # 시나리오 B: 본인 프로젝트의 테스트 환경만
+        for i in body.items:
+            prj = fx.PROJECTS.get(i.get("project_id", ""))
+            if not prj or prj.owner_id != user.id:
+                raise ApiError(ErrorCode.forbidden, "직원은 본인이 오너인 프로젝트의 모델 변경만 요청할 수 있습니다", {"project_id": i.get("project_id")})
+            if i.get("environment", "test") != "test":
+                raise ApiError(ErrorCode.forbidden, "직원은 테스트 환경 변경만 요청할 수 있습니다. 운영 환경은 자산관리가 요청합니다")
     try:
         items = validate_items(body.type, body.items)
     except ValidationError as e:
@@ -406,6 +416,26 @@ def execute_plan(plan_id: str, idempotency_key: str = Header(alias="Idempotency-
     resp = PlanExecuteResponse(plan=executed, result={"vendor": "mock", "ok": True, "items": p.items}, verified={"items": p.items, "state": "applied"}, savings=[s.model_dump() for s in fx.SAVINGS if s.plan_id == plan_id])
     fx.EXECUTIONS[idempotency_key] = resp
     return ok(resp)
+
+
+def _add_business_days(start: datetime, days: int) -> datetime:
+    d = start
+    while days > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            days -= 1
+    return d
+
+
+@app.post("/confirmations", response_model=Envelope[Confirmation], status_code=201, tags=["F4"])
+def create_confirmation(body: ConfirmationCreate, user: Employee = Depends(require(Role.asset, Role.system))):
+    if body.employee_id not in fx.EMPLOYEES:
+        raise ApiError(ErrorCode.not_found, "직원 없음")
+    if body.plan_id not in fx.PLANS:
+        raise ApiError(ErrorCode.not_found, "조치안 없음")
+    c = Confirmation(id=_new_id("cfm"), plan_id=body.plan_id, employee_id=body.employee_id, question=body.question, due_at=_add_business_days(_now(), 5))
+    fx.CONFIRMATIONS[c.id] = c
+    return ok(c)
 
 
 @app.post("/confirmations/{confirmation_id}/answer", response_model=Envelope[Confirmation], tags=["F4"])

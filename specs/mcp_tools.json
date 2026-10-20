@@ -2305,11 +2305,11 @@
         "x-roles": [
           "asset"
         ],
-        "x-backend": "POST /confirmations (via plans)"
+        "x-backend": "POST /confirmations"
       },
       {
         "name": "create_action_plan",
-        "description": "조치안을 만든다. 위험도는 서버가 산정하고, 실행은 승인 뒤 별도로 한다.",
+        "description": "조치안을 만든다. 위험도는 서버가 산정하고, 실행은 승인 뒤 별도로 한다. 직원은 seat_assign(본인)과 model_change(본인 소유 프로젝트, test 환경)만 만들 수 있다.",
         "inputSchema": {
           "$defs": {
             "Evidence": {

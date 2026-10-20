@@ -100,7 +100,8 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
         case "list_unmet_needs":
             return {"aggregates": await _call(client, "GET", "/unmet-needs", params={"min_count": a.get("min_count"), "capability_tag": a.get("capability_tag")})}
         case "request_confirmation":
-            return {"error": {"code": "invalid", "message": "로컬 모드에서는 사용 의사 확인 요청을 만들 수 없습니다. seat_reclaim 조치안에 confirmation_id를 넣어 주세요."}}
+            d = await _call(client, "POST", "/confirmations", json_body=a)
+            return d if "error" in d else {"confirmation_id": d["id"], "due_at": d["due_at"]}
         case "create_action_plan":
             d = await _call(client, "POST", "/plans", json_body=a)
             return d if "error" in d else {"plan_id": d["id"], "risk_level": d["risk_level"], "status": d["status"]}

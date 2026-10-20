@@ -36,5 +36,5 @@ uv run python -m apps.mcp_work.server         # Inspector에서 헤더 Authoriza
 stdio·인메모리 연결처럼 헤더가 없을 때는 `MCP_DEV_TOKEN=dev.emp_asset_01`로 토큰을 준다(개발용).
 
 ## 남은 일
-- `request_confirmation`: 명세의 `POST /confirmations (via plans)` 라우트가 백엔드에 아직 없다. 지금은 `not_found` 오류가 난다. 백엔드 담당과 경로 확정 필요.
+- ~~`request_confirmation` 라우트 없음~~ → `POST /confirmations` 추가됨 (2026-10-20).
 - `approvers_required`: 백엔드 `POST /plans` 응답에 없어서 11절 기준으로 MCP가 채운다. 백엔드가 내려 주면 그 값을 쓰도록 바꾼다.

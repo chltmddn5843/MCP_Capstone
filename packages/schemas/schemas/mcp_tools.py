@@ -308,8 +308,8 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.asset, Role.system], backend="GET /inventory", features=["F4"]),
     ToolSpec("record_unmet_need", "승인 도구로 해결되지 않는 수요를 기록한다.", RecordUnmetNeedIn, RecordUnmetNeedOut, [Role.employee, Role.hrd, Role.asset], read_only=False, backend="POST /unmet-needs", features=["F5"]),
     ToolSpec("list_unmet_needs", "미충족 수요를 태그별로 집계한다.", ListUnmetNeedsIn, ListUnmetNeedsOut, [Role.hrd, Role.asset], backend="GET /unmet-needs", features=["F5"]),
-    ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.asset], read_only=False, backend="POST /confirmations (via plans)", features=["F4"]),
-    ToolSpec("create_action_plan", "조치안을 만든다. 위험도는 서버가 산정하고, 실행은 승인 뒤 별도로 한다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.hrd, Role.asset, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
+    ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.asset], read_only=False, backend="POST /confirmations", features=["F4"]),
+    ToolSpec("create_action_plan", "조치안을 만든다. 위험도는 서버가 산정하고, 실행은 승인 뒤 별도로 한다. 직원은 seat_assign(본인)과 model_change(본인 소유 프로젝트, test 환경)만 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.hrd, Role.asset, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
     ToolSpec("get_plan_status", "조치안 상태, 승인자, 결과.", GetPlanStatusIn, PlanStatusOut, ALL, backend="GET /plans/{id}", features=["common"]),
     ToolSpec("execute_approved_plan", "승인된 조치안을 실행한다. 서버가 승인 상태와 대상 현재 상태를 재확인하고 다르면 stale로 멈춘다.", ExecuteApprovedPlanIn, ExecuteApprovedPlanOut, [Role.asset, Role.system], read_only=False, destructive=True, idempotent=True, backend="POST /plans/{id}/execute", features=["F2", "F4"]),
 ]

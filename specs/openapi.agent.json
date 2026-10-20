@@ -2,27 +2,20 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agent Runtime",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
-    "/agent/runs": {
+    "/ai/tasks": {
       "post": {
-        "summary": "Create Run",
-        "operationId": "create_run_agent_runs_post",
+        "summary": "Create Task",
+        "operationId": "create_task_ai_tasks_post",
         "parameters": [
           {
             "name": "authorization",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "string",
               "title": "Authorization"
             }
           }
@@ -32,7 +25,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunCreate"
+                "$ref": "#/components/schemas/TaskCreate"
               }
             }
           }
@@ -43,7 +36,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_RunCreated_"
+                  "$ref": "#/components/schemas/Envelope_TaskCreated_"
                 }
               }
             }
@@ -59,20 +52,29 @@
             }
           }
         }
-      }
-    },
-    "/agent/runs/{run_id}": {
+      },
       "get": {
-        "summary": "Get Run",
-        "operationId": "get_run_agent_runs__run_id__get",
+        "summary": "List Tasks",
+        "operationId": "list_tasks_ai_tasks_get",
         "parameters": [
           {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
+            "name": "mine",
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": "string",
-              "title": "Run Id"
+              "type": "boolean",
+              "default": true,
+              "title": "Mine"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
             }
           },
           {
@@ -98,7 +100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_Run_"
+                  "$ref": "#/components/schemas/Envelope_list_Task__"
                 }
               }
             }
@@ -116,18 +118,18 @@
         }
       }
     },
-    "/agent/runs/{run_id}/resume": {
-      "post": {
-        "summary": "Resume Run",
-        "operationId": "resume_run_agent_runs__run_id__resume_post",
+    "/ai/tasks/{task_id}": {
+      "get": {
+        "summary": "Get Task",
+        "operationId": "get_task_ai_tasks__task_id__get",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "task_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Task Id"
             }
           },
           {
@@ -147,23 +149,13 @@
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunResume"
-              }
-            }
-          }
-        },
         "responses": {
-          "202": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_RunCreated_"
+                  "$ref": "#/components/schemas/Envelope_Task_"
                 }
               }
             }
@@ -181,19 +173,31 @@
         }
       }
     },
-    "/agent/runs/{run_id}/events": {
+    "/ai/tasks/{task_id}/stream": {
       "get": {
-        "summary": "Events",
-        "operationId": "events_agent_runs__run_id__events_get",
+        "summary": "Stream Task",
+        "operationId": "stream_task_ai_tasks__task_id__stream_get",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "task_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Task Id"
             }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "이 seq 이후 이벤트부터",
+              "default": 0,
+              "title": "After"
+            },
+            "description": "이 seq 이후 이벤트부터"
           },
           {
             "name": "authorization",
@@ -233,30 +237,154 @@
           }
         }
       }
+    },
+    "/ai/tasks/{task_id}/approval": {
+      "post": {
+        "summary": "Approve Task",
+        "operationId": "approve_task_ai_tasks__task_id__approval_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_TaskCreated_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "Envelope_RunCreated_": {
+      "ApprovalCard": {
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/RunCreated"
+          "tool_name": {
+            "type": "string",
+            "title": "Tool Name"
           },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
+          "tool_input": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Tool Input"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "risk_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Level"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "type": "array",
+            "title": "Evidence",
+            "default": []
           }
         },
         "type": "object",
         "required": [
-          "data",
-          "meta"
+          "tool_name",
+          "tool_input",
+          "summary"
         ],
-        "title": "Envelope[RunCreated]"
+        "title": "ApprovalCard",
+        "description": "APPROVAL_REQUIRED 이벤트와 승인 화면이 쓰는 내용."
       },
-      "Envelope_Run_": {
+      "ApprovalDecision": {
+        "properties": {
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Reason",
+            "description": "승인·거절 모두 사유 필수"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approved",
+          "reason"
+        ],
+        "title": "ApprovalDecision"
+      },
+      "Envelope_TaskCreated_": {
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/Run"
+            "$ref": "#/components/schemas/TaskCreated"
           },
           "meta": {
             "$ref": "#/components/schemas/Meta"
@@ -267,7 +395,43 @@
           "data",
           "meta"
         ],
-        "title": "Envelope[Run]"
+        "title": "Envelope[TaskCreated]"
+      },
+      "Envelope_Task_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Task"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[Task]"
+      },
+      "Envelope_list_Task__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[list[Task]]"
       },
       "Evidence": {
         "properties": {
@@ -336,18 +500,22 @@
         ],
         "title": "Role"
       },
-      "Run": {
+      "Task": {
         "properties": {
-          "run_id": {
+          "task_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Task Id"
           },
           "thread_id": {
             "type": "string",
             "title": "Thread Id"
           },
+          "trace_id": {
+            "type": "string",
+            "title": "Trace Id"
+          },
           "status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/TaskStatus"
           },
           "requester_id": {
             "type": "string",
@@ -355,6 +523,10 @@
           },
           "requester_role": {
             "$ref": "#/components/schemas/Role"
+          },
+          "channel": {
+            "type": "string",
+            "title": "Channel"
           },
           "input": {
             "type": "string",
@@ -371,34 +543,22 @@
           "result": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RunResult"
+                "$ref": "#/components/schemas/TaskResult"
               },
               {
                 "type": "null"
               }
             ]
           },
-          "pending_question": {
+          "approval": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/ApprovalCard"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Pending Question"
-          },
-          "pending_plan_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pending Plan Id"
+            ]
           },
           "error": {
             "anyOf": [
@@ -410,6 +570,11 @@
               }
             ],
             "title": "Error"
+          },
+          "turns": {
+            "type": "integer",
+            "title": "Turns",
+            "default": 0
           },
           "created_at": {
             "type": "string",
@@ -424,23 +589,25 @@
         },
         "type": "object",
         "required": [
-          "run_id",
+          "task_id",
           "thread_id",
+          "trace_id",
           "status",
           "requester_id",
           "requester_role",
+          "channel",
           "input",
           "created_at",
           "updated_at"
         ],
-        "title": "Run"
+        "title": "Task"
       },
-      "RunCreate": {
+      "TaskCreate": {
         "properties": {
           "input": {
             "type": "string",
             "title": "Input",
-            "description": "사용자 메시지 또는 프롬프트 인자 설명"
+            "description": "사용자 질문 또는 요청"
           },
           "thread_id": {
             "anyOf": [
@@ -452,7 +619,7 @@
               }
             ],
             "title": "Thread Id",
-            "description": "있으면 같은 대화를 이어간다"
+            "description": "있으면 같은 대화(checkpointer thread)를 이어간다"
           },
           "prompt_name": {
             "anyOf": [
@@ -464,7 +631,7 @@
               }
             ],
             "title": "Prompt Name",
-            "description": "MCP Prompt 이름. 예: investigate_anomaly"
+            "description": "MCP Prompt 이름. 예: investigate_anomaly, review_update"
           },
           "prompt_args": {
             "additionalProperties": true,
@@ -480,38 +647,38 @@
               "system"
             ],
             "title": "Channel",
-            "default": "slack"
+            "default": "admin_ui"
           }
         },
         "type": "object",
         "required": [
           "input"
         ],
-        "title": "RunCreate"
+        "title": "TaskCreate"
       },
-      "RunCreated": {
+      "TaskCreated": {
         "properties": {
-          "run_id": {
+          "task_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Task Id"
           },
           "thread_id": {
             "type": "string",
             "title": "Thread Id"
           },
           "status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/TaskStatus"
           }
         },
         "type": "object",
         "required": [
-          "run_id",
+          "task_id",
           "thread_id",
           "status"
         ],
-        "title": "RunCreated"
+        "title": "TaskCreated"
       },
-      "RunResult": {
+      "TaskResult": {
         "properties": {
           "answer": {
             "type": "string",
@@ -549,49 +716,18 @@
         "required": [
           "answer"
         ],
-        "title": "RunResult"
+        "title": "TaskResult"
       },
-      "RunResume": {
-        "properties": {
-          "input": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Input",
-            "description": "waiting_input에 대한 답"
-          },
-          "approved_plan_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Approved Plan Id",
-            "description": "waiting_approval 뒤 승인된 plan_id"
-          }
-        },
-        "type": "object",
-        "title": "RunResume"
-      },
-      "RunStatus": {
+      "TaskStatus": {
         "type": "string",
         "enum": [
           "queued",
           "running",
-          "waiting_input",
           "waiting_approval",
-          "completed",
+          "done",
           "failed"
         ],
-        "title": "RunStatus"
+        "title": "TaskStatus"
       },
       "ToolCall": {
         "properties": {
@@ -611,14 +747,14 @@
           "output": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Output"
+            "title": "Output",
+            "description": "길이 제한된 도구 결과"
           },
           "error": {
             "anyOf": [
@@ -630,6 +766,11 @@
               }
             ],
             "title": "Error"
+          },
+          "destructive": {
+            "type": "boolean",
+            "title": "Destructive",
+            "default": false
           },
           "started_at": {
             "type": "string",

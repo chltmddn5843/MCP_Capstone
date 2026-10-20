@@ -119,8 +119,6 @@ async def get_license_inventory(i: M.GetLicenseInventoryIn) -> dict:
 
 @adapter("request_confirmation")
 async def request_confirmation(i: M.RequestConfirmationIn) -> dict:
-    # 명세의 backend 표기는 "POST /confirmations (via plans)"다. 백엔드 스텁에 아직 이 라우트가 없어서
-    # 지금은 not_found 오류가 난다. 경로가 확정되면 여기만 바꾼다.
     c = await call("POST", "/confirmations", json_body=i.model_dump())
     return {"confirmation_id": c["id"], "due_at": c["due_at"]}
 

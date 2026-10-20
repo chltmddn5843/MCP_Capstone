@@ -237,6 +237,14 @@ class PlanExecuteResponse(BaseModel):
 
 
 # ---------- /confirmations ----------
+class ConfirmationCreate(BaseModel):
+    """저사용 이용권 소유자에게 사용 의사를 묻는다. 응답 기한은 서버가 5영업일로 정한다 (9절 알림 정책)."""
+
+    employee_id: str
+    plan_id: str
+    question: str
+
+
 class ConfirmationAnswerRequest(BaseModel):
     answer: ConfirmationAnswer
 
@@ -281,11 +289,12 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/anomalies", "경보 목록", [Role.asset, Role.system]),
     ("GET", "/anomalies/{anomaly_id}", "경보 상세", [Role.asset, Role.system]),
     ("GET", "/plans", "조치안 목록", [Role.employee, Role.hrd, Role.asset, Role.approver, Role.system]),
-    ("POST", "/plans", "조치안 생성", [Role.employee, Role.hrd, Role.asset, Role.system]),
+    ("POST", "/plans", "조치안 생성. 직원: seat_assign(본인)·model_change(본인 소유 프로젝트, test). HRD: notice_send", [Role.employee, Role.hrd, Role.asset, Role.system]),
     ("GET", "/plans/{plan_id}", "조치안 상태", [Role.employee, Role.hrd, Role.asset, Role.approver, Role.system]),
     ("POST", "/plans/{plan_id}/approve", "승인", [Role.hrd, Role.asset, Role.approver]),
     ("POST", "/plans/{plan_id}/reject", "반려", [Role.hrd, Role.asset, Role.approver]),
     ("POST", "/plans/{plan_id}/execute", "실행 (Idempotency-Key 필수)", [Role.asset, Role.system]),
+    ("POST", "/confirmations", "사용 의사 확인 요청 생성 (due_at = 5영업일)", [Role.asset, Role.system]),
     ("POST", "/confirmations/{confirmation_id}/answer", "사용 의사 응답", [Role.employee]),
     ("GET", "/savings", "절감 합계", [Role.asset, Role.approver]),
     ("GET", "/audit-log", "감사 기록", [Role.asset, Role.approver]),

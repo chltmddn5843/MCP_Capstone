@@ -70,13 +70,12 @@ async def test_input_validation_error(monkeypatch):
     assert result.is_error
 
 
-async def test_missing_backend_route_is_reported(monkeypatch):
-    # 명세의 request_confirmation 경로(POST /confirmations)가 백엔드 스텁에 아직 없다
+async def test_request_confirmation_creates_with_due_date(monkeypatch):
+    # POST /confirmations 라우트가 백엔드에 추가됨 (명세 ROUTES, 응답 기한 5영업일)
     async with connect(mcp, monkeypatch, "asset") as c:
-        result = await c.call_tool("request_confirmation", {"employee_id": "emp_sales_02", "plan_id": "plan_002",
-                                                            "question": "계속 쓰시나요?"}, raise_on_error=False)
-    err = error_of(result)
-    assert err["code"] == "not_found" and "/confirmations" in err["message"]
+        out = (await c.call_tool("request_confirmation", {"employee_id": "emp_sales_02", "plan_id": "plan_002",
+                                                          "question": "계속 쓰시나요?"})).structured_content
+    assert out["confirmation_id"].startswith("cfm_") and out["due_at"]
 
 
 # ---------- F1 업데이트 → 직원 업무 ----------
