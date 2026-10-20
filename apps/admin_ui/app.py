@@ -26,19 +26,40 @@ def hdr() -> dict:
     return {"Authorization": f"Bearer {st.session_state.get('token', '')}"}
 
 
+def _down(base: str, exc: Exception) -> None:
+    name = "백엔드" if base == BACKEND else "에이전트 런타임"
+    st.error(f"{name}({base})에 연결할 수 없습니다. 먼저 실행하세요: `scripts/run_all.sh` 또는 README의 개별 실행 명령.  \n{type(exc).__name__}")
+
+
 def api(method: str, path: str, base: str = BACKEND, **kw):
-    r = requests.request(method, base + path, headers={**hdr(), **kw.pop("headers", {})}, timeout=30, **kw)
-    body = r.json()
+    try:
+        r = requests.request(method, base + path, headers={**hdr(), **kw.pop("headers", {})}, timeout=30, **kw)
+    except requests.exceptions.RequestException as exc:
+        _down(base, exc)
+        return None
+    try:
+        body = r.json()
+    except ValueError:
+        st.error(f"{method} {path}: 응답이 JSON이 아닙니다 (HTTP {r.status_code})")
+        return None
     if "error" in body:
         st.error(f"{body['error']['code']}: {body['error']['message']}")
         return None
     return body["data"]
 
 
-def login(employee_id: str) -> None:
-    r = requests.post(f"{BACKEND}/auth/dev-login", json={"employee_id": employee_id}, timeout=10).json()
+def login(employee_id: str) -> bool:
+    try:
+        r = requests.post(f"{BACKEND}/auth/dev-login", json={"employee_id": employee_id}, timeout=10).json()
+    except requests.exceptions.RequestException as exc:
+        _down(BACKEND, exc)
+        return False
+    if "error" in r:
+        st.error(r["error"]["message"])
+        return False
     st.session_state.token = r["data"]["access_token"]
     st.session_state.me = r["data"]["employee"]
+    return True
 
 
 # ---------- 에이전트 스트림 ----------
@@ -55,7 +76,12 @@ def render_stream(task_id: str, after: int = 0) -> None:
     status = st.status("에이전트 실행 중…", expanded=True)
     answer_box = st.empty()
     answer = ""
-    with requests.get(f"{AGENT}/ai/tasks/{task_id}/stream", params={"after": after}, headers=hdr(), stream=True, timeout=180) as r:
+    try:
+        resp = requests.get(f"{AGENT}/ai/tasks/{task_id}/stream", params={"after": after}, headers=hdr(), stream=True, timeout=180)
+    except requests.exceptions.RequestException as exc:
+        _down(AGENT, exc)
+        return
+    with resp as r:
         for raw in r.iter_lines():
             line = raw.decode() if isinstance(raw, bytes) else raw
             if not line.startswith("data:"):
@@ -96,8 +122,9 @@ def render_stream(task_id: str, after: int = 0) -> None:
 with st.sidebar:
     st.title("한빛제조 AI 운영")
     who = st.selectbox("로그인 (시드 직원)", list(SEED_USERS), format_func=lambda k: SEED_USERS[k])
-    if st.button("로그인", width='stretch') or "token" not in st.session_state:
-        login(who)
+    if st.button("로그인", width="stretch") or "token" not in st.session_state:
+        if not login(who):
+            st.stop()  # 백엔드가 없으면 여기서 멈춘다 (트레이스백 대신 안내만)
     me = st.session_state.me
     st.caption(f"{me['name']} · {me['role']} · {me.get('dept_name', '')}")
     st.caption(f"backend {BACKEND}\nagent {AGENT}")

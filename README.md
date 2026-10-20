@@ -5,7 +5,12 @@
 ## 시작하기
 ```bash
 uv sync                       # 전부 설치 (테스트 포함). pip라면: pip install -e ".[dev]"
-cp .env.example .env
+cp .env.example .env          # OPENAI_API_KEY 채우기 (키 없으면 LLM_MODEL=fake)
+scripts/run_all.sh            # 백엔드·MCP 2개·에이전트·관리자 화면을 한 번에. Ctrl+C로 종료
+```
+
+**관리자 화면은 백엔드(8000)와 에이전트(8002)가 떠 있어야 동작한다.** 따로 띄우려면:
+```bash
 uv run uvicorn apps.backend.main:app --reload --port 8000         # http://localhost:8000/docs
 uv run uvicorn apps.agent_runtime.main:app --reload --port 8002   # http://localhost:8002/docs
 uv run streamlit run apps/admin_ui/app.py                         # http://localhost:8501
