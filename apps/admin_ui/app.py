@@ -1,238 +1,178 @@
-"""관리자 화면 (Streamlit). 메인 · 자산 관리 · 승인함 · 에이전트.
-실행: uv run streamlit run apps/admin_ui/app.py
+"""관리자·직원 화면 (Streamlit). 로그인한 역할에 따라 다른 화면을 보여 준다.
+실행: uv run streamlit run apps/admin_ui/app.py   (백엔드 8000, 에이전트 8002가 떠 있어야 한다)
 """
 
 from __future__ import annotations
 
-import json
 import os
+import sys
 
-import requests
-import streamlit as st
-from dotenv import load_dotenv
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))  # 저장소 루트
+
+import streamlit as st  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+
+from apps.admin_ui import labels as L  # noqa: E402
+from apps.admin_ui.common import AGENT, BACKEND, api, approval_inbox, assistant_panel, login, render_stream, start_task, task_history  # noqa: E402
 
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "http://localhost:8000")
-AGENT = os.getenv("AGENT_URL", "http://localhost:8002")
-SEED_USERS = {"emp_asset_01": "최민준 · 자산관리", "emp_hrd_01": "김하나 · HRD", "emp_approver_01": "정수아 · 승인자", "emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이지우 · CS 직원"}
-LABEL = {"pending_approval": "승인 대기", "approved": "승인", "executed": "실행", "rejected": "반려", "failed": "실패", "draft": "초안",
-         "low": "낮음", "medium": "중간", "high": "높음", "unused": "미사용", "on_leave": "휴직", "no_record": "기록 없음(확인 필요)", "recent_hire": "최근 입사"}
+SEED_USERS = {"emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이지우 · 고객지원 직원", "emp_hrd_01": "김하나 · HRD",
+              "emp_asset_01": "최민준 · 자산관리", "emp_approver_01": "정수아 · IT·보안 책임자"}
 
-st.set_page_config(page_title="AI 활용·운영 최적화", layout="wide")
+st.set_page_config(page_title="한빛제조 AI 활용·운영", layout="wide")
 
-
-# ---------- API ----------
-def hdr() -> dict:
-    return {"Authorization": f"Bearer {st.session_state.get('token', '')}"}
-
-
-def _down(base: str, exc: Exception) -> None:
-    name = "백엔드" if base == BACKEND else "에이전트 런타임"
-    st.error(f"{name}({base})에 연결할 수 없습니다. 먼저 실행하세요: `scripts/run_all.sh` 또는 README의 개별 실행 명령.  \n{type(exc).__name__}")
-
-
-def api(method: str, path: str, base: str = BACKEND, **kw):
-    try:
-        r = requests.request(method, base + path, headers={**hdr(), **kw.pop("headers", {})}, timeout=30, **kw)
-    except requests.exceptions.RequestException as exc:
-        _down(base, exc)
-        return None
-    try:
-        body = r.json()
-    except ValueError:
-        st.error(f"{method} {path}: 응답이 JSON이 아닙니다 (HTTP {r.status_code})")
-        return None
-    if "error" in body:
-        st.error(f"{body['error']['code']}: {body['error']['message']}")
-        return None
-    return body["data"]
-
-
-def login(employee_id: str) -> bool:
-    try:
-        r = requests.post(f"{BACKEND}/auth/dev-login", json={"employee_id": employee_id}, timeout=10).json()
-    except requests.exceptions.RequestException as exc:
-        _down(BACKEND, exc)
-        return False
-    if "error" in r:
-        st.error(r["error"]["message"])
-        return False
-    st.session_state.token = r["data"]["access_token"]
-    st.session_state.me = r["data"]["employee"]
-    return True
-
-
-# ---------- 에이전트 스트림 ----------
-def run_agent(text: str, prompt_name: str | None = None, prompt_args: dict | None = None, thread_id: str | None = None) -> str | None:
-    created = api("POST", "/ai/tasks", base=AGENT, json={"input": text, "prompt_name": prompt_name, "prompt_args": prompt_args or {}, "thread_id": thread_id, "channel": "admin_ui"})
-    if not created:
-        return None
-    st.session_state.thread_id = created["thread_id"]
-    return created["task_id"]
-
-
-def render_stream(task_id: str, after: int = 0) -> None:
-    """SSE를 읽어 TOKEN·TOOL·APPROVAL·DONE을 그린다. 종료 이벤트에서 멈춘다."""
-    status = st.status("에이전트 실행 중…", expanded=True)
-    answer_box = st.empty()
-    answer = ""
-    try:
-        resp = requests.get(f"{AGENT}/ai/tasks/{task_id}/stream", params={"after": after}, headers=hdr(), stream=True, timeout=180)
-    except requests.exceptions.RequestException as exc:
-        _down(AGENT, exc)
-        return
-    with resp as r:
-        for raw in r.iter_lines():
-            line = raw.decode() if isinstance(raw, bytes) else raw
-            if not line.startswith("data:"):
-                continue
-            ev = json.loads(line[5:])
-            st.session_state.last_seq = ev["seq"]
-            t = ev["type"]
-            if t == "TOKEN":
-                answer += ev["text"]
-                answer_box.markdown(answer)
-            elif t == "TOOL_START":
-                status.write(f"🔧 `{ev['tool_call']['name']}` 호출 중… 입력: `{json.dumps(ev['tool_call']['input'], ensure_ascii=False)[:120]}`")
-            elif t == "TOOL_END":
-                tc = ev["tool_call"]
-                status.write(("⚠️ " if tc.get("error") else "✅ ") + f"`{tc['name']}` 결과: `{(tc.get('output') or '')[:160]}`")
-            elif t == "APPROVAL_REQUIRED":
-                status.update(label="승인 대기", state="error", expanded=True)
-                st.session_state.pending_task = task_id
-                card = ev["approval"]
-                st.warning(f"**승인 필요** — {card['summary']}\n\n도구: `{card['tool_name']}` · plan_id: `{card.get('plan_id')}`")
-                st.info("승인함 탭에서 승인·거절하면 이어서 실행됩니다.")
-                return
-            elif t == "DONE":
-                status.update(label="완료", state="complete", expanded=False)
-                res = ev["result"]
-                answer_box.markdown(res["answer"])
-                if res.get("evidence"):
-                    with st.expander(f"근거 {len(res['evidence'])}건"):
-                        st.json(res["evidence"])
-                return
-            elif t == "FAILED":
-                status.update(label="실패", state="error")
-                st.error(ev["error"])
-                return
-
-
-# ---------- 사이드바 ----------
+# ---------- 로그인 ----------
 with st.sidebar:
-    st.title("한빛제조 AI 운영")
-    who = st.selectbox("로그인 (시드 직원)", list(SEED_USERS), format_func=lambda k: SEED_USERS[k])
-    if st.button("로그인", width="stretch") or "token" not in st.session_state:
+    st.title("한빛제조 AI 활용·운영")
+    who = st.selectbox("사용자 선택 (시연용 로그인)", list(SEED_USERS), format_func=lambda k: SEED_USERS[k])
+    if st.button("이 사용자로 로그인", width="stretch") or "token" not in st.session_state:
         if not login(who):
-            st.stop()  # 백엔드가 없으면 여기서 멈춘다 (트레이스백 대신 안내만)
+            st.stop()
     me = st.session_state.me
-    st.caption(f"{me['name']} · {me['role']} · {me.get('dept_name', '')}")
-    st.caption(f"backend {BACKEND}\nagent {AGENT}")
+    st.markdown(f"**{me['name']}** · {me['job_title']}\n\n{me.get('dept_name', '')} · 역할: **{L.ROLE.get(me['role'], me['role'])}**")
+    st.caption(L.ROLE_DESC.get(me["role"], ""))
+    with st.expander("연결 정보"):
+        st.caption(f"backend {BACKEND}\n\nagent {AGENT}")
 
-tab_main, tab_asset, tab_inbox, tab_agent = st.tabs(["메인", "자산 관리", "승인함", "에이전트"])
+role = me["role"]
 
-# ---------- 메인 ----------
-with tab_main:
-    st.subheader("활용 지표 (팀 단위)")
-    if me["role"] == "hrd":
-        rows = api("GET", "/adoption/teams")
+
+# ---------- 직원 ----------
+def employee_view() -> None:
+    st.header(f"안녕하세요, {me['name']} 님")
+    t_ask, t_mine, t_hist = st.tabs(["AI 비서", "내 업무와 이용권", "요청 이력"])
+    with t_ask:
+        st.caption("업무를 설명하면 승인된 도구·모델 중에서 추천하고, 이용권 신청도 대신 접수합니다. 대화 내용은 저장하지 않고 주제와 요약만 남깁니다.")
+        assistant_panel("employee")
+    with t_mine:
+        prof = api("GET", "/me")
+        if prof:
+            st.subheader("등록한 업무")
+            st.caption("여기 등록된 업무를 기준으로 새 기능 제안과 모델 추천이 맞춰집니다. AI 비서에게 말하면 등록·수정할 수 있습니다.")
+            if prof["tasks"]:
+                st.dataframe([{"업무": t["title"], "설명": t["description"], "주기": t["frequency"], "사용 도구": ", ".join(t["tools_used"])} for t in prof["tasks"]], width="stretch", hide_index=True)
+            else:
+                st.caption("등록된 업무가 없습니다.")
+            st.subheader("내가 쓸 수 있는 AI 도구")
+            st.dataframe([{"도구": t["product"], "제공사": t["vendor"], "플랜": (t.get("contract") or {}).get("plan_name", "-"),
+                           "과금": L.BILLING.get((t.get("contract") or {}).get("billing_type", ""), "-"), "허용 데이터": t["allowed_data_class"], "유의사항": t.get("policy_note") or ""} for t in prof["available_tools"]], width="stretch", hide_index=True)
+        st.subheader("내 신청 현황")
+        page = api("GET", "/plans")
+        rows = [{"신청": L.PLAN_TYPE.get(p["type"], p["type"]), "상태": L.PLAN_STATUS.get(p["status"], p["status"]), "내용": p["rationale"], "신청일": p["created_at"][:16].replace("T", " ")} for p in (page or {}).get("items", [])]
+        st.dataframe(rows, width="stretch", hide_index=True) if rows else st.caption("신청 내역이 없습니다.")
+    with t_hist:
+        task_history()
+
+
+# ---------- HRD ----------
+def hrd_view() -> None:
+    st.header("활용 지원 (HRD)")
+    t_adopt, t_notice, t_ask, t_hist = st.tabs(["팀별 활용 현황", "공지·제안 승인", "AI 비서", "요청 이력"])
+    with t_adopt:
+        st.subheader("팀별 활용 현황")
+        st.caption("개인이 특정되지 않도록 5명 이상 팀만, 팀 단위로만 보여 줍니다. 활용 데이터는 교육·도구 개선에만 쓰고 인사평가에 쓰지 않습니다.")
+        rows = api("GET", "/adoption/teams") or []
         if rows:
-            st.dataframe([{"팀": r["team_name"], "인원": r["headcount"], "제안": r["suggestions_sent"], "도움 됨": r["useful"], "관련 없음": r["irrelevant"], "질문": r["questions"], "활동 비율": f"{r['active_ratio']:.0%}"} for r in rows], width='stretch')
-    else:
-        st.caption("활용 지표는 HRD 역할만 봅니다.")
-    st.subheader("미충족 수요")
-    if me["role"] in ("hrd", "asset", "approver"):
-        aggs = api("GET", "/unmet-needs")
-        if aggs:
-            st.dataframe([{"태그": a["capability_tag"], "건수": a["count"], "부서 수": a["dept_count"], "기준 충족": "예" if a["threshold_met"] else "아니오", "예시": " / ".join(a["sample_summaries"])} for a in aggs], width='stretch')
-            for a in aggs:
-                if a["threshold_met"] and st.button(f"'{a['capability_tag']}' 후보 비교 요청", key=f"cmp_{a['capability_tag']}"):
-                    tid = run_agent(f"{a['capability_tag']} 수요에 대한 후보 제품을 비교해줘", "compare_candidates", {"capability_tag": a["capability_tag"]})
+            st.dataframe([{"팀": r["team_name"], "인원": r["headcount"], "보낸 제안": r["suggestions_sent"], "도움 됨": r["useful"], "관련 없음": r["irrelevant"],
+                           "적용 방법 질문": r["questions"], "AI 활동 인원 비율": f"{r['active_ratio']:.0%}", "반복 질문": " / ".join(r["top_questions"]) or "-"} for r in rows], width="stretch", hide_index=True)
+            for r in rows:
+                if r["top_questions"] and st.button(f"'{r['team_name']}' 직무 가이드 초안 만들기", key=f"guide_{r['team_id']}"):
+                    tid = start_task(f"{r['team_name']} 팀의 반복 질문을 바탕으로 직무별 활용 가이드 초안을 써줘", "draft_role_guide", {"job_title": r["team_name"]}, new_thread=True)
                     if tid:
                         render_stream(tid)
-    st.subheader("최근 업데이트")
-    page = api("GET", "/updates")
-    if page:
-        for u in page["items"]:
-            st.markdown(f"- **{u['vendor']}** {u['title']} — {u['summary']} [원문]({u['url']})")
+        st.subheader("최근 AI 업데이트")
+        st.caption("허용 목록 벤더의 공식 릴리스 노트만 수집합니다. '직원 업무에 연결'을 누르면 AI 비서가 관련 업무를 찾아 제안 초안을 만듭니다.")
+        for u in (api("GET", "/updates") or {}).get("items", []):
+            with st.container(border=True):
+                st.markdown(f"**{u['vendor']} · {u['title']}** ({u['published_at'][:10]})\n\n{u['summary']}  [원문 보기]({u['url']})")
+                if st.button("직원 업무에 연결", key=f"rev_{u['id']}"):
+                    tid = start_task(f"업데이트 {u['id']}를 검토해서 관련 직원 업무에 활용 제안을 만들어줘", "review_update", {"update_id": u["id"]}, new_thread=True)
+                    if tid:
+                        render_stream(tid)
+    with t_notice:
+        st.subheader("팀·전사 공지 승인")
+        st.caption("개인 맞춤 제안은 알림 정책 안에서 자동 발송되고, 팀·전사 공지만 HRD 승인을 거칩니다.")
+        sugg = (api("GET", "/suggestions", params={"status": "pending_approval"}) or {}).get("items", [])
+        for s in sugg:
+            with st.container(border=True):
+                st.markdown(f"**대상: {s['target_type']} {s['target_id'] or ''}** · 근거: {s['relevance']}")
+                st.write(s["body"])
+                if st.button("승인하고 발송", key=f"sa_{s['id']}") and api("POST", f"/suggestions/{s['id']}/approve"):
+                    st.success("발송했습니다.")
+                    st.rerun()
+        if not sugg:
+            st.caption("승인 대기 공지가 없습니다.")
+        approval_inbox(me)
+    with t_ask:
+        assistant_panel("hrd")
+    with t_hist:
+        task_history()
 
-# ---------- 자산 관리 ----------
-with tab_asset:
-    if me["role"] not in ("asset", "approver", "system"):
-        st.caption("자산 관리 화면은 자산관리·승인자 역할만 봅니다.")
-    else:
-        st.subheader("이용권 현황")
+
+# ---------- 자산관리 ----------
+def asset_view() -> None:
+    st.header("운영 지원 (자산관리)")
+    t_lic, t_cost, t_need, t_inbox, t_ask, t_hist = st.tabs(["이용권", "비용 경보", "도입 검토 요청", "승인함", "AI 비서", "요청 이력"])
+    with t_lic:
         for inv in api("GET", "/inventory") or []:
-            c1, c2, c3 = st.columns(3)
-            c1.metric(f"{inv['tool_name']} 구매", inv["purchased"])
+            st.subheader(f"{inv['tool_name']} · {inv['contract']['plan_name']}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("구매 좌석", inv["purchased"])
             c2.metric("배정", inv["assigned"])
             c3.metric("미배정", inv["unassigned"])
-            st.dataframe([{"직원": c["employee_name"], "부서": c["dept_name"], "마지막 활동": c["last_activity_at"] or "-", "분류": LABEL.get(c["flag"], c["flag"]), "확인 필요": "예" if c["needs_confirmation"] else "아니오"} for c in inv["low_usage_candidates"]], width='stretch')
-        st.subheader("사용량 경보")
-        if me["role"] == "asset":
-            for a in api("GET", "/anomalies") or []:
-                with st.container(border=True):
-                    st.markdown(f"**{a['scope_name']}** · 기준 대비 **{a['ratio']}배** · 예상 월 비용 {a['projected_monthly_cost']['krw']:,}원 · 상태 {a['status']}")
-                    if st.button("조사 시작", key=f"inv_{a['id']}"):
-                        tid = run_agent(f"경보 {a['id']}의 원인을 조사하고 조치안을 제안해줘", "investigate_anomaly", {"anomaly_id": a["id"]})
-                        if tid:
-                            render_stream(tid)
+            c4.metric("좌석 단가 (월)", L.won(inv["contract"]["seat_price_krw"]))
+            st.markdown("**검토가 필요한 이용권**")
+            st.caption("사용 기록이 없다고 미사용으로 보지 않습니다. 본인에게 사용 의사를 묻고 반납 응답이 있을 때만 재배정합니다. 무응답은 회수 사유가 아닙니다.")
+            st.dataframe([{"직원": c["employee_name"], "부서": c["dept_name"], "마지막 사용": (c["last_activity_at"] or "")[:10] or "기록 없음",
+                           "상태": L.FLAG.get(c["flag"], c["flag"]), "본인 확인": "필요" if c["needs_confirmation"] else "불필요"} for c in inv["low_usage_candidates"]], width="stretch", hide_index=True)
+        if st.button("저사용 이용권 검토 요청", type="primary"):
+            tid = start_task("저사용 이용권을 검토해서 본인 확인이 필요한 사람과 재배정 가능한 좌석을 정리하고 조치안을 제안해줘", new_thread=True)
+            if tid:
+                render_stream(tid)
         sv = api("GET", "/savings")
         if sv:
             st.subheader("절감 기록")
-            st.write({LABEL.get(k, k): f"{v:,}원" for k, v in sv["by_kind"].items()} | {"합계": f"{sv['total_krw']:,}원"})
+            st.caption("구매 회피(재배정으로 안 산 좌석)와 실제 청구 감소를 구분해 기록합니다.")
+            st.dataframe([{"구분": L.SAVINGS.get(k, k), "금액": L.won(v)} for k, v in sv["by_kind"].items()] + [{"구분": "합계", "금액": L.won(sv["total_krw"])}], width="stretch", hide_index=True)
+    with t_cost:
+        st.subheader("사용량·비용 경보")
+        st.caption("매일 사용량을 원화로 환산해 기준치(최근 평균)의 배수를 검사합니다. '원인 조사'를 누르면 AI 비서가 모델·입력 길이·API 키별로 나눠 원인 후보와 조치안을 제시합니다.")
+        for a in api("GET", "/anomalies") or []:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([2, 1, 1])
+                c1.markdown(f"**{a['scope_name']}** · 상태 {L.ANOMALY_STATUS.get(a['status'], a['status'])}")
+                c2.metric("기준 대비", f"{a['ratio']}배")
+                c3.metric("예상 월 비용", L.won(a["projected_monthly_cost"]["krw"]))
+                if st.button("원인 조사", key=f"inv_{a['id']}", type="primary"):
+                    tid = start_task(f"경보 {a['id']}의 원인을 조사하고 조치안을 제안해줘", "investigate_anomaly", {"anomaly_id": a["id"]}, new_thread=True)
+                    if tid:
+                        render_stream(tid)
+    with t_need:
+        st.subheader("도입 검토 요청 (승인 도구로 해결되지 않은 업무)")
+        st.caption("직원이 AI 비서에게 물었지만 승인된 도구로는 할 수 없었던 업무를 기록합니다. 같은 기능 요청이 3건 이상, 2개 부서 이상이면 검토 기준을 충족한 것으로 봅니다.")
+        aggs = api("GET", "/unmet-needs") or []
+        if aggs:
+            st.dataframe([{"필요한 기능": L.cap(a["capability_tag"]), "요청 건수": a["count"], "요청 부서 수": a["dept_count"], "검토 기준": "충족" if a["threshold_met"] else "미충족",
+                           "직원이 요청한 내용": " / ".join(a["sample_summaries"])} for a in aggs], width="stretch", hide_index=True)
+        else:
+            st.caption("기록된 요청이 없습니다.")
+    with t_inbox:
+        approval_inbox(me)
+    with t_ask:
+        assistant_panel("asset")
+    with t_hist:
+        task_history()
 
-# ---------- 승인함 ----------
-with tab_inbox:
-    st.subheader("조치안 승인")
-    page = api("GET", "/plans", params={"status": "pending_approval"})
-    for p in (page or {}).get("items", []):
-        with st.container(border=True):
-            st.markdown(f"**{p['type']}** · 위험도 {LABEL.get(p['risk_level'])} · 요청자 `{p['requested_by']}`\n\n{p['rationale']}")
-            st.json(p["items"], expanded=False)
-            reason = st.text_input("사유 (필수)", key=f"r_{p['id']}")
-            c1, c2 = st.columns(2)
-            if c1.button("승인", key=f"a_{p['id']}") and api("POST", f"/plans/{p['id']}/approve", json={"reason": reason}):
-                st.success("승인됨")
-                st.rerun()
-            if c2.button("반려", key=f"j_{p['id']}") and api("POST", f"/plans/{p['id']}/reject", json={"reason": reason}):
-                st.success("반려됨")
-                st.rerun()
-    if not (page or {}).get("items"):
-        st.caption("승인 대기 조치안이 없습니다.")
-    st.subheader("에이전트 실행 승인 (변경 도구)")
-    tasks = api("GET", "/ai/tasks", base=AGENT, params={"mine": me["role"] == "employee"}) or []
-    waiting = [t for t in tasks if t["status"] == "waiting_approval"]
-    for t in waiting:
-        card = t["approval"]
-        with st.container(border=True):
-            st.markdown(f"**{card['summary']}**\n\n요청: {t['input']} · 요청자 `{t['requester_id']}` · 도구 `{card['tool_name']}`")
-            st.json(card["tool_input"], expanded=False)
-            reason = st.text_input("사유 (필수)", key=f"tr_{t['task_id']}")
-            c1, c2 = st.columns(2)
-            if c1.button("승인하고 실행", key=f"ta_{t['task_id']}") and api("POST", f"/ai/tasks/{t['task_id']}/approval", base=AGENT, json={"approved": True, "reason": reason}):
-                render_stream(t["task_id"], after=len(t["tool_calls"]) * 2 + 1)
-            if c2.button("거절", key=f"tj_{t['task_id']}") and api("POST", f"/ai/tasks/{t['task_id']}/approval", base=AGENT, json={"approved": False, "reason": reason}):
-                render_stream(t["task_id"], after=len(t["tool_calls"]) * 2 + 1)
-    if not waiting:
-        st.caption("승인 대기 중인 에이전트 작업이 없습니다.")
 
-# ---------- 에이전트 ----------
-with tab_agent:
-    st.subheader("에이전트에게 요청")
-    st.caption(f"thread: `{st.session_state.get('thread_id', '새 대화')}`")
-    c1, c2 = st.columns([5, 1])
-    text = c1.text_input("요청", placeholder="예: 박서준 님 AI-A 이용권 배정해줘 / 내 등록 업무 알려줘 / 견적서 요약 프로젝트 비용이 왜 늘었어?")
-    new_thread = c2.checkbox("새 대화", value=False)
-    if st.button("보내기", type="primary") and text:
-        tid = run_agent(text, thread_id=None if new_thread else st.session_state.get("thread_id"))
-        if tid:
-            render_stream(tid)
-    st.subheader("내 작업 이력")
-    for t in (api("GET", "/ai/tasks", base=AGENT, params={"mine": True}) or [])[:10]:
-        with st.expander(f"{t['created_at'][:19]} · {t['status']} · {t['input'][:40]}"):
-            st.write(f"도구 호출 {len(t['tool_calls'])}회 · 턴 {t['turns']} · trace `{t['trace_id']}`")
-            if t.get("result"):
-                st.markdown(t["result"]["answer"])
-            if t.get("error"):
-                st.error(t["error"])
+# ---------- 승인자 ----------
+def approver_view() -> None:
+    st.header("승인함 (IT·보안 책임자)")
+    t_inbox, t_ask = st.tabs(["승인함", "AI 비서"])
+    with t_inbox:
+        approval_inbox(me)
+    with t_ask:
+        assistant_panel("approver")
+        task_history()
+
+
+{"employee": employee_view, "hrd": hrd_view, "asset": asset_view, "approver": approver_view}.get(role, employee_view)()

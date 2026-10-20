@@ -32,7 +32,7 @@ curl -s localhost:8000/inventory -H 'Authorization: Bearer dev.emp_asset_01'
 packages/schemas/   공유 Pydantic 스키마 = 명세 (common, entities, rest, mcp_tools, agent)
 apps/backend/       REST API (현재 스텁: 고정 데이터, 권한·승인·실행 규칙은 동작)
 apps/agent_runtime/ LangGraph 에이전트: graph.py(StateGraph) · harness/(8요소) · prompts/ · tasks.py(작업·이벤트) · main.py(/ai/tasks API)
-apps/admin_ui/      Streamlit 관리자 화면 (메인 · 자산 관리 · 승인함 · 에이전트)
+apps/admin_ui/      Streamlit 화면. 로그인 역할별로 다른 화면 (직원: AI 비서·내 업무 / HRD: 활용 현황·공지 승인 / 자산관리: 이용권·비용 경보·도입 검토·승인함 / 승인자: 승인함). 용어는 labels.py
 apps/mcp_work, apps/mcp_docs   MCP 서버 (schemas.mcp_tools.TOOLS를 순회해 등록)
 apps/slack_bot, apps/admin_ui  접점
 apps/mock_vendor, jobs/, db/   Mock 벤더, 배치, 스키마·시드
