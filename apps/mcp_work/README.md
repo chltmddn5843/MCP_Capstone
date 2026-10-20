@@ -37,4 +37,5 @@ stdio·인메모리 연결처럼 헤더가 없을 때는 `MCP_DEV_TOKEN=dev.emp_
 
 ## 남은 일
 - ~~`request_confirmation` 라우트 없음~~ → `POST /confirmations` 추가됨 (2026-10-20).
-- `approvers_required`: 백엔드 `POST /plans` 응답에 없어서 11절 기준으로 MCP가 채운다. 백엔드가 내려 주면 그 값을 쓰도록 바꾼다.
+- `approvers_required`: 백엔드 `POST /plans` 응답에 없어서 MCP가 백엔드 승인 규칙(`_decide`)대로 채운다. 지금 `model_change`는 `["asset"]`이다. 설계 문서 11절은 "자산관리 + 프로젝트 오너"인데 백엔드는 자산관리 한 명 승인으로 통과시키므로, 두 명 승인이 필요하면 백엔드 규칙을 먼저 바꾸고 백엔드가 승인자 목록을 내려 주게 한 뒤 MCP는 그 값을 그대로 쓴다.
+- 역할 캐시: 토큰별 역할을 `MCP_ROLE_CACHE_SECONDS`(기본 300초) 동안 캐시한다. 역할을 바꾼 뒤 바로 확인하려면 0으로 둔다.

@@ -1,11 +1,13 @@
 """역할별 도구 노출. 요청자 토큰으로 역할을 읽고, ToolSpec.roles에 없는 도구는 tools/list에서 숨기고 호출도 막는다.
 
-역할은 백엔드 GET /me로 확인한다(토큰 형식을 MCP가 해석하지 않는다). 토큰별로 캐시한다.
+역할은 백엔드 GET /me로 확인한다(토큰 형식을 MCP가 해석하지 않는다). 토큰별로 MCP_ROLE_CACHE_SECONDS(기본 300초) 동안 캐시한다.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import time
 
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
@@ -14,7 +16,9 @@ from schemas.mcp_tools import ToolSpec
 
 from apps.mcp_work import backend
 
-_role_cache: dict[str, Role] = {}
+# 토큰 → (역할, 확인 시각). 역할이 바뀌어도 이 시간이 지나면 백엔드에 다시 묻는다
+ROLE_CACHE_SECONDS = float(os.environ.get("MCP_ROLE_CACHE_SECONDS", "300"))
+_role_cache: dict[str, tuple[Role, float]] = {}
 
 
 async def current_role() -> Role | None:
@@ -22,13 +26,17 @@ async def current_role() -> Role | None:
     token = backend.request_token()
     if not token:
         return None
-    if token not in _role_cache:
-        try:
-            me = await backend.call("GET", "/me")
-        except ToolError:
-            return None
-        _role_cache[token] = Role(me["employee"]["role"])
-    return _role_cache[token]
+    cached = _role_cache.get(token)
+    if cached and time.monotonic() - cached[1] < ROLE_CACHE_SECONDS:
+        return cached[0]
+    try:
+        me = await backend.call("GET", "/me")
+    except ToolError:
+        _role_cache.pop(token, None)
+        return None
+    role = Role(me["employee"]["role"])
+    _role_cache[token] = (role, time.monotonic())
+    return role
 
 
 def clear_cache() -> None:
