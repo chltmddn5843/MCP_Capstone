@@ -99,3 +99,11 @@ def test_every_simple_get_responds_in_envelope(method, path):
     r = client.get(path, headers=SYS if path not in ("/adoption/teams", "/me/tasks", "/savings", "/audit-log", "/unmet-needs") else {**HRD, **({} if path in ("/adoption/teams", "/unmet-needs") else ASSET)})
     assert r.status_code in (200, 403), (path, r.text)
     assert ("data" in r.json()) or ("error" in r.json())
+
+
+def test_plan_items_validated_per_type():
+    bad = {"type": "model_change", "items": [{"project_id": "prj_faq"}], "rationale": "x", "evidence": []}
+    r = client.post("/plans", json=bad, headers=ASSET)
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid"
+    good = {"type": "model_change", "items": [{"project_id": "prj_faq", "from_model_id": "mdl_b_large", "to_model_id": "mdl_b_mid", "environment": "prod"}], "rationale": "x", "evidence": []}
+    assert client.post("/plans", json=good, headers=ASSET).json()["data"]["risk_level"] == "high"
