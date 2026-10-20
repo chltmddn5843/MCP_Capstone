@@ -1,6 +1,6 @@
 # 기업 AI 활용·운영 최적화 에이전트 (Capstone MVP)
 
-설계 문서: `기업 AI 활용·운영 최적화 에이전트 설계 문서.md` · 개발 규칙: `CONTRIBUTING.md`
+설계 문서: `docs/설계문서.md` (v2, 2026-10-21) · 에이전트 설계: `apps/agent_runtime/AGENT_DESIGN.md` · 개발 규칙: `CONTRIBUTING.md`
 
 ## 시작하기
 ```bash
