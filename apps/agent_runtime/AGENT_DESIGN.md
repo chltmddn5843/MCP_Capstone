@@ -91,3 +91,7 @@ API는 `schemas/agent.py` 머리말과 같다. SSE는 `?after=<seq>`로 이어 �
 | `LLM_MODEL=fake` | 키 없이 그래프를 돌리는 스크립트 모델 (테스트·배선 확인용) |
 | `MCP_WORK_URL` 비어 있음 | 로컬 모드: 백엔드 REST 직접 호출. 도구 이름·입출력은 MCP와 같다 |
 | `MCP_WORK_URL=http://localhost:8010/mcp` | MCP 모드: tools/list를 받아 쓴다 (최종 목표) |
+
+## 7. v2 변경 예정 (설계 확정, 구현 전)
+
+`docs/설계문서.md` 12절. 현재 그래프 앞에 `classify_intent` → (`collect_conditions` → `ask_user`) 분기를 붙이고, State에 `intent`, `conditions`를 더한다. 역할은 employee·admin·system. 배치가 조건 충족 시 시스템 계정으로 작업을 만드는 호출 경로를 추가한다. 기존 노드·Harness 매핑은 바뀌지 않는다.
