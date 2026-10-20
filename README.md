@@ -4,7 +4,7 @@
 
 ## 시작하기
 ```bash
-uv sync --all-extras          # 또는: pip install -e ".[dev]"
+uv sync                       # 전부 설치 (테스트 포함). pip라면: pip install -e ".[dev]"
 cp .env.example .env
 uv run uvicorn apps.backend.main:app --reload --port 8000         # http://localhost:8000/docs
 uv run uvicorn apps.agent_runtime.main:app --reload --port 8002   # http://localhost:8002/docs

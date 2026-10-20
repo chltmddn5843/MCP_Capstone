@@ -10,7 +10,7 @@
 
 ## 시작
 ```bash
-uv sync --extra mcp
+uv sync
 uv run python -m apps.mcp_work.server   # 만들 파일: server.py
 npx @modelcontextprotocol/inspector     # tools/list에 역할별 도구가 보이면 1일차 완료
 ```

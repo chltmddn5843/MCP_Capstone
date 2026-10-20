@@ -19,59 +19,61 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "sse-starlette" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-agent = [
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "slack-bolt" },
+    { name = "sse-starlette" },
+    { name = "streamlit" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
+
+[package.optional-dependencies]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-mcp = [
-    { name = "fastmcp" },
-]
-slack = [
-    { name = "slack-bolt" },
-]
-ui = [
-    { name = "requests" },
-    { name = "streamlit" },
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "fastmcp", marker = "extra == 'agent'", specifier = ">=4.1,<5" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=4.1,<5" },
+    { name = "fastmcp", specifier = ">=4.1,<5" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "langchain", marker = "extra == 'agent'", specifier = ">=1.4" },
-    { name = "langchain-anthropic", marker = "extra == 'agent'", specifier = ">=1.7" },
-    { name = "langchain-openai", marker = "extra == 'agent'", specifier = ">=1.7" },
-    { name = "langgraph", marker = "extra == 'agent'", specifier = ">=1.2" },
-    { name = "langgraph-checkpoint-sqlite", marker = "extra == 'agent'", specifier = ">=3.1" },
+    { name = "langchain", specifier = ">=1.4" },
+    { name = "langchain-anthropic", specifier = ">=1.7" },
+    { name = "langchain-openai", specifier = ">=1.7" },
+    { name = "langgraph", specifier = ">=1.2" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "python-dotenv", marker = "extra == 'agent'", specifier = ">=1.0" },
-    { name = "requests", marker = "extra == 'ui'", specifier = ">=2.32" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "requests", specifier = ">=2.32" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
-    { name = "slack-bolt", marker = "extra == 'slack'", specifier = ">=1.20" },
+    { name = "slack-bolt", specifier = ">=1.20" },
     { name = "sse-starlette", specifier = ">=2.1" },
-    { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.38" },
+    { name = "streamlit", specifier = ">=1.38" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["dev", "agent", "mcp", "slack", "ui"]
+provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.5" },
+]
 
 [[package]]
 name = "aiofile"
