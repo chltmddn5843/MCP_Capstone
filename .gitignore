@@ -1,0 +1,39 @@
+# secrets / local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# data
+*.db
+*.sqlite
+*.sqlite3
+db/*.db
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# streamlit / logs
+.streamlit/secrets.toml
+*.log
+
+# 로컬 참고 문서 (커밋하지 않음)
+*.pdf
+기업 AI 활용·운영 최적화 에이전트 설계 문서.md

@@ -1,0 +1,3098 @@
+{
+  "work_mcp": {
+    "tools": [
+      {
+        "name": "get_my_profile",
+        "description": "요청자 본인의 직무, 부서, 등록 업무, 이용 가능 도구·플랜을 돌려준다.",
+        "inputSchema": {
+          "properties": {},
+          "title": "Empty",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "BillingType": {
+              "enum": [
+                "seat_flat",
+                "seat_plus_usage",
+                "api_usage"
+              ],
+              "title": "BillingType",
+              "type": "string"
+            },
+            "Contract": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "tool_id": {
+                  "title": "Tool Id",
+                  "type": "string"
+                },
+                "plan_name": {
+                  "title": "Plan Name",
+                  "type": "string"
+                },
+                "billing_type": {
+                  "$ref": "#/$defs/BillingType"
+                },
+                "seats_purchased": {
+                  "title": "Seats Purchased",
+                  "type": "integer"
+                },
+                "seat_price_krw": {
+                  "title": "Seat Price Krw",
+                  "type": "integer"
+                },
+                "term_start": {
+                  "format": "date-time",
+                  "title": "Term Start",
+                  "type": "string"
+                },
+                "term_end": {
+                  "format": "date-time",
+                  "title": "Term End",
+                  "type": "string"
+                },
+                "mid_term_reduction": {
+                  "default": false,
+                  "title": "Mid Term Reduction",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "tool_id",
+                "plan_name",
+                "billing_type",
+                "seats_purchased",
+                "seat_price_krw",
+                "term_start",
+                "term_end"
+              ],
+              "title": "Contract",
+              "type": "object"
+            },
+            "DataClass": {
+              "enum": [
+                "public",
+                "internal",
+                "confidential"
+              ],
+              "title": "DataClass",
+              "type": "string"
+            },
+            "Employee": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "email": {
+                  "title": "Email",
+                  "type": "string"
+                },
+                "dept_id": {
+                  "title": "Dept Id",
+                  "type": "string"
+                },
+                "dept_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Dept Name"
+                },
+                "role": {
+                  "$ref": "#/$defs/Role"
+                },
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/$defs/EmployeeStatus",
+                  "default": "active"
+                },
+                "hire_date": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Hire Date"
+                },
+                "slack_user_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Slack User Id"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "email",
+                "dept_id",
+                "role",
+                "job_title"
+              ],
+              "title": "Employee",
+              "type": "object"
+            },
+            "EmployeeStatus": {
+              "enum": [
+                "active",
+                "on_leave",
+                "resigned"
+              ],
+              "title": "EmployeeStatus",
+              "type": "string"
+            },
+            "RegisteredTask": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "employee_id": {
+                  "title": "Employee Id",
+                  "type": "string"
+                },
+                "title": {
+                  "title": "Title",
+                  "type": "string"
+                },
+                "description": {
+                  "title": "Description",
+                  "type": "string"
+                },
+                "frequency": {
+                  "description": "예: daily, weekly, monthly, adhoc",
+                  "title": "Frequency",
+                  "type": "string"
+                },
+                "tools_used": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Tools Used",
+                  "type": "array"
+                },
+                "source": {
+                  "$ref": "#/$defs/TaskSource",
+                  "default": "manual"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "title": "Updated At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "employee_id",
+                "title",
+                "description",
+                "frequency",
+                "updated_at"
+              ],
+              "title": "RegisteredTask",
+              "type": "object"
+            },
+            "Role": {
+              "enum": [
+                "employee",
+                "hrd",
+                "asset",
+                "approver",
+                "system"
+              ],
+              "title": "Role",
+              "type": "string"
+            },
+            "TaskSource": {
+              "enum": [
+                "manual",
+                "bot"
+              ],
+              "title": "TaskSource",
+              "type": "string"
+            },
+            "ToolApprovalStatus": {
+              "enum": [
+                "approved",
+                "under_review",
+                "denied"
+              ],
+              "title": "ToolApprovalStatus",
+              "type": "string"
+            },
+            "ToolWithPlan": {
+              "description": "list_approved_tools 출력: 도구 + 현재 계약 플랜 요약.",
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "product": {
+                  "title": "Product",
+                  "type": "string"
+                },
+                "category": {
+                  "title": "Category",
+                  "type": "string"
+                },
+                "approval_status": {
+                  "$ref": "#/$defs/ToolApprovalStatus"
+                },
+                "allowed_data_class": {
+                  "$ref": "#/$defs/DataClass"
+                },
+                "policy_note": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Policy Note"
+                },
+                "contract": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Contract"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "id",
+                "vendor",
+                "product",
+                "category",
+                "approval_status",
+                "allowed_data_class"
+              ],
+              "title": "ToolWithPlan",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "employee": {
+              "$ref": "#/$defs/Employee"
+            },
+            "tasks": {
+              "items": {
+                "$ref": "#/$defs/RegisteredTask"
+              },
+              "title": "Tasks",
+              "type": "array"
+            },
+            "available_tools": {
+              "items": {
+                "$ref": "#/$defs/ToolWithPlan"
+              },
+              "title": "Available Tools",
+              "type": "array"
+            }
+          },
+          "required": [
+            "employee",
+            "tasks",
+            "available_tools"
+          ],
+          "title": "MyProfileOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "GET /me"
+      },
+      {
+        "name": "upsert_my_task",
+        "description": "본인 업무를 등록하거나 수정한다.",
+        "inputSchema": {
+          "properties": {
+            "task_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "있으면 수정, 없으면 생성",
+              "title": "Task Id"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "frequency": {
+              "title": "Frequency",
+              "type": "string"
+            },
+            "tools_used": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Tools Used",
+              "type": "array"
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "frequency"
+          ],
+          "title": "UpsertMyTaskIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "task_id": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "title": "UpsertMyTaskOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee"
+        ],
+        "x-backend": "POST|PATCH /me/tasks"
+      },
+      {
+        "name": "list_approved_tools",
+        "description": "승인된 도구와 플랜, 과금 유형, 정책 요약을 돌려준다.",
+        "inputSchema": {
+          "properties": {
+            "category": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Category"
+            }
+          },
+          "title": "ListApprovedToolsIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "BillingType": {
+              "enum": [
+                "seat_flat",
+                "seat_plus_usage",
+                "api_usage"
+              ],
+              "title": "BillingType",
+              "type": "string"
+            },
+            "Contract": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "tool_id": {
+                  "title": "Tool Id",
+                  "type": "string"
+                },
+                "plan_name": {
+                  "title": "Plan Name",
+                  "type": "string"
+                },
+                "billing_type": {
+                  "$ref": "#/$defs/BillingType"
+                },
+                "seats_purchased": {
+                  "title": "Seats Purchased",
+                  "type": "integer"
+                },
+                "seat_price_krw": {
+                  "title": "Seat Price Krw",
+                  "type": "integer"
+                },
+                "term_start": {
+                  "format": "date-time",
+                  "title": "Term Start",
+                  "type": "string"
+                },
+                "term_end": {
+                  "format": "date-time",
+                  "title": "Term End",
+                  "type": "string"
+                },
+                "mid_term_reduction": {
+                  "default": false,
+                  "title": "Mid Term Reduction",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "tool_id",
+                "plan_name",
+                "billing_type",
+                "seats_purchased",
+                "seat_price_krw",
+                "term_start",
+                "term_end"
+              ],
+              "title": "Contract",
+              "type": "object"
+            },
+            "DataClass": {
+              "enum": [
+                "public",
+                "internal",
+                "confidential"
+              ],
+              "title": "DataClass",
+              "type": "string"
+            },
+            "ToolApprovalStatus": {
+              "enum": [
+                "approved",
+                "under_review",
+                "denied"
+              ],
+              "title": "ToolApprovalStatus",
+              "type": "string"
+            },
+            "ToolWithPlan": {
+              "description": "list_approved_tools 출력: 도구 + 현재 계약 플랜 요약.",
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "product": {
+                  "title": "Product",
+                  "type": "string"
+                },
+                "category": {
+                  "title": "Category",
+                  "type": "string"
+                },
+                "approval_status": {
+                  "$ref": "#/$defs/ToolApprovalStatus"
+                },
+                "allowed_data_class": {
+                  "$ref": "#/$defs/DataClass"
+                },
+                "policy_note": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Policy Note"
+                },
+                "contract": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Contract"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "id",
+                "vendor",
+                "product",
+                "category",
+                "approval_status",
+                "allowed_data_class"
+              ],
+              "title": "ToolWithPlan",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "tools": {
+              "items": {
+                "$ref": "#/$defs/ToolWithPlan"
+              },
+              "title": "Tools",
+              "type": "array"
+            }
+          },
+          "required": [
+            "tools"
+          ],
+          "title": "ToolListOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "GET /tools"
+      },
+      {
+        "name": "list_approved_models",
+        "description": "승인된 모델과 단가, 허용 데이터 등급을 돌려준다.",
+        "inputSchema": {
+          "$defs": {
+            "DataClass": {
+              "enum": [
+                "public",
+                "internal",
+                "confidential"
+              ],
+              "title": "DataClass",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "data_class": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DataClass"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "ListApprovedModelsIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "DataClass": {
+              "enum": [
+                "public",
+                "internal",
+                "confidential"
+              ],
+              "title": "DataClass",
+              "type": "string"
+            },
+            "Model": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "input_usd_per_mtok": {
+                  "title": "Input Usd Per Mtok",
+                  "type": "number"
+                },
+                "output_usd_per_mtok": {
+                  "title": "Output Usd Per Mtok",
+                  "type": "number"
+                },
+                "approved": {
+                  "default": true,
+                  "title": "Approved",
+                  "type": "boolean"
+                },
+                "allowed_data_class": {
+                  "$ref": "#/$defs/DataClass"
+                }
+              },
+              "required": [
+                "id",
+                "vendor",
+                "name",
+                "input_usd_per_mtok",
+                "output_usd_per_mtok",
+                "allowed_data_class"
+              ],
+              "title": "Model",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "models": {
+              "items": {
+                "$ref": "#/$defs/Model"
+              },
+              "title": "Models",
+              "type": "array"
+            }
+          },
+          "required": [
+            "models"
+          ],
+          "title": "ModelListOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "GET /models"
+      },
+      {
+        "name": "find_relevant_tasks",
+        "description": "업데이트와 관련될 수 있는 등록 업무 후보를 돌려준다. HRD에게는 팀 단위로만 보인다.",
+        "inputSchema": {
+          "properties": {
+            "update_id": {
+              "title": "Update Id",
+              "type": "string"
+            },
+            "job_filter": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "직무명 필터",
+              "title": "Job Filter"
+            }
+          },
+          "required": [
+            "update_id"
+          ],
+          "title": "FindRelevantTasksIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "RelevantTaskCandidate": {
+              "description": "HRD에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다.",
+              "properties": {
+                "task_id": {
+                  "title": "Task Id",
+                  "type": "string"
+                },
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "team_id": {
+                  "title": "Team Id",
+                  "type": "string"
+                },
+                "employee_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Employee Id"
+                },
+                "summary": {
+                  "title": "Summary",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "task_id",
+                "job_title",
+                "team_id",
+                "summary"
+              ],
+              "title": "RelevantTaskCandidate",
+              "type": "object"
+            },
+            "VendorUpdate": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "source_id": {
+                  "title": "Source Id",
+                  "type": "string"
+                },
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "published_at": {
+                  "format": "date-time",
+                  "title": "Published At",
+                  "type": "string"
+                },
+                "title": {
+                  "title": "Title",
+                  "type": "string"
+                },
+                "summary": {
+                  "title": "Summary",
+                  "type": "string"
+                },
+                "url": {
+                  "description": "원문 링크. 필수",
+                  "title": "Url",
+                  "type": "string"
+                },
+                "affected_plans": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Affected Plans",
+                  "type": "array"
+                },
+                "fetched_at": {
+                  "format": "date-time",
+                  "title": "Fetched At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "vendor",
+                "published_at",
+                "title",
+                "summary",
+                "url",
+                "fetched_at"
+              ],
+              "title": "VendorUpdate",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "update": {
+              "$ref": "#/$defs/VendorUpdate"
+            },
+            "candidates": {
+              "items": {
+                "$ref": "#/$defs/RelevantTaskCandidate"
+              },
+              "title": "Candidates",
+              "type": "array"
+            }
+          },
+          "required": [
+            "update",
+            "candidates"
+          ],
+          "title": "FindRelevantTasksOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "system",
+          "hrd"
+        ],
+        "x-backend": "GET /updates/{id}/relevant-tasks"
+      },
+      {
+        "name": "save_suggestion",
+        "description": "활용 제안을 저장한다. 관련성 근거(relevance)가 없으면 거절된다.",
+        "inputSchema": {
+          "$defs": {
+            "TargetType": {
+              "enum": [
+                "employee",
+                "team",
+                "all"
+              ],
+              "title": "TargetType",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "update_id": {
+              "title": "Update Id",
+              "type": "string"
+            },
+            "target_type": {
+              "$ref": "#/$defs/TargetType"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Id"
+            },
+            "task_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Task Id"
+            },
+            "relevance": {
+              "description": "관련성 근거. 비어 있으면 서버가 invalid로 거절",
+              "title": "Relevance",
+              "type": "string"
+            },
+            "body": {
+              "title": "Body",
+              "type": "string"
+            }
+          },
+          "required": [
+            "update_id",
+            "target_type",
+            "relevance",
+            "body"
+          ],
+          "title": "SaveSuggestionIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "SuggestionStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "sent",
+                "on_hold"
+              ],
+              "title": "SuggestionStatus",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "suggestion_id": {
+              "title": "Suggestion Id",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/SuggestionStatus"
+            }
+          },
+          "required": [
+            "suggestion_id",
+            "status"
+          ],
+          "title": "SaveSuggestionOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "system",
+          "hrd"
+        ],
+        "x-backend": "POST /suggestions"
+      },
+      {
+        "name": "get_team_adoption",
+        "description": "팀별 제안 반응과 활동 인원 비율. 5명 미만 팀은 제외.",
+        "inputSchema": {
+          "$defs": {
+            "Period": {
+              "properties": {
+                "start": {
+                  "format": "date",
+                  "title": "Start",
+                  "type": "string"
+                },
+                "end": {
+                  "format": "date",
+                  "title": "End",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "title": "Period",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "team_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Team Id"
+            },
+            "period": {
+              "$ref": "#/$defs/Period"
+            }
+          },
+          "required": [
+            "period"
+          ],
+          "title": "GetTeamAdoptionIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "TeamAdoption": {
+              "properties": {
+                "team_id": {
+                  "title": "Team Id",
+                  "type": "string"
+                },
+                "team_name": {
+                  "title": "Team Name",
+                  "type": "string"
+                },
+                "headcount": {
+                  "description": "5명 미만 팀은 목록에서 제외",
+                  "title": "Headcount",
+                  "type": "integer"
+                },
+                "suggestions_sent": {
+                  "title": "Suggestions Sent",
+                  "type": "integer"
+                },
+                "useful": {
+                  "title": "Useful",
+                  "type": "integer"
+                },
+                "irrelevant": {
+                  "title": "Irrelevant",
+                  "type": "integer"
+                },
+                "questions": {
+                  "title": "Questions",
+                  "type": "integer"
+                },
+                "active_ratio": {
+                  "description": "활동 인원 비율 0~1",
+                  "title": "Active Ratio",
+                  "type": "number"
+                },
+                "top_questions": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Top Questions",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "team_id",
+                "team_name",
+                "headcount",
+                "suggestions_sent",
+                "useful",
+                "irrelevant",
+                "questions",
+                "active_ratio"
+              ],
+              "title": "TeamAdoption",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "teams": {
+              "items": {
+                "$ref": "#/$defs/TeamAdoption"
+              },
+              "title": "Teams",
+              "type": "array"
+            }
+          },
+          "required": [
+            "teams"
+          ],
+          "title": "TeamAdoptionOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "hrd"
+        ],
+        "x-backend": "GET /adoption/teams"
+      },
+      {
+        "name": "get_eval_results",
+        "description": "업무 유형별 모델 품질 점수, 기준, 평균 토큰, 지연.",
+        "inputSchema": {
+          "properties": {
+            "task_type": {
+              "title": "Task Type",
+              "type": "string"
+            },
+            "model_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model Ids"
+            }
+          },
+          "required": [
+            "task_type"
+          ],
+          "title": "GetEvalResultsIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "EvalResult": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "task_type": {
+                  "title": "Task Type",
+                  "type": "string"
+                },
+                "model_id": {
+                  "title": "Model Id",
+                  "type": "string"
+                },
+                "quality_score": {
+                  "title": "Quality Score",
+                  "type": "number"
+                },
+                "threshold": {
+                  "title": "Threshold",
+                  "type": "number"
+                },
+                "passed": {
+                  "title": "Passed",
+                  "type": "boolean"
+                },
+                "avg_input_tokens": {
+                  "title": "Avg Input Tokens",
+                  "type": "integer"
+                },
+                "avg_output_tokens": {
+                  "title": "Avg Output Tokens",
+                  "type": "integer"
+                },
+                "latency_ms": {
+                  "title": "Latency Ms",
+                  "type": "integer"
+                },
+                "evaluated_at": {
+                  "format": "date-time",
+                  "title": "Evaluated At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "task_type",
+                "model_id",
+                "quality_score",
+                "threshold",
+                "passed",
+                "avg_input_tokens",
+                "avg_output_tokens",
+                "latency_ms",
+                "evaluated_at"
+              ],
+              "title": "EvalResult",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "task_type": {
+              "title": "Task Type",
+              "type": "string"
+            },
+            "results": {
+              "items": {
+                "$ref": "#/$defs/EvalResult"
+              },
+              "title": "Results",
+              "type": "array"
+            }
+          },
+          "required": [
+            "task_type",
+            "results"
+          ],
+          "title": "EvalResultsOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "asset",
+          "system"
+        ],
+        "x-backend": "GET /eval-results"
+      },
+      {
+        "name": "estimate_task_cost",
+        "description": "일·월 예상 비용을 코드로 계산한다. 계산식을 함께 돌려준다.",
+        "inputSchema": {
+          "properties": {
+            "model_id": {
+              "title": "Model Id",
+              "type": "string"
+            },
+            "requests_per_day": {
+              "title": "Requests Per Day",
+              "type": "integer"
+            },
+            "avg_input_tokens": {
+              "title": "Avg Input Tokens",
+              "type": "integer"
+            },
+            "avg_output_tokens": {
+              "title": "Avg Output Tokens",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "model_id",
+            "requests_per_day",
+            "avg_input_tokens",
+            "avg_output_tokens"
+          ],
+          "title": "EstimateTaskCostIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "DataClass": {
+              "enum": [
+                "public",
+                "internal",
+                "confidential"
+              ],
+              "title": "DataClass",
+              "type": "string"
+            },
+            "Model": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "input_usd_per_mtok": {
+                  "title": "Input Usd Per Mtok",
+                  "type": "number"
+                },
+                "output_usd_per_mtok": {
+                  "title": "Output Usd Per Mtok",
+                  "type": "number"
+                },
+                "approved": {
+                  "default": true,
+                  "title": "Approved",
+                  "type": "boolean"
+                },
+                "allowed_data_class": {
+                  "$ref": "#/$defs/DataClass"
+                }
+              },
+              "required": [
+                "id",
+                "vendor",
+                "name",
+                "input_usd_per_mtok",
+                "output_usd_per_mtok",
+                "allowed_data_class"
+              ],
+              "title": "Model",
+              "type": "object"
+            },
+            "Money": {
+              "properties": {
+                "krw": {
+                  "description": "원화 정수",
+                  "title": "Krw",
+                  "type": "integer"
+                },
+                "usd": {
+                  "description": "달러 소수",
+                  "title": "Usd",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "krw",
+                "usd"
+              ],
+              "title": "Money",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/Model"
+            },
+            "daily": {
+              "$ref": "#/$defs/Money"
+            },
+            "monthly": {
+              "$ref": "#/$defs/Money"
+            },
+            "fx_rate_krw_per_usd": {
+              "title": "Fx Rate Krw Per Usd",
+              "type": "number"
+            },
+            "formula": {
+              "description": "사람이 읽는 계산식",
+              "title": "Formula",
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "daily",
+            "monthly",
+            "fx_rate_krw_per_usd",
+            "formula"
+          ],
+          "title": "TaskCostEstimateResponse",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "POST /estimates/task-cost"
+      },
+      {
+        "name": "get_usage_summary",
+        "description": "범위별 요청 수, 토큰, 비용, 마지막 활동 시각. 직원은 본인만.",
+        "inputSchema": {
+          "$defs": {
+            "Period": {
+              "properties": {
+                "start": {
+                  "format": "date",
+                  "title": "Start",
+                  "type": "string"
+                },
+                "end": {
+                  "format": "date",
+                  "title": "End",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "title": "Period",
+              "type": "object"
+            },
+            "UsageScope": {
+              "enum": [
+                "employee",
+                "project",
+                "dept",
+                "contract"
+              ],
+              "title": "UsageScope",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/UsageScope"
+            },
+            "scope_id": {
+              "title": "Scope Id",
+              "type": "string"
+            },
+            "period": {
+              "$ref": "#/$defs/Period"
+            }
+          },
+          "required": [
+            "scope",
+            "scope_id",
+            "period"
+          ],
+          "title": "GetUsageSummaryIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "Money": {
+              "properties": {
+                "krw": {
+                  "description": "원화 정수",
+                  "title": "Krw",
+                  "type": "integer"
+                },
+                "usd": {
+                  "description": "달러 소수",
+                  "title": "Usd",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "krw",
+                "usd"
+              ],
+              "title": "Money",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "scope": {
+              "title": "Scope",
+              "type": "string"
+            },
+            "scope_id": {
+              "title": "Scope Id",
+              "type": "string"
+            },
+            "period_start": {
+              "format": "date-time",
+              "title": "Period Start",
+              "type": "string"
+            },
+            "period_end": {
+              "format": "date-time",
+              "title": "Period End",
+              "type": "string"
+            },
+            "requests": {
+              "title": "Requests",
+              "type": "integer"
+            },
+            "input_tokens": {
+              "title": "Input Tokens",
+              "type": "integer"
+            },
+            "output_tokens": {
+              "title": "Output Tokens",
+              "type": "integer"
+            },
+            "cost": {
+              "$ref": "#/$defs/Money"
+            },
+            "last_activity_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Last Activity At"
+            }
+          },
+          "required": [
+            "scope",
+            "scope_id",
+            "period_start",
+            "period_end",
+            "requests",
+            "input_tokens",
+            "output_tokens",
+            "cost"
+          ],
+          "title": "UsageSummary",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "asset",
+          "system"
+        ],
+        "x-backend": "GET /usage"
+      },
+      {
+        "name": "get_usage_breakdown",
+        "description": "프로젝트 사용량을 모델·API 키·입력 길이 구간별로 나눈다.",
+        "inputSchema": {
+          "$defs": {
+            "BreakdownBy": {
+              "enum": [
+                "model",
+                "api_key",
+                "input_length"
+              ],
+              "title": "BreakdownBy",
+              "type": "string"
+            },
+            "Period": {
+              "properties": {
+                "start": {
+                  "format": "date",
+                  "title": "Start",
+                  "type": "string"
+                },
+                "end": {
+                  "format": "date",
+                  "title": "End",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "title": "Period",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "period": {
+              "$ref": "#/$defs/Period"
+            },
+            "by": {
+              "$ref": "#/$defs/BreakdownBy"
+            }
+          },
+          "required": [
+            "project_id",
+            "period",
+            "by"
+          ],
+          "title": "GetUsageBreakdownIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "BreakdownBy": {
+              "enum": [
+                "model",
+                "api_key",
+                "input_length"
+              ],
+              "title": "BreakdownBy",
+              "type": "string"
+            },
+            "BreakdownRow": {
+              "properties": {
+                "key": {
+                  "description": "model명, api_key id, 또는 입력 길이 구간(예: 0-1k)",
+                  "title": "Key",
+                  "type": "string"
+                },
+                "requests": {
+                  "title": "Requests",
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "title": "Input Tokens",
+                  "type": "integer"
+                },
+                "output_tokens": {
+                  "title": "Output Tokens",
+                  "type": "integer"
+                },
+                "cost": {
+                  "$ref": "#/$defs/Money"
+                },
+                "share": {
+                  "description": "전체 대비 비율 0~1",
+                  "title": "Share",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "key",
+                "requests",
+                "input_tokens",
+                "output_tokens",
+                "cost",
+                "share"
+              ],
+              "title": "BreakdownRow",
+              "type": "object"
+            },
+            "Money": {
+              "properties": {
+                "krw": {
+                  "description": "원화 정수",
+                  "title": "Krw",
+                  "type": "integer"
+                },
+                "usd": {
+                  "description": "달러 소수",
+                  "title": "Usd",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "krw",
+                "usd"
+              ],
+              "title": "Money",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "by": {
+              "$ref": "#/$defs/BreakdownBy"
+            },
+            "rows": {
+              "items": {
+                "$ref": "#/$defs/BreakdownRow"
+              },
+              "title": "Rows",
+              "type": "array"
+            }
+          },
+          "required": [
+            "project_id",
+            "by",
+            "rows"
+          ],
+          "title": "UsageBreakdownOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "asset",
+          "system"
+        ],
+        "x-backend": "GET /usage?group_by="
+      },
+      {
+        "name": "get_anomalies",
+        "description": "사용량 경보 목록.",
+        "inputSchema": {
+          "$defs": {
+            "AnomalyStatus": {
+              "enum": [
+                "open",
+                "investigating",
+                "resolved"
+              ],
+              "title": "AnomalyStatus",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "status": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AnomalyStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "title": "GetAnomaliesIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "Anomaly": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "scope_type": {
+                  "title": "Scope Type",
+                  "type": "string"
+                },
+                "scope_id": {
+                  "title": "Scope Id",
+                  "type": "string"
+                },
+                "scope_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Scope Name"
+                },
+                "rule": {
+                  "description": "예: daily_cost_gt_3x_baseline",
+                  "title": "Rule",
+                  "type": "string"
+                },
+                "baseline": {
+                  "title": "Baseline",
+                  "type": "number"
+                },
+                "observed": {
+                  "title": "Observed",
+                  "type": "number"
+                },
+                "ratio": {
+                  "title": "Ratio",
+                  "type": "number"
+                },
+                "projected_monthly_cost": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Money"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "status": {
+                  "$ref": "#/$defs/AnomalyStatus"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "title": "Created At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "scope_type",
+                "scope_id",
+                "rule",
+                "baseline",
+                "observed",
+                "ratio",
+                "status",
+                "created_at"
+              ],
+              "title": "Anomaly",
+              "type": "object"
+            },
+            "AnomalyStatus": {
+              "enum": [
+                "open",
+                "investigating",
+                "resolved"
+              ],
+              "title": "AnomalyStatus",
+              "type": "string"
+            },
+            "Money": {
+              "properties": {
+                "krw": {
+                  "description": "원화 정수",
+                  "title": "Krw",
+                  "type": "integer"
+                },
+                "usd": {
+                  "description": "달러 소수",
+                  "title": "Usd",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "krw",
+                "usd"
+              ],
+              "title": "Money",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "anomalies": {
+              "items": {
+                "$ref": "#/$defs/Anomaly"
+              },
+              "title": "Anomalies",
+              "type": "array"
+            }
+          },
+          "required": [
+            "anomalies"
+          ],
+          "title": "AnomaliesOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "asset",
+          "system"
+        ],
+        "x-backend": "GET /anomalies"
+      },
+      {
+        "name": "get_license_inventory",
+        "description": "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.",
+        "inputSchema": {
+          "properties": {
+            "contract_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Contract Id"
+            }
+          },
+          "title": "GetLicenseInventoryIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "BillingType": {
+              "enum": [
+                "seat_flat",
+                "seat_plus_usage",
+                "api_usage"
+              ],
+              "title": "BillingType",
+              "type": "string"
+            },
+            "Contract": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "tool_id": {
+                  "title": "Tool Id",
+                  "type": "string"
+                },
+                "plan_name": {
+                  "title": "Plan Name",
+                  "type": "string"
+                },
+                "billing_type": {
+                  "$ref": "#/$defs/BillingType"
+                },
+                "seats_purchased": {
+                  "title": "Seats Purchased",
+                  "type": "integer"
+                },
+                "seat_price_krw": {
+                  "title": "Seat Price Krw",
+                  "type": "integer"
+                },
+                "term_start": {
+                  "format": "date-time",
+                  "title": "Term Start",
+                  "type": "string"
+                },
+                "term_end": {
+                  "format": "date-time",
+                  "title": "Term End",
+                  "type": "string"
+                },
+                "mid_term_reduction": {
+                  "default": false,
+                  "title": "Mid Term Reduction",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "tool_id",
+                "plan_name",
+                "billing_type",
+                "seats_purchased",
+                "seat_price_krw",
+                "term_start",
+                "term_end"
+              ],
+              "title": "Contract",
+              "type": "object"
+            },
+            "ContractInventory": {
+              "properties": {
+                "contract": {
+                  "$ref": "#/$defs/Contract"
+                },
+                "tool_name": {
+                  "title": "Tool Name",
+                  "type": "string"
+                },
+                "purchased": {
+                  "title": "Purchased",
+                  "type": "integer"
+                },
+                "assigned": {
+                  "title": "Assigned",
+                  "type": "integer"
+                },
+                "unassigned": {
+                  "title": "Unassigned",
+                  "type": "integer"
+                },
+                "low_usage_candidates": {
+                  "items": {
+                    "$ref": "#/$defs/LowUsageCandidate"
+                  },
+                  "title": "Low Usage Candidates",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "contract",
+                "tool_name",
+                "purchased",
+                "assigned",
+                "unassigned",
+                "low_usage_candidates"
+              ],
+              "title": "ContractInventory",
+              "type": "object"
+            },
+            "LicenseFlag": {
+              "description": "저사용 후보 분류. 기록 없음은 '미사용'이 아니라 '확인 필요'다.",
+              "enum": [
+                "unused",
+                "on_leave",
+                "no_record",
+                "recent_hire"
+              ],
+              "title": "LicenseFlag",
+              "type": "string"
+            },
+            "LowUsageCandidate": {
+              "properties": {
+                "employee_id": {
+                  "title": "Employee Id",
+                  "type": "string"
+                },
+                "employee_name": {
+                  "title": "Employee Name",
+                  "type": "string"
+                },
+                "dept_name": {
+                  "title": "Dept Name",
+                  "type": "string"
+                },
+                "last_activity_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Last Activity At"
+                },
+                "flag": {
+                  "$ref": "#/$defs/LicenseFlag"
+                },
+                "needs_confirmation": {
+                  "title": "Needs Confirmation",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "employee_id",
+                "employee_name",
+                "dept_name",
+                "last_activity_at",
+                "flag",
+                "needs_confirmation"
+              ],
+              "title": "LowUsageCandidate",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "contracts": {
+              "items": {
+                "$ref": "#/$defs/ContractInventory"
+              },
+              "title": "Contracts",
+              "type": "array"
+            }
+          },
+          "required": [
+            "contracts"
+          ],
+          "title": "LicenseInventoryOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "asset",
+          "system"
+        ],
+        "x-backend": "GET /inventory"
+      },
+      {
+        "name": "record_unmet_need",
+        "description": "승인 도구로 해결되지 않는 수요를 기록한다.",
+        "inputSchema": {
+          "properties": {
+            "summary": {
+              "title": "Summary",
+              "type": "string"
+            },
+            "capability_tag": {
+              "title": "Capability Tag",
+              "type": "string"
+            }
+          },
+          "required": [
+            "summary",
+            "capability_tag"
+          ],
+          "title": "RecordUnmetNeedIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "need_id": {
+              "title": "Need Id",
+              "type": "string"
+            },
+            "same_tag_count": {
+              "title": "Same Tag Count",
+              "type": "integer"
+            },
+            "threshold_met": {
+              "title": "Threshold Met",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "need_id",
+            "same_tag_count",
+            "threshold_met"
+          ],
+          "title": "RecordUnmetNeedOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset"
+        ],
+        "x-backend": "POST /unmet-needs"
+      },
+      {
+        "name": "list_unmet_needs",
+        "description": "미충족 수요를 태그별로 집계한다.",
+        "inputSchema": {
+          "properties": {
+            "min_count": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Min Count"
+            },
+            "capability_tag": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Capability Tag"
+            }
+          },
+          "title": "ListUnmetNeedsIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "UnmetNeedAggregate": {
+              "properties": {
+                "capability_tag": {
+                  "title": "Capability Tag",
+                  "type": "string"
+                },
+                "count": {
+                  "title": "Count",
+                  "type": "integer"
+                },
+                "dept_count": {
+                  "title": "Dept Count",
+                  "type": "integer"
+                },
+                "threshold_met": {
+                  "title": "Threshold Met",
+                  "type": "boolean"
+                },
+                "sample_summaries": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Sample Summaries",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "capability_tag",
+                "count",
+                "dept_count",
+                "threshold_met"
+              ],
+              "title": "UnmetNeedAggregate",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "aggregates": {
+              "items": {
+                "$ref": "#/$defs/UnmetNeedAggregate"
+              },
+              "title": "Aggregates",
+              "type": "array"
+            }
+          },
+          "required": [
+            "aggregates"
+          ],
+          "title": "ListUnmetNeedsOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "hrd",
+          "asset"
+        ],
+        "x-backend": "GET /unmet-needs"
+      },
+      {
+        "name": "request_confirmation",
+        "description": "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.",
+        "inputSchema": {
+          "properties": {
+            "employee_id": {
+              "title": "Employee Id",
+              "type": "string"
+            },
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "question": {
+              "title": "Question",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employee_id",
+            "plan_id",
+            "question"
+          ],
+          "title": "RequestConfirmationIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "confirmation_id": {
+              "title": "Confirmation Id",
+              "type": "string"
+            },
+            "due_at": {
+              "format": "date-time",
+              "title": "Due At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "confirmation_id",
+            "due_at"
+          ],
+          "title": "RequestConfirmationOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "asset"
+        ],
+        "x-backend": "POST /confirmations (via plans)"
+      },
+      {
+        "name": "create_action_plan",
+        "description": "조치안을 만든다. 위험도는 서버가 산정하고, 실행은 승인 뒤 별도로 한다.",
+        "inputSchema": {
+          "$defs": {
+            "Evidence": {
+              "description": "에이전트가 조치안·답변에 붙이는 근거 한 건.",
+              "properties": {
+                "source": {
+                  "description": "예: usage_records, vendor_update, eval_results",
+                  "title": "Source",
+                  "type": "string"
+                },
+                "ref": {
+                  "description": "예: 레코드 id, URL",
+                  "title": "Ref",
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {},
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Value"
+                }
+              },
+              "required": [
+                "source",
+                "ref"
+              ],
+              "title": "Evidence",
+              "type": "object"
+            },
+            "PlanType": {
+              "enum": [
+                "seat_assign",
+                "seat_reclaim",
+                "model_change",
+                "notice_send",
+                "budget_review",
+                "purchase_review"
+              ],
+              "title": "PlanType",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/PlanType"
+            },
+            "items": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Items",
+              "type": "array"
+            },
+            "rationale": {
+              "title": "Rationale",
+              "type": "string"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/Evidence"
+              },
+              "title": "Evidence",
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "items",
+            "rationale",
+            "evidence"
+          ],
+          "title": "CreateActionPlanIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "PlanStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "approved",
+                "executed",
+                "failed",
+                "rejected"
+              ],
+              "title": "PlanStatus",
+              "type": "string"
+            },
+            "RiskLevel": {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "title": "RiskLevel",
+              "type": "string"
+            },
+            "Role": {
+              "enum": [
+                "employee",
+                "hrd",
+                "asset",
+                "approver",
+                "system"
+              ],
+              "title": "Role",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "risk_level": {
+              "$ref": "#/$defs/RiskLevel"
+            },
+            "status": {
+              "$ref": "#/$defs/PlanStatus"
+            },
+            "approvers_required": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/Role"
+              },
+              "title": "Approvers Required",
+              "type": "array"
+            }
+          },
+          "required": [
+            "plan_id",
+            "risk_level",
+            "status"
+          ],
+          "title": "CreateActionPlanOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "system"
+        ],
+        "x-backend": "POST /plans"
+      },
+      {
+        "name": "get_plan_status",
+        "description": "조치안 상태, 승인자, 결과.",
+        "inputSchema": {
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plan_id"
+          ],
+          "title": "GetPlanStatusIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "ActionPlan": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "type": {
+                  "$ref": "#/$defs/PlanType"
+                },
+                "risk_level": {
+                  "$ref": "#/$defs/RiskLevel"
+                },
+                "status": {
+                  "$ref": "#/$defs/PlanStatus"
+                },
+                "items": {
+                  "description": "type별 실행 항목. 예: [{employee_id, contract_id}]",
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Items",
+                  "type": "array"
+                },
+                "rationale": {
+                  "title": "Rationale",
+                  "type": "string"
+                },
+                "evidence": {
+                  "default": [],
+                  "items": {
+                    "$ref": "#/$defs/Evidence"
+                  },
+                  "title": "Evidence",
+                  "type": "array"
+                },
+                "requested_by": {
+                  "title": "Requested By",
+                  "type": "string"
+                },
+                "approver_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Approver Id"
+                },
+                "approved_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Approved At"
+                },
+                "executed_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Executed At"
+                },
+                "result": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Result"
+                },
+                "reject_reason": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Reject Reason"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "title": "Created At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "risk_level",
+                "status",
+                "items",
+                "rationale",
+                "requested_by",
+                "created_at"
+              ],
+              "title": "ActionPlan",
+              "type": "object"
+            },
+            "Evidence": {
+              "description": "에이전트가 조치안·답변에 붙이는 근거 한 건.",
+              "properties": {
+                "source": {
+                  "description": "예: usage_records, vendor_update, eval_results",
+                  "title": "Source",
+                  "type": "string"
+                },
+                "ref": {
+                  "description": "예: 레코드 id, URL",
+                  "title": "Ref",
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {},
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Value"
+                }
+              },
+              "required": [
+                "source",
+                "ref"
+              ],
+              "title": "Evidence",
+              "type": "object"
+            },
+            "PlanStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "approved",
+                "executed",
+                "failed",
+                "rejected"
+              ],
+              "title": "PlanStatus",
+              "type": "string"
+            },
+            "PlanType": {
+              "enum": [
+                "seat_assign",
+                "seat_reclaim",
+                "model_change",
+                "notice_send",
+                "budget_review",
+                "purchase_review"
+              ],
+              "title": "PlanType",
+              "type": "string"
+            },
+            "RiskLevel": {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "title": "RiskLevel",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "plan": {
+              "$ref": "#/$defs/ActionPlan"
+            }
+          },
+          "required": [
+            "plan"
+          ],
+          "title": "PlanStatusOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "GET /plans/{id}"
+      },
+      {
+        "name": "execute_approved_plan",
+        "description": "승인된 조치안을 실행한다. 서버가 승인 상태와 대상 현재 상태를 재확인하고 다르면 stale로 멈춘다.",
+        "inputSchema": {
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "title": "Idempotency Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plan_id",
+            "idempotency_key"
+          ],
+          "title": "ExecuteApprovedPlanIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "PlanStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "approved",
+                "executed",
+                "failed",
+                "rejected"
+              ],
+              "title": "PlanStatus",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/PlanStatus"
+            },
+            "result": {
+              "additionalProperties": true,
+              "title": "Result",
+              "type": "object"
+            },
+            "verified": {
+              "additionalProperties": true,
+              "title": "Verified",
+              "type": "object"
+            }
+          },
+          "required": [
+            "plan_id",
+            "status",
+            "result",
+            "verified"
+          ],
+          "title": "ExecuteApprovedPlanOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true
+        },
+        "x-roles": [
+          "asset",
+          "system"
+        ],
+        "x-backend": "POST /plans/{id}/execute"
+      }
+    ]
+  },
+  "docs_mcp": {
+    "tools": [
+      {
+        "name": "search_vendor_docs",
+        "description": "허용 목록 벤더 공식 문서를 검색한다. 발췌와 원문 URL을 돌려준다.",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            },
+            "vendor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Vendor"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Kind"
+            },
+            "candidates_only": {
+              "default": false,
+              "title": "Candidates Only",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "SearchVendorDocsIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "DocHit": {
+              "properties": {
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "title": {
+                  "title": "Title",
+                  "type": "string"
+                },
+                "excerpt": {
+                  "title": "Excerpt",
+                  "type": "string"
+                },
+                "url": {
+                  "title": "Url",
+                  "type": "string"
+                },
+                "published_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Published At"
+                },
+                "score": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Score"
+                }
+              },
+              "required": [
+                "vendor",
+                "title",
+                "excerpt",
+                "url"
+              ],
+              "title": "DocHit",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "hits": {
+              "items": {
+                "$ref": "#/$defs/DocHit"
+              },
+              "title": "Hits",
+              "type": "array"
+            }
+          },
+          "required": [
+            "hits"
+          ],
+          "title": "SearchVendorDocsOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "FTS5"
+      },
+      {
+        "name": "get_vendor_update",
+        "description": "수집된 업데이트 한 건의 제목, 요약, 대상 플랜, 원문 URL.",
+        "inputSchema": {
+          "properties": {
+            "update_id": {
+              "title": "Update Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "update_id"
+          ],
+          "title": "GetVendorUpdateIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "source_id": {
+              "title": "Source Id",
+              "type": "string"
+            },
+            "vendor": {
+              "title": "Vendor",
+              "type": "string"
+            },
+            "published_at": {
+              "format": "date-time",
+              "title": "Published At",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "summary": {
+              "title": "Summary",
+              "type": "string"
+            },
+            "url": {
+              "description": "원문 링크. 필수",
+              "title": "Url",
+              "type": "string"
+            },
+            "affected_plans": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Affected Plans",
+              "type": "array"
+            },
+            "fetched_at": {
+              "format": "date-time",
+              "title": "Fetched At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "source_id",
+            "vendor",
+            "published_at",
+            "title",
+            "summary",
+            "url",
+            "fetched_at"
+          ],
+          "title": "VendorUpdate",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "GET /updates/{id}"
+      },
+      {
+        "name": "search_internal_policy",
+        "description": "사내 AI 사용 정책을 검색한다.",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "SearchInternalPolicyIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "PolicyHit": {
+              "properties": {
+                "clause": {
+                  "title": "Clause",
+                  "type": "string"
+                },
+                "location": {
+                  "description": "문서명·절 번호",
+                  "title": "Location",
+                  "type": "string"
+                },
+                "text": {
+                  "title": "Text",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clause",
+                "location",
+                "text"
+              ],
+              "title": "PolicyHit",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "hits": {
+              "items": {
+                "$ref": "#/$defs/PolicyHit"
+              },
+              "title": "Hits",
+              "type": "array"
+            }
+          },
+          "required": [
+            "hits"
+          ],
+          "title": "SearchInternalPolicyOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee",
+          "hrd",
+          "asset",
+          "approver",
+          "system"
+        ],
+        "x-backend": "FTS5"
+      }
+    ]
+  },
+  "resources": {
+    "policy://ai-usage": "사내 AI 사용 정책 전문",
+    "policy://notification": "알림 정책 (9절)",
+    "policy://approval-matrix": "위험도별 승인 기준 (11절)",
+    "catalog://approved-tools": "승인 도구·플랜 스냅샷",
+    "contract://{id}/summary": "계약 요약",
+    "me://profile": "요청자 본인 프로필·등록 업무"
+  },
+  "prompts": {
+    "review_update": [
+      "update_id"
+    ],
+    "draft_role_guide": [
+      "job_title"
+    ],
+    "recommend_model": [
+      "task_description"
+    ],
+    "investigate_anomaly": [
+      "anomaly_id"
+    ],
+    "review_seat_request": [
+      "plan_id"
+    ],
+    "compare_candidates": [
+      "capability_tag"
+    ]
+  }
+}
