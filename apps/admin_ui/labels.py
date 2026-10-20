@@ -1,45 +1,51 @@
-"""화면 용어. 코드 값(enum·도구 이름·태그)을 사용자가 읽는 말로 바꾼다. 한 곳에서만 관리한다."""
+"""화면 용어 (docs/설계문서.md 0절). 코드 값(enum·MCP 도구 이름·태그)을 사용자가 읽는 말로 바꾼다. 한 곳에서만 관리한다.
+
+규칙: 화면에서는 '제품·구독·이용권·처리 요청·승인 대기·참고한 데이터'를 쓴다. '도구'라는 말은 화면에 쓰지 않는다.
+"""
 
 from __future__ import annotations
 
-ROLE = {"employee": "직원", "hrd": "HRD (교육 담당)", "asset": "자산관리 담당", "approver": "승인자 (IT·보안 책임자)", "system": "시스템"}
+ROLE = {"employee": "직원", "hrd": "HRD (교육 담당)", "asset": "관리자", "admin": "관리자", "approver": "관리자 (책임자)", "system": "시스템"}
 ROLE_DESC = {
-    "employee": "AI 비서에게 업무를 설명하고 도구·모델 추천을 받거나 이용권을 신청할 수 있습니다. 본인 업무와 본인 사용량만 봅니다.",
-    "hrd": "팀 단위 활용 현황을 보고, 업데이트를 직원 업무에 연결하는 제안을 만들고, 팀·전사 공지를 승인합니다. 개인별 지표는 보이지 않습니다.",
-    "asset": "이용권 현황과 비용 경보를 보고, 조치안을 만들고 승인·실행합니다. 도입 검토 요청(미충족 수요)도 여기서 봅니다.",
-    "approver": "위험도가 높은 조치(구매, 운영 환경 변경)와 승인 대기 조치안을 결정합니다.",
+    "employee": "AI 비서에게 업무를 설명하면 승인 제품·모델을 추천받고, 이용권을 신청할 수 있습니다. 본인 업무와 본인 사용량만 봅니다.",
+    "hrd": "팀 단위 활용 현황과 자동 제안 기록을 봅니다. 개인별 지표는 보이지 않습니다.",
+    "asset": "이용권, 비용 급증 알림, 승인 대기, 미지원 요청을 한곳에서 관리합니다. 보안 책임과 승인 권한을 함께 가집니다.",
+    "admin": "이용권, 비용 급증 알림, 승인 대기, 미지원 요청을 한곳에서 관리합니다. 보안 책임과 승인 권한을 함께 가집니다.",
+    "approver": "책임자 결정이 필요한 요청(구매, 운영 환경 변경)과 승인 대기 요청을 결정합니다.",
     "system": "배치 계정입니다.",
 }
 PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "notice_send": "공지 발송", "budget_review": "예산 검토", "purchase_review": "구매 검토"}
-PLAN_STATUS = {"draft": "초안", "pending_approval": "승인 대기", "approved": "승인됨 (실행 대기)", "executed": "실행 완료", "failed": "실패", "rejected": "반려"}
-RISK = {"low": "낮음 · 자동 처리", "medium": "중간 · 승인 필요", "high": "높음 · 요청만 생성"}
-FLAG = {"unused": "장기 미사용", "on_leave": "휴직 중", "no_record": "사용 기록 없음 → 확인 필요", "recent_hire": "최근 입사 (정상)"}
+PLAN_STATUS = {"draft": "작성 중", "pending_approval": "승인 대기", "approved": "승인됨 · 처리 전", "executed": "처리 완료", "failed": "처리 실패", "rejected": "반려"}
+RISK = {"low": "바로 처리", "medium": "담당자 승인", "high": "책임자 결정 · 요청만 기록"}
+FLAG = {"unused": "장기 미사용", "on_leave": "휴직 중", "no_record": "사용 기록 없음 → 본인 확인 필요", "recent_hire": "최근 입사 (정상)"}
 BILLING = {"seat_flat": "정액 좌석제", "seat_plus_usage": "좌석 + 사용량 과금", "api_usage": "API 사용량 과금"}
-TASK_STATUS = {"queued": "대기", "running": "처리 중", "waiting_approval": "담당자 승인 대기", "done": "완료", "failed": "실패"}
-SUGGESTION_STATUS = {"draft": "초안", "pending_approval": "승인 대기", "sent": "발송됨", "on_hold": "보류"}
-ANOMALY_STATUS = {"open": "미처리", "investigating": "조사 중", "resolved": "처리 완료"}
-SAVINGS = {"purchase_avoided": "구매 회피", "renewal_reduced": "갱신 절감", "billing_reduced": "청구 감소", "projected": "예상 절감"}
+TASK_STATUS = {"queued": "대기", "running": "처리 중", "waiting_approval": "관리자 확인 대기", "done": "완료", "failed": "실패"}
+SUGGESTION_STATUS = {"draft": "작성됨", "pending_approval": "발송 대기", "sent": "보냄", "on_hold": "보내지 않음"}
+ANOMALY_STATUS = {"open": "확인 전", "investigating": "조사 중", "resolved": "처리 완료"}
+SAVINGS = {"purchase_avoided": "아낀 구매 비용", "renewal_reduced": "갱신 때 줄인 비용", "billing_reduced": "줄어든 청구액", "projected": "예상 절감"}
+# MCP 도구 이름 → 진행 상태 문구 ("… 중" 뒤에 붙는다)
 TOOL = {
-    "get_my_profile": "내 프로필·등록 업무 확인", "upsert_my_task": "업무 등록", "list_approved_tools": "승인 도구·플랜 확인",
-    "list_approved_models": "승인 모델·단가 확인", "find_relevant_tasks": "관련 업무 찾기", "save_suggestion": "활용 제안 저장",
-    "get_team_adoption": "팀 활용 지표 조회", "get_eval_results": "모델 품질 평가 조회", "estimate_task_cost": "예상 비용 계산",
-    "get_usage_summary": "사용량 조회", "get_usage_breakdown": "사용량 세부 분석", "get_anomalies": "비용 경보 조회",
-    "get_license_inventory": "이용권 현황 조회", "record_unmet_need": "도입 검토 요청 기록", "list_unmet_needs": "도입 검토 요청 집계",
-    "request_confirmation": "사용 의사 확인 요청", "create_action_plan": "조치안 작성", "get_plan_status": "조치안 상태 확인",
-    "execute_approved_plan": "승인된 조치 실행", "search_vendor_docs": "벤더 공식 문서 검색", "get_vendor_update": "업데이트 내용 확인",
-    "search_internal_policy": "사내 정책 검색",
+    "get_my_profile": "내 정보와 등록 업무 확인", "upsert_my_task": "업무 등록", "list_approved_tools": "승인 제품·플랜 확인",
+    "list_approved_models": "승인 모델·단가 확인", "find_relevant_tasks": "관련 팀·업무 찾기", "save_suggestion": "활용 제안 저장",
+    "get_team_adoption": "팀별 활용 현황 조회", "get_eval_results": "모델 품질 평가 조회", "estimate_task_cost": "예상 비용 계산",
+    "get_usage_summary": "사용량 조회", "get_usage_breakdown": "사용량 세부 분석", "get_anomalies": "비용 급증 알림 조회",
+    "get_anomaly_detail": "알림 상세와 프로젝트 정보 확인", "get_license_inventory": "이용권 현황 조회",
+    "record_unmet_need": "미지원 요청 기록", "list_unmet_needs": "미지원 요청 집계", "request_confirmation": "사용 의사 확인 요청",
+    "create_action_plan": "처리 요청 작성", "get_plan_status": "처리 요청 상태 확인", "execute_approved_plan": "승인된 요청 처리",
+    "search_vendor_docs": "제품 공식 문서 검색", "get_vendor_update": "업데이트 내용 확인", "search_internal_policy": "사내 정책 검색",
 }
 CAPABILITY = {"contract_compare": "계약서 비교", "doc_compare": "문서 비교", "image_gen": "이미지 생성", "meeting_summary": "회의록 요약",
-              "code_review": "코드 리뷰", "translation": "번역", "data_extraction": "문서에서 데이터 추출"}
+              "code_review": "코드 리뷰", "translation": "번역", "data_extraction": "문서에서 데이터 추출", "pdf_edit": "PDF 편집"}
 ERROR_CODE = {"unauthorized": "로그인이 필요합니다", "forbidden": "권한이 없습니다", "not_found": "찾을 수 없습니다", "invalid": "입력이 올바르지 않습니다",
-              "conflict": "현재 상태에서는 할 수 없습니다", "stale": "승인 뒤 상황이 바뀌어 실행을 멈췄습니다", "rejected": "승인자가 거절했습니다"}
+              "conflict": "현재 상태에서는 할 수 없습니다", "stale": "승인 뒤 상황이 바뀌어 처리를 멈췄습니다", "rejected": "관리자가 거절했습니다"}
 
 QUICK_PROMPTS = {
     "employee": ["AI-A 이용권 신청하고 싶어요", "고객 문의 1,000건을 매일 10개 유형으로 분류하는데 비용을 줄일 수 있을까요?", "문서 비교 기능을 회사 플랜에서 써도 되나요?", "내 등록 업무 알려줘"],
-    "hrd": ["최근 업데이트 중 우리 직원 업무에 도움 되는 게 있는지 검토해줘", "마케팅 팀 활용 현황 요약해줘", "교육기획 직무 가이드 초안 만들어줘"],
-    "asset": ["견적서 요약 프로젝트 비용이 왜 늘었는지 조사해줘", "저사용 이용권을 검토해서 조치안을 제안해줘", "박서준 님 AI-A 이용권 배정해줘", "이번 달 절감 기록 요약해줘"],
-    "approver": ["승인 대기 중인 조치안을 근거와 함께 요약해줘"],
+    "hrd": ["최근 업데이트 중 직원 업무에 도움 되는 게 있는지 검토해줘", "마케팅 팀 활용 현황 요약해줘"],
+    "asset": ["견적서 요약 프로젝트 비용이 왜 늘었는지 조사해줘", "안 쓰는 것으로 보이는 이용권을 검토해서 처리 요청을 제안해줘", "박서준 님 AI-A 이용권 배정해줘", "이번 달 절감 기록 요약해줘"],
+    "approver": ["승인 대기 중인 요청을 참고 데이터와 함께 요약해줘"],
 }
+QUICK_PROMPTS["admin"] = QUICK_PROMPTS["asset"]
 
 
 def cap(tag: str) -> str:

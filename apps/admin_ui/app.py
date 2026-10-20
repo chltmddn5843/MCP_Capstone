@@ -40,9 +40,9 @@ role = me["role"]
 # ---------- 직원 ----------
 def employee_view() -> None:
     st.header(f"안녕하세요, {me['name']} 님")
-    t_ask, t_mine, t_hist = st.tabs(["AI 비서", "내 업무와 이용권", "요청 이력"])
+    t_ask, t_mine, t_hist = st.tabs(["AI 비서", "내 업무와 이용권", "내 요청"])
     with t_ask:
-        st.caption("업무를 설명하면 승인된 도구·모델 중에서 추천하고, 이용권 신청도 대신 접수합니다. 대화 내용은 저장하지 않고 주제와 요약만 남깁니다.")
+        st.caption("업무를 설명하면 승인된 제품·모델 중에서 추천하고, 이용권 신청도 대신 접수합니다. 대화 내용은 저장하지 않고 주제와 요약만 남깁니다.")
         assistant_panel("employee")
     with t_mine:
         prof = api("GET", "/me")
@@ -50,16 +50,19 @@ def employee_view() -> None:
             st.subheader("등록한 업무")
             st.caption("여기 등록된 업무를 기준으로 새 기능 제안과 모델 추천이 맞춰집니다. AI 비서에게 말하면 등록·수정할 수 있습니다.")
             if prof["tasks"]:
-                st.dataframe([{"업무": t["title"], "설명": t["description"], "주기": t["frequency"], "사용 도구": ", ".join(t["tools_used"])} for t in prof["tasks"]], width="stretch", hide_index=True)
+                st.dataframe([{"업무": t["title"], "설명": t["description"], "주기": t["frequency"], "사용 제품": ", ".join(t["tools_used"])} for t in prof["tasks"]], width="stretch", hide_index=True)
             else:
                 st.caption("등록된 업무가 없습니다.")
-            st.subheader("내가 쓸 수 있는 AI 도구")
-            st.dataframe([{"도구": t["product"], "제공사": t["vendor"], "플랜": (t.get("contract") or {}).get("plan_name", "-"),
+            st.subheader("내가 쓸 수 있는 제품")
+            st.dataframe([{"제품": t["product"], "제공사": t["vendor"], "플랜": (t.get("contract") or {}).get("plan_name", "-"),
                            "과금": L.BILLING.get((t.get("contract") or {}).get("billing_type", ""), "-"), "허용 데이터": t["allowed_data_class"], "유의사항": t.get("policy_note") or ""} for t in prof["available_tools"]], width="stretch", hide_index=True)
         st.subheader("내 신청 현황")
         page = api("GET", "/plans")
         rows = [{"신청": L.PLAN_TYPE.get(p["type"], p["type"]), "상태": L.PLAN_STATUS.get(p["status"], p["status"]), "내용": p["rationale"], "신청일": p["created_at"][:16].replace("T", " ")} for p in (page or {}).get("items", [])]
-        st.dataframe(rows, width="stretch", hide_index=True) if rows else st.caption("신청 내역이 없습니다.")
+        if rows:
+            st.dataframe(rows, width="stretch", hide_index=True)
+        else:
+            st.caption("신청 내역이 없습니다.")
     with t_hist:
         task_history()
 
@@ -67,10 +70,10 @@ def employee_view() -> None:
 # ---------- HRD ----------
 def hrd_view() -> None:
     st.header("활용 지원 (HRD)")
-    t_adopt, t_notice, t_ask, t_hist = st.tabs(["팀별 활용 현황", "공지·제안 승인", "AI 비서", "요청 이력"])
+    t_adopt, t_notice, t_ask, t_hist = st.tabs(["팀별 활용 현황", "자동 제안", "AI 비서", "내 요청"])
     with t_adopt:
         st.subheader("팀별 활용 현황")
-        st.caption("개인이 특정되지 않도록 5명 이상 팀만, 팀 단위로만 보여 줍니다. 활용 데이터는 교육·도구 개선에만 쓰고 인사평가에 쓰지 않습니다.")
+        st.caption("개인이 특정되지 않도록 5명 이상 팀만, 팀 단위로만 보여 줍니다. 활용 데이터는 교육과 제품 개선에만 쓰고 인사평가에 쓰지 않습니다.")
         rows = api("GET", "/adoption/teams") or []
         if rows:
             st.dataframe([{"팀": r["team_name"], "인원": r["headcount"], "보낸 제안": r["suggestions_sent"], "도움 됨": r["useful"], "관련 없음": r["irrelevant"],
@@ -95,7 +98,7 @@ def hrd_view() -> None:
         sugg = (api("GET", "/suggestions", params={"status": "pending_approval"}) or {}).get("items", [])
         for s in sugg:
             with st.container(border=True):
-                st.markdown(f"**대상: {s['target_type']} {s['target_id'] or ''}** · 근거: {s['relevance']}")
+                st.markdown(f"**대상: {s['target_type']} {s['target_id'] or ''}** · 보내는 이유: {s['relevance']}")
                 st.write(s["body"])
                 if st.button("승인하고 발송", key=f"sa_{s['id']}") and api("POST", f"/suggestions/{s['id']}/approve"):
                     st.success("발송했습니다.")
@@ -111,8 +114,8 @@ def hrd_view() -> None:
 
 # ---------- 자산관리 ----------
 def asset_view() -> None:
-    st.header("운영 지원 (자산관리)")
-    t_lic, t_cost, t_need, t_inbox, t_ask, t_hist = st.tabs(["이용권", "비용 경보", "도입 검토 요청", "승인함", "AI 비서", "요청 이력"])
+    st.header("구독 운영 (관리자)")
+    t_lic, t_cost, t_inbox, t_need, t_ask, t_hist = st.tabs(["이용권", "비용 급증 알림", "승인 대기", "미지원 요청", "AI 비서", "내 요청"])
     with t_lic:
         for inv in api("GET", "/inventory") or []:
             st.subheader(f"{inv['tool_name']} · {inv['contract']['plan_name']}")
@@ -121,22 +124,22 @@ def asset_view() -> None:
             c2.metric("배정", inv["assigned"])
             c3.metric("미배정", inv["unassigned"])
             c4.metric("좌석 단가 (월)", L.won(inv["contract"]["seat_price_krw"]))
-            st.markdown("**검토가 필요한 이용권**")
+            st.markdown("**확인이 필요한 이용권**")
             st.caption("사용 기록이 없다고 미사용으로 보지 않습니다. 본인에게 사용 의사를 묻고 반납 응답이 있을 때만 재배정합니다. 무응답은 회수 사유가 아닙니다.")
             st.dataframe([{"직원": c["employee_name"], "부서": c["dept_name"], "마지막 사용": (c["last_activity_at"] or "")[:10] or "기록 없음",
                            "상태": L.FLAG.get(c["flag"], c["flag"]), "본인 확인": "필요" if c["needs_confirmation"] else "불필요"} for c in inv["low_usage_candidates"]], width="stretch", hide_index=True)
-        if st.button("저사용 이용권 검토 요청", type="primary"):
-            tid = start_task("저사용 이용권을 검토해서 본인 확인이 필요한 사람과 재배정 가능한 좌석을 정리하고 조치안을 제안해줘", new_thread=True)
+        if st.button("안 쓰는 이용권 검토 요청", type="primary"):
+            tid = start_task("안 쓰는 것으로 보이는 이용권을 검토해서 본인 확인이 필요한 사람과 재배정 가능한 좌석을 정리하고 처리 요청을 제안해줘", new_thread=True)
             if tid:
                 render_stream(tid)
         sv = api("GET", "/savings")
         if sv:
             st.subheader("절감 기록")
-            st.caption("구매 회피(재배정으로 안 산 좌석)와 실제 청구 감소를 구분해 기록합니다.")
+            st.caption("아낀 구매 비용(재배정으로 안 산 좌석)과 실제로 줄어든 청구액을 구분해 기록합니다.")
             st.dataframe([{"구분": L.SAVINGS.get(k, k), "금액": L.won(v)} for k, v in sv["by_kind"].items()] + [{"구분": "합계", "금액": L.won(sv["total_krw"])}], width="stretch", hide_index=True)
     with t_cost:
-        st.subheader("사용량·비용 경보")
-        st.caption("매일 사용량을 원화로 환산해 기준치(최근 평균)의 배수를 검사합니다. '원인 조사'를 누르면 AI 비서가 모델·입력 길이·API 키별로 나눠 원인 후보와 조치안을 제시합니다.")
+        st.subheader("비용 급증 알림")
+        st.caption("사용량을 원화로 환산해 기준치(최근 평균)의 몇 배인지 검사합니다. '원인 조사'를 누르면 AI 비서가 모델·입력 길이·API 키별로 나눠 원인 후보와 처리 방법을 제시합니다.")
         for a in api("GET", "/anomalies") or []:
             with st.container(border=True):
                 c1, c2, c3 = st.columns([2, 1, 1])
@@ -144,15 +147,15 @@ def asset_view() -> None:
                 c2.metric("기준 대비", f"{a['ratio']}배")
                 c3.metric("예상 월 비용", L.won(a["projected_monthly_cost"]["krw"]))
                 if st.button("원인 조사", key=f"inv_{a['id']}", type="primary"):
-                    tid = start_task(f"경보 {a['id']}의 원인을 조사하고 조치안을 제안해줘", "investigate_anomaly", {"anomaly_id": a["id"]}, new_thread=True)
+                    tid = start_task(f"알림 {a['id']}의 원인을 조사하고 처리 방법을 제안해줘", "investigate_anomaly", {"anomaly_id": a["id"]}, new_thread=True)
                     if tid:
                         render_stream(tid)
     with t_need:
-        st.subheader("도입 검토 요청 (승인 도구로 해결되지 않은 업무)")
-        st.caption("직원이 AI 비서에게 물었지만 승인된 도구로는 할 수 없었던 업무를 기록합니다. 같은 기능 요청이 3건 이상, 2개 부서 이상이면 검토 기준을 충족한 것으로 봅니다.")
+        st.subheader("미지원 요청")
+        st.caption("승인 제품으로 할 수 없었던 직원 요청입니다. 같은 기능이 3건 이상, 2개 부서 이상이면 새 제품 도입을 검토할 때입니다.")
         aggs = api("GET", "/unmet-needs") or []
         if aggs:
-            st.dataframe([{"필요한 기능": L.cap(a["capability_tag"]), "요청 건수": a["count"], "요청 부서 수": a["dept_count"], "검토 기준": "충족" if a["threshold_met"] else "미충족",
+            st.dataframe([{"필요한 기능": L.cap(a["capability_tag"]), "요청 수": a["count"], "요청한 부서 수": a["dept_count"], "도입 검토": "필요" if a["threshold_met"] else "아직",
                            "직원이 요청한 내용": " / ".join(a["sample_summaries"])} for a in aggs], width="stretch", hide_index=True)
         else:
             st.caption("기록된 요청이 없습니다.")
@@ -166,8 +169,8 @@ def asset_view() -> None:
 
 # ---------- 승인자 ----------
 def approver_view() -> None:
-    st.header("승인함 (IT·보안 책임자)")
-    t_inbox, t_ask = st.tabs(["승인함", "AI 비서"])
+    st.header("승인 대기 (책임자)")
+    t_inbox, t_ask = st.tabs(["승인 대기", "AI 비서"])
     with t_inbox:
         approval_inbox(me)
     with t_ask:
