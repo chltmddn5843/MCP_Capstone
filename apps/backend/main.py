@@ -47,6 +47,9 @@ from schemas.entities import (
     UsageSummary,
     VendorUpdate,
 )
+from pydantic import ValidationError
+
+from schemas.plan_items import validate_items
 from schemas.rest import (
     AnomalyDetail,
     ConfirmationAnswerRequest,
@@ -335,6 +338,11 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
     allowed = {Role.employee: {PlanType.seat_assign}, Role.hrd: {PlanType.notice_send}}
     if user.role in allowed and body.type not in allowed[user.role]:
         raise ApiError(ErrorCode.forbidden, f"{user.role.value} 역할은 {body.type.value} 조치안을 만들 수 없습니다")
+    try:
+        items = validate_items(body.type, body.items)
+    except ValidationError as e:
+        raise ApiError(ErrorCode.invalid, f"{body.type.value} 조치안의 items 형식이 맞지 않습니다", {"errors": e.errors()})
+    body = body.model_copy(update={"items": items})
     risk = RISK_BY_PLAN_TYPE[body.type]
     if body.type == PlanType.model_change and any(i.get("environment") == "prod" for i in body.items):
         risk = RiskLevel.high
