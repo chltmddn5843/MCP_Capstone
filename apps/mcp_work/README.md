@@ -14,3 +14,27 @@ uv sync --extra mcp
 uv run python -m apps.mcp_work.server   # 만들 파일: server.py
 npx @modelcontextprotocol/inspector     # tools/list에 역할별 도구가 보이면 1일차 완료
 ```
+
+## 구현 상태
+| 파일 | 내용 |
+| --- | --- |
+| `server.py` | 진입점. 도구·Resource·Prompt 등록, 역할 미들웨어 |
+| `registry.py` | `ToolSpec` → FastMCP 도구. 입력 검증 → 어댑터 → `output_model` 검증 → structuredContent (문서 MCP도 사용) |
+| `adapters.py` | 도구 19개의 백엔드 REST 호출과 응답 모양 맞추기 |
+| `backend.py` | httpx 호출. `Authorization`, `X-Trace-Id` 전달. 오류 봉투 `{"error": {...}}`를 그대로 MCP 오류로 올림 |
+| `auth.py` | 토큰 → 백엔드 `GET /me`로 역할 확인 → `tools/list`에서 숨기고 호출도 막음 |
+| `resources.py`, `prompts.py` | Resource 6개, Prompt 6개 (`RESOURCES`, `PROMPTS` 목록과 같음) |
+
+역할별로 보이는 도구 수: employee 10, hrd 11, asset 15, approver 5, system 14. 토큰이 없으면 0개.
+
+## 확인
+```bash
+uv run pytest tests/test_mcp_work.py          # 명세 등록, 역할별 노출, 오류 전달, F1~F5 흐름, Resource·Prompt
+uv run uvicorn apps.backend.main:app --port 8000 &
+uv run python -m apps.mcp_work.server         # Inspector에서 헤더 Authorization: Bearer dev.emp_asset_01
+```
+stdio·인메모리 연결처럼 헤더가 없을 때는 `MCP_DEV_TOKEN=dev.emp_asset_01`로 토큰을 준다(개발용).
+
+## 남은 일
+- `request_confirmation`: 명세의 `POST /confirmations (via plans)` 라우트가 백엔드에 아직 없다. 지금은 `not_found` 오류가 난다. 백엔드 담당과 경로 확정 필요.
+- `approvers_required`: 백엔드 `POST /plans` 응답에 없어서 11절 기준으로 MCP가 채운다. 백엔드가 내려 주면 그 값을 쓰도록 바꾼다.
