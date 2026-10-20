@@ -78,23 +78,30 @@ def test_tools_come_from_mcp_and_are_role_filtered(client):
     assert "search_vendor_docs" in names_a  # 문서 MCP도 붙는다
 
 
-def test_seat_assign_via_mcp_with_approval(client):
-    task_id = client.post("/ai/tasks", json={"input": "박서준 님 AI-A 이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
+def test_execute_via_mcp_with_approval(client):
+    """승인된 조치안(plan_001) 실행 요청 → MCP의 execute_approved_plan 앞에서 interrupt → 승인 → 실행."""
+    task_id = client.post("/ai/tasks", json={"input": "plan_001 실행해줘"}, headers=ASSET).json()["data"]["task_id"]
     evs = events(client, task_id, ASSET)
-    assert [e["type"] for e in evs] == ["TOOL_START", "TOOL_END", "APPROVAL_REQUIRED"]
-    create_out = json.loads(evs[1]["tool_call"]["output"])
-    assert create_out["plan_id"].startswith("plan_") and create_out["status"] == "approved"
+    assert [e["type"] for e in evs] == ["APPROVAL_REQUIRED"]
     assert wait_done(client, task_id, ASSET)["status"] == "waiting_approval"
-    assert client.post(f"/ai/tasks/{task_id}/approval", json={"approved": True, "reason": "미배정 좌석"}, headers=ASSET).status_code == 202
-    evs2 = events(client, task_id, ASSET, after=3)
-    assert evs2[-1]["type"] == "DONE"
+    assert client.post(f"/ai/tasks/{task_id}/approval", json={"approved": True, "reason": "ok"}, headers=ASSET).status_code == 202
+    evs2 = events(client, task_id, ASSET, after=1)
+    assert evs2[0]["tool_call"]["name"] == "execute_approved_plan" and evs2[-1]["type"] == "DONE"
     exec_out = json.loads(evs2[1]["tool_call"]["output"])
     assert exec_out["status"] == "executed" and evs2[1]["tool_call"]["error"] is None
 
 
-def test_employee_hidden_tool_error_through_mcp(client):
+def test_seat_assign_via_mcp_executes_immediately(client):
+    task_id = client.post("/ai/tasks", json={"input": "박서준 님 AI-A 이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
+    evs = events(client, task_id, ASSET)
+    ends = [e for e in evs if e["type"] == "TOOL_END"]
+    assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"
+
+
+def test_employee_seat_request_through_mcp(client):
     task_id = client.post("/ai/tasks", json={"input": "이용권 신청"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
-    assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan", "execute_approved_plan"]
-    assert ends[1]["tool_call"]["error"] and evs[-1]["type"] == "DONE"
+    assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"

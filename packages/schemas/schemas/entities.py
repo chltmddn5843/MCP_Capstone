@@ -130,6 +130,7 @@ class Suggestion(Base):
     relevance: str = Field(description="관련성 근거 한 줄")
     body: str
     status: SuggestionStatus
+    hold_reason: str | None = Field(None, description="보류 사유. 예: 회사 플랜에 없는 기능, 관련 업무 근거 없음")
     sent_at: datetime | None = None
 
 

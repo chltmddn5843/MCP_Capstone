@@ -39,6 +39,7 @@ from schemas.entities import (
     VendorUpdate,
 )
 from schemas.rest import (
+    AnomalyDetail,
     ContractInventory,
     RelevantTaskCandidate,
     TaskCostEstimateResponse,
@@ -80,8 +81,10 @@ class SaveSuggestionIn(BaseModel):
     target_type: TargetType
     target_id: str | None = None
     task_id: str | None = None
-    relevance: str = Field(description="관련성 근거. 비어 있으면 서버가 invalid로 거절")
-    body: str
+    relevance: str = Field("", description="관련성 근거. on_hold가 아니면 비어 있을 때 서버가 invalid로 거절")
+    body: str = ""
+    status: SuggestionStatus | None = Field(None, description="on_hold면 보내지 않고 hold_reason만 남긴다 (회사 플랜에 없는 기능, 근거 없음 등)")
+    hold_reason: str | None = None
 
 
 class GetTeamAdoptionIn(BaseModel):
@@ -115,6 +118,10 @@ class GetUsageBreakdownIn(BaseModel):
 
 class GetAnomaliesIn(BaseModel):
     status: AnomalyStatus | None = None
+
+
+class GetAnomalyDetailIn(BaseModel):
+    anomaly_id: str
 
 
 class GetLicenseInventoryIn(BaseModel):
@@ -298,13 +305,14 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("list_approved_tools", "승인된 도구와 플랜, 과금 유형, 정책 요약을 돌려준다.", ListApprovedToolsIn, ToolListOut, ALL, backend="GET /tools", features=["F1", "F2", "F5"]),
     ToolSpec("list_approved_models", "승인된 모델과 단가, 허용 데이터 등급을 돌려준다.", ListApprovedModelsIn, ModelListOut, ALL, backend="GET /models", features=["F2"]),
     ToolSpec("find_relevant_tasks", "업데이트와 관련될 수 있는 등록 업무 후보를 돌려준다. HRD에게는 팀 단위로만 보인다.", FindRelevantTasksIn, FindRelevantTasksOut, [Role.system, Role.hrd], backend="GET /updates/{id}/relevant-tasks", features=["F1"]),
-    ToolSpec("save_suggestion", "활용 제안을 저장한다. 관련성 근거(relevance)가 없으면 거절된다.", SaveSuggestionIn, SaveSuggestionOut, [Role.system, Role.hrd], read_only=False, backend="POST /suggestions", features=["F1"]),
+    ToolSpec("save_suggestion", "활용 제안을 저장한다. 보내지 않기로 했으면 status=on_hold와 hold_reason으로 사유를 남긴다. 보낼 때는 관련성 근거(relevance)가 필수다.", SaveSuggestionIn, SaveSuggestionOut, [Role.system, Role.hrd], read_only=False, backend="POST /suggestions", features=["F1"]),
     ToolSpec("get_team_adoption", "팀별 제안 반응과 활동 인원 비율. 5명 미만 팀은 제외.", GetTeamAdoptionIn, TeamAdoptionOut, [Role.hrd], backend="GET /adoption/teams", features=["F1"]),
     ToolSpec("get_eval_results", "업무 유형별 모델 품질 점수, 기준, 평균 토큰, 지연.", GetEvalResultsIn, EvalResultsOut, [Role.employee, Role.asset, Role.system], backend="GET /eval-results", features=["F2"]),
     ToolSpec("estimate_task_cost", "일·월 예상 비용을 코드로 계산한다. 계산식을 함께 돌려준다.", EstimateTaskCostIn, TaskCostEstimateResponse, ALL, backend="POST /estimates/task-cost", features=["F2"]),
     ToolSpec("get_usage_summary", "범위별 요청 수, 토큰, 비용, 마지막 활동 시각. 직원은 본인만.", GetUsageSummaryIn, UsageSummary, [Role.employee, Role.asset, Role.system], backend="GET /usage", features=["F2", "F3", "F4"]),
     ToolSpec("get_usage_breakdown", "프로젝트 사용량을 모델·API 키·입력 길이 구간별로 나눈다.", GetUsageBreakdownIn, UsageBreakdownOut, [Role.asset, Role.system], backend="GET /usage?group_by=", features=["F3"]),
     ToolSpec("get_anomalies", "사용량 경보 목록.", GetAnomaliesIn, AnomaliesOut, [Role.asset, Role.system], backend="GET /anomalies", features=["F3"]),
+    ToolSpec("get_anomaly_detail", "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.", GetAnomalyDetailIn, AnomalyDetail, [Role.asset, Role.system], backend="GET /anomalies/{id}", features=["F3"]),
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.asset, Role.system], backend="GET /inventory", features=["F4"]),
     ToolSpec("record_unmet_need", "승인 도구로 해결되지 않는 수요를 기록한다.", RecordUnmetNeedIn, RecordUnmetNeedOut, [Role.employee, Role.hrd, Role.asset], read_only=False, backend="POST /unmet-needs", features=["F5"]),
     ToolSpec("list_unmet_needs", "미충족 수요를 태그별로 집계한다.", ListUnmetNeedsIn, ListUnmetNeedsOut, [Role.hrd, Role.asset], backend="GET /unmet-needs", features=["F5"]),

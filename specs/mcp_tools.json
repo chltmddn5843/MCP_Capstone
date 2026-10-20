@@ -897,9 +897,19 @@
       },
       {
         "name": "save_suggestion",
-        "description": "활용 제안을 저장한다. 관련성 근거(relevance)가 없으면 거절된다.",
+        "description": "활용 제안을 저장한다. 보내지 않기로 했으면 status=on_hold와 hold_reason으로 사유를 남긴다. 보낼 때는 관련성 근거(relevance)가 필수다.",
         "inputSchema": {
           "$defs": {
+            "SuggestionStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "sent",
+                "on_hold"
+              ],
+              "title": "SuggestionStatus",
+              "type": "string"
+            },
             "TargetType": {
               "enum": [
                 "employee",
@@ -943,20 +953,44 @@
               "title": "Task Id"
             },
             "relevance": {
-              "description": "관련성 근거. 비어 있으면 서버가 invalid로 거절",
+              "default": "",
+              "description": "관련성 근거. on_hold가 아니면 비어 있을 때 서버가 invalid로 거절",
               "title": "Relevance",
               "type": "string"
             },
             "body": {
+              "default": "",
               "title": "Body",
               "type": "string"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SuggestionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "on_hold면 보내지 않고 hold_reason만 남긴다 (회사 플랜에 없는 기능, 근거 없음 등)"
+            },
+            "hold_reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Hold Reason"
             }
           },
           "required": [
             "update_id",
-            "target_type",
-            "relevance",
-            "body"
+            "target_type"
           ],
           "title": "SaveSuggestionIn",
           "type": "object"
@@ -1888,6 +1922,315 @@
           "system"
         ],
         "x-backend": "GET /anomalies"
+      },
+      {
+        "name": "get_anomaly_detail",
+        "description": "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.",
+        "inputSchema": {
+          "properties": {
+            "anomaly_id": {
+              "title": "Anomaly Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "anomaly_id"
+          ],
+          "title": "GetAnomalyDetailIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "Anomaly": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "scope_type": {
+                  "title": "Scope Type",
+                  "type": "string"
+                },
+                "scope_id": {
+                  "title": "Scope Id",
+                  "type": "string"
+                },
+                "scope_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Scope Name"
+                },
+                "rule": {
+                  "description": "예: daily_cost_gt_3x_baseline",
+                  "title": "Rule",
+                  "type": "string"
+                },
+                "baseline": {
+                  "title": "Baseline",
+                  "type": "number"
+                },
+                "observed": {
+                  "title": "Observed",
+                  "type": "number"
+                },
+                "ratio": {
+                  "title": "Ratio",
+                  "type": "number"
+                },
+                "projected_monthly_cost": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Money"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "status": {
+                  "$ref": "#/$defs/AnomalyStatus"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "title": "Created At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "scope_type",
+                "scope_id",
+                "rule",
+                "baseline",
+                "observed",
+                "ratio",
+                "status",
+                "created_at"
+              ],
+              "title": "Anomaly",
+              "type": "object"
+            },
+            "AnomalyStatus": {
+              "enum": [
+                "open",
+                "investigating",
+                "resolved"
+              ],
+              "title": "AnomalyStatus",
+              "type": "string"
+            },
+            "BreakdownRow": {
+              "properties": {
+                "key": {
+                  "description": "model명, api_key id, 또는 입력 길이 구간(예: 0-1k)",
+                  "title": "Key",
+                  "type": "string"
+                },
+                "requests": {
+                  "title": "Requests",
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "title": "Input Tokens",
+                  "type": "integer"
+                },
+                "output_tokens": {
+                  "title": "Output Tokens",
+                  "type": "integer"
+                },
+                "cost": {
+                  "$ref": "#/$defs/Money"
+                },
+                "share": {
+                  "description": "전체 대비 비율 0~1",
+                  "title": "Share",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "key",
+                "requests",
+                "input_tokens",
+                "output_tokens",
+                "cost",
+                "share"
+              ],
+              "title": "BreakdownRow",
+              "type": "object"
+            },
+            "Environment": {
+              "enum": [
+                "test",
+                "prod"
+              ],
+              "title": "Environment",
+              "type": "string"
+            },
+            "Money": {
+              "properties": {
+                "krw": {
+                  "description": "원화 정수",
+                  "title": "Krw",
+                  "type": "integer"
+                },
+                "usd": {
+                  "description": "달러 소수",
+                  "title": "Usd",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "krw",
+                "usd"
+              ],
+              "title": "Money",
+              "type": "object"
+            },
+            "Project": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "dept_id": {
+                  "title": "Dept Id",
+                  "type": "string"
+                },
+                "owner_id": {
+                  "title": "Owner Id",
+                  "type": "string"
+                },
+                "purpose": {
+                  "title": "Purpose",
+                  "type": "string"
+                },
+                "model_id": {
+                  "title": "Model Id",
+                  "type": "string"
+                },
+                "environment": {
+                  "$ref": "#/$defs/Environment"
+                },
+                "monthly_budget_krw": {
+                  "title": "Monthly Budget Krw",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "dept_id",
+                "owner_id",
+                "purpose",
+                "model_id",
+                "environment",
+                "monthly_budget_krw"
+              ],
+              "title": "Project",
+              "type": "object"
+            },
+            "UsagePoint": {
+              "properties": {
+                "period_start": {
+                  "format": "date-time",
+                  "title": "Period Start",
+                  "type": "string"
+                },
+                "requests": {
+                  "title": "Requests",
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "title": "Input Tokens",
+                  "type": "integer"
+                },
+                "output_tokens": {
+                  "title": "Output Tokens",
+                  "type": "integer"
+                },
+                "cost": {
+                  "$ref": "#/$defs/Money"
+                }
+              },
+              "required": [
+                "period_start",
+                "requests",
+                "input_tokens",
+                "output_tokens",
+                "cost"
+              ],
+              "title": "UsagePoint",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "anomaly": {
+              "$ref": "#/$defs/Anomaly"
+            },
+            "project": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Project"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "series": {
+              "items": {
+                "$ref": "#/$defs/UsagePoint"
+              },
+              "title": "Series",
+              "type": "array"
+            },
+            "breakdown_by_model": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/BreakdownRow"
+              },
+              "title": "Breakdown By Model",
+              "type": "array"
+            },
+            "breakdown_by_input_length": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/BreakdownRow"
+              },
+              "title": "Breakdown By Input Length",
+              "type": "array"
+            }
+          },
+          "required": [
+            "anomaly",
+            "series"
+          ],
+          "title": "AnomalyDetail",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "asset",
+          "system"
+        ],
+        "x-backend": "GET /anomalies/{id}"
       },
       {
         "name": "get_license_inventory",

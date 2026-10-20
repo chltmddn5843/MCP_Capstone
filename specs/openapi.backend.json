@@ -5580,6 +5580,18 @@
           "status": {
             "$ref": "#/components/schemas/SuggestionStatus"
           },
+          "hold_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Reason",
+            "description": "보류 사유. 예: 회사 플랜에 없는 기능, 관련 업무 근거 없음"
+          },
           "sent_at": {
             "anyOf": [
               {
@@ -5637,19 +5649,42 @@
           },
           "relevance": {
             "type": "string",
-            "title": "Relevance"
+            "title": "Relevance",
+            "description": "관련성 근거. 보류(on_hold)가 아니면 필수",
+            "default": ""
           },
           "body": {
             "type": "string",
-            "title": "Body"
+            "title": "Body",
+            "default": ""
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SuggestionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "생략하면 개인은 draft, 팀·전사는 pending_approval. on_hold면 보내지 않고 사유만 남긴다"
+          },
+          "hold_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Reason"
           }
         },
         "type": "object",
         "required": [
           "update_id",
-          "target_type",
-          "relevance",
-          "body"
+          "target_type"
         ],
         "title": "SuggestionCreate"
       },

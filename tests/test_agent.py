@@ -64,49 +64,57 @@ def test_profile_question_runs_to_done_with_evidence(client):
     assert t["turns"] == 2
 
 
-def test_employee_cannot_execute_tool_error_is_returned_to_model(client):
-    """직원에게는 execute_approved_plan이 노출되지 않는다. 오류가 ToolMessage로 돌아가고 작업은 정상 종료된다."""
+def test_employee_seat_request_is_executed_immediately(client):
+    """직원 이용권 신청(낮은 위험)은 백엔드가 즉시 실행한다. 직원에게 실행 도구가 없어도 배정이 끝난다."""
     task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
-    names = [e["tool_call"]["name"] for e in evs if e["type"] == "TOOL_END"]
-    assert names == ["create_action_plan", "execute_approved_plan"]
-    exec_end = [e for e in evs if e["type"] == "TOOL_END"][1]
-    assert exec_end["tool_call"]["error"] and "not_found" in exec_end["tool_call"]["output"]
+    ends = [e for e in evs if e["type"] == "TOOL_END"]
+    assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"
     t = wait_status(client, task_id, EMP, {"done"})
-    assert t["result"]["plan_id"].startswith("plan_") and evs[-1]["type"] == "DONE"
+    assert "즉시 실행" in t["result"]["answer"] and t["result"]["plan_id"].startswith("plan_")
 
 
-def test_seat_assign_by_asset_interrupts_then_resumes_and_executes(client):
-    r = client.post("/ai/tasks", json={"input": "박서준 님 AI-A 이용권 배정해줘"}, headers=ASSET)
-    task_id = r.json()["data"]["task_id"]
+def test_reclaim_needs_approval_then_execute_interrupts_and_resumes(client):
+    """중간 위험(회수·재배정): 조치안 → 담당자 승인(백엔드) → 에이전트 실행 요청 → 실행 도구 앞 interrupt → 승인 → 실행."""
+    r = client.post("/ai/tasks", json={"input": "한도윤 님 휴직 중이라 이용권 회수해서 박서준 님에게 재배정해줘"}, headers=ASSET)
+    task_id, thread_id = r.json()["data"]["task_id"], r.json()["data"]["thread_id"]
     evs = events(client, task_id, ASSET)
-    types = [e["type"] for e in evs]
-    assert types == ["TOOL_START", "TOOL_END", "APPROVAL_REQUIRED"], types
-    card = evs[-1]["approval"]
-    assert card["tool_name"] == "execute_approved_plan" and card["plan_id"].startswith("plan_")
-    t = wait_status(client, task_id, ASSET, {"waiting_approval"})
-    assert t["approval"]["tool_name"] == "execute_approved_plan"
-    # 직원 역할은 승인 불가(본인 작업도 아님 → 403), 사유 없는 승인은 422
-    assert client.post(f"/ai/tasks/{task_id}/approval", json={"approved": True, "reason": "ok"}, headers=EMP).status_code == 403
-    assert client.post(f"/ai/tasks/{task_id}/approval", json={"approved": True, "reason": ""}, headers=ASSET).status_code == 422
-    assert client.post(f"/ai/tasks/{task_id}/approval", json={"approved": True, "reason": "미배정 좌석 배정"}, headers=ASSET).status_code == 202
-    evs2 = events(client, task_id, ASSET, after=len(evs))
-    types2 = [e["type"] for e in evs2]
-    assert types2[0] == "TOOL_START" and evs2[0]["tool_call"]["name"] == "execute_approved_plan" and types2[-1] == "DONE"
-    t = wait_status(client, task_id, ASSET, {"done"})
-    assert t["result"]["plan_id"] == card["plan_id"]
-    assert json.loads(evs2[1]["tool_call"]["output"])["status"] == "executed"
-    # 재승인은 conflict
-    assert client.post(f"/ai/tasks/{task_id}/approval", json={"approved": True, "reason": "x"}, headers=ASSET).status_code == 409
+    assert [e["type"] for e in evs] == ["TOOL_START", "TOOL_END", "TOKEN", "DONE"]
+    created = json.loads(evs[1]["tool_call"]["output"])
+    plan_id = created["plan_id"]
+    assert created["status"] == "pending_approval" and created["risk_level"] == "medium"
+    # 담당자가 화면(백엔드)에서 승인
+    from apps.backend.main import app as backend_app
+    from fastapi.testclient import TestClient as BackendClient
+    assert BackendClient(backend_app).post(f"/plans/{plan_id}/approve", json={"reason": "본인 반납 응답 확인"}, headers=ASSET).status_code == 200
+    # 같은 대화에서 실행 요청 → 변경 도구 앞에서 멈춤
+    r = client.post("/ai/tasks", json={"input": f"{plan_id} 실행해줘", "thread_id": thread_id}, headers=ASSET)
+    task2 = r.json()["data"]["task_id"]
+    evs2 = events(client, task2, ASSET)
+    assert [e["type"] for e in evs2] == ["APPROVAL_REQUIRED"]
+    card = evs2[-1]["approval"]
+    assert card["tool_name"] == "execute_approved_plan" and card["plan_id"] == plan_id
+    t = wait_status(client, task2, ASSET, {"waiting_approval"})
+    assert client.post(f"/ai/tasks/{task2}/approval", json={"approved": True, "reason": "ok"}, headers=EMP).status_code == 403
+    assert client.post(f"/ai/tasks/{task2}/approval", json={"approved": True, "reason": ""}, headers=ASSET).status_code == 422
+    assert client.post(f"/ai/tasks/{task2}/approval", json={"approved": True, "reason": "재배정 실행"}, headers=ASSET).status_code == 202
+    evs3 = events(client, task2, ASSET, after=len(evs2))
+    assert evs3[0]["type"] == "TOOL_START" and evs3[0]["tool_call"]["name"] == "execute_approved_plan" and evs3[-1]["type"] == "DONE"
+    assert json.loads(evs3[1]["tool_call"]["output"])["status"] == "executed"
+    t = wait_status(client, task2, ASSET, {"done"})
+    assert t["result"]["plan_id"] == plan_id
+    assert client.post(f"/ai/tasks/{task2}/approval", json={"approved": True, "reason": "x"}, headers=ASSET).status_code == 409
 
 
 def test_rejection_ends_without_execution(client):
-    task_id = client.post("/ai/tasks", json={"input": "이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
-    events(client, task_id, ASSET)
+    task_id = client.post("/ai/tasks", json={"input": "plan_002 실행해줘"}, headers=ASSET).json()["data"]["task_id"]
+    evs = events(client, task_id, ASSET)
+    assert evs[-1]["type"] == "APPROVAL_REQUIRED"
     wait_status(client, task_id, ASSET, {"waiting_approval"})
     client.post(f"/ai/tasks/{task_id}/approval", json={"approved": False, "reason": "예산 검토 먼저"}, headers=ASSET)
     t = wait_status(client, task_id, ASSET, {"done", "failed"})
-    assert t["status"] == "done"
+    assert t["status"] == "done" and "거절" in t["result"]["answer"]
     assert all(tc["error"] or tc["name"] != "execute_approved_plan" for tc in t["tool_calls"])
 
 

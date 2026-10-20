@@ -104,8 +104,10 @@ class SuggestionCreate(BaseModel):
     target_type: TargetType
     target_id: str | None = None
     task_id: str | None = None
-    relevance: str
-    body: str
+    relevance: str = Field("", description="관련성 근거. 보류(on_hold)가 아니면 필수")
+    body: str = ""
+    status: SuggestionStatus | None = Field(None, description="생략하면 개인은 draft, 팀·전사는 pending_approval. on_hold면 보내지 않고 사유만 남긴다")
+    hold_reason: str | None = None
 
 
 class FeedbackCreate(BaseModel):
@@ -289,7 +291,7 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/anomalies", "경보 목록", [Role.asset, Role.system]),
     ("GET", "/anomalies/{anomaly_id}", "경보 상세", [Role.asset, Role.system]),
     ("GET", "/plans", "조치안 목록", [Role.employee, Role.hrd, Role.asset, Role.approver, Role.system]),
-    ("POST", "/plans", "조치안 생성. 직원: seat_assign(본인)·model_change(본인 소유 프로젝트, test). HRD: notice_send", [Role.employee, Role.hrd, Role.asset, Role.system]),
+    ("POST", "/plans", "조치안 생성. 위험도 낮음은 즉시 실행(status=executed). 직원: seat_assign(본인)·model_change(본인 소유 프로젝트, test). HRD: notice_send", [Role.employee, Role.hrd, Role.asset, Role.system]),
     ("GET", "/plans/{plan_id}", "조치안 상태", [Role.employee, Role.hrd, Role.asset, Role.approver, Role.system]),
     ("POST", "/plans/{plan_id}/approve", "승인", [Role.hrd, Role.asset, Role.approver]),
     ("POST", "/plans/{plan_id}/reject", "반려", [Role.hrd, Role.asset, Role.approver]),
