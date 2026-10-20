@@ -1,87 +1,122 @@
-"""에이전트 런타임 스텁. Slack 봇·관리자 화면이 붙을 인터페이스만 고정 응답으로 제공한다.
-실제 도구 호출 루프는 C(에이전트) 담당이 이 라우트를 유지한 채 채운다.
+"""에이전트 런타임 API. schemas/agent.py 계약 그대로.
+
+실행: uv run uvicorn apps.agent_runtime.main:app --reload --port 8002
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-import uuid
-from datetime import UTC, datetime
+import logging
+import os
+import time
+from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+import httpx
+from fastapi import Depends, FastAPI, Header, Query
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from sse_starlette.sse import EventSourceResponse
 
-from apps.backend.auth import current_user
+from apps.agent_runtime import harness
+from apps.agent_runtime.config import CHECKPOINT_DB, TASK_DB
+from apps.agent_runtime.graph import build_graph
+from apps.agent_runtime.tasks import EventBus, Runner, TaskStore
 from apps.backend.errors import ApiError, install_error_handlers, ok
-from schemas.agent import (
-    EventType,
-    Run,
-    RunCreate,
-    RunCreated,
-    RunEvent,
-    RunResult,
-    RunResume,
-    RunStatus,
-    ToolCall,
-)
-from schemas.common import Envelope, ErrorCode, Evidence
+from schemas.agent import ApprovalDecision, Task, TaskCreate, TaskCreated, TaskStatus
+from schemas.common import Envelope, ErrorCode, Role
 from schemas.entities import Employee
 
-app = FastAPI(title="Agent Runtime", version="0.1.0")
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+_USER_CACHE: dict[str, tuple[float, Employee]] = {}
+
+
+async def current_user(authorization: str | None = Header(default=None)) -> Employee:
+    """토큰을 백엔드 /me 로 확인한다. 에이전트는 직원 DB를 직접 보지 않는다."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise ApiError(ErrorCode.unauthorized, "Authorization: Bearer <token> 헤더가 필요합니다")
+    token = authorization.split(" ", 1)[1].strip()
+    hit = _USER_CACHE.get(token)
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
+    async with harness.tools.backend_client(token) as c:
+        r = await c.get("/me")
+    body = r.json()
+    if "error" in body:
+        raise ApiError(ErrorCode(body["error"]["code"]) if body["error"]["code"] in ErrorCode.__members__ else ErrorCode.unauthorized, body["error"]["message"])
+    emp = Employee.model_validate(body["data"]["employee"])
+    _USER_CACHE[token] = (time.time(), emp)
+    return emp
+
+
+def _token(authorization: str = Header()) -> str:
+    return authorization.split(" ", 1)[1].strip()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    os.makedirs(os.path.dirname(TASK_DB) or ".", exist_ok=True)
+    async with AsyncSqliteSaver.from_conn_string(CHECKPOINT_DB) as saver:
+        app.state.runner = Runner(build_graph(saver), TaskStore(TASK_DB), EventBus())
+        yield
+
+
+app = FastAPI(title="Agent Runtime", version="0.2.0", lifespan=lifespan)
 install_error_handlers(app)
-RUNS: dict[str, Run] = {}
 
 
-def _now():
-    return datetime.now(UTC)
+def runner() -> Runner:
+    return app.state.runner
 
 
-@app.post("/agent/runs", response_model=Envelope[RunCreated], status_code=202)
-def create_run(body: RunCreate, user: Employee = Depends(current_user)):
-    run_id, thread_id = uuid.uuid4().hex[:12], body.thread_id or uuid.uuid4().hex[:12]
-    RUNS[run_id] = Run(run_id=run_id, thread_id=thread_id, status=RunStatus.running, requester_id=user.id, requester_role=user.role, input=body.input, created_at=_now(), updated_at=_now())
-    return ok(RunCreated(run_id=run_id, thread_id=thread_id, status=RunStatus.running))
+@app.post("/ai/tasks", response_model=Envelope[TaskCreated], status_code=202)
+async def create_task(body: TaskCreate, user: Employee = Depends(current_user), token: str = Depends(_token)):
+    task = await runner().create(requester_id=user.id, requester_role=user.role, token=token, text=body.input, thread_id=body.thread_id,
+                                 prompt_name=body.prompt_name, prompt_args=body.prompt_args, channel=body.channel)
+    return ok(TaskCreated(task_id=task.task_id, thread_id=task.thread_id, status=task.status))
 
 
-@app.get("/agent/runs/{run_id}", response_model=Envelope[Run])
-def get_run(run_id: str, user: Employee = Depends(current_user)):
-    run = RUNS.get(run_id)
-    if not run:
-        raise ApiError(ErrorCode.not_found, "run 없음")
-    return ok(run)
+@app.get("/ai/tasks", response_model=Envelope[list[Task]])
+async def list_tasks(mine: bool = True, limit: int = 50, user: Employee = Depends(current_user)):
+    if not mine and user.role not in (Role.asset, Role.approver, Role.hrd):
+        raise ApiError(ErrorCode.forbidden, "다른 사람의 작업 이력은 관리자만 볼 수 있습니다")
+    return ok(runner().store.list(user.id if mine else None, limit))
 
 
-@app.post("/agent/runs/{run_id}/resume", response_model=Envelope[RunCreated], status_code=202)
-def resume_run(run_id: str, body: RunResume, user: Employee = Depends(current_user)):
-    run = RUNS.get(run_id)
-    if not run:
-        raise ApiError(ErrorCode.not_found, "run 없음")
-    if run.status not in (RunStatus.waiting_input, RunStatus.waiting_approval):
-        raise ApiError(ErrorCode.conflict, f"재개할 수 없는 상태: {run.status.value}")
-    RUNS[run_id] = run.model_copy(update={"status": RunStatus.running, "updated_at": _now()})
-    return ok(RunCreated(run_id=run_id, thread_id=run.thread_id, status=RunStatus.running))
+def _get(task_id: str, user: Employee) -> Task:
+    task = runner().store.get(task_id)
+    if not task:
+        raise ApiError(ErrorCode.not_found, "작업 없음")
+    if user.role == Role.employee and task.requester_id != user.id:
+        raise ApiError(ErrorCode.forbidden, "본인 작업만 볼 수 있습니다")
+    return task
 
 
-@app.get("/agent/runs/{run_id}/events")
-async def events(run_id: str, user: Employee = Depends(current_user)):
-    run = RUNS.get(run_id)
-    if not run:
-        raise ApiError(ErrorCode.not_found, "run 없음")
+@app.get("/ai/tasks/{task_id}", response_model=Envelope[Task])
+async def get_task(task_id: str, user: Employee = Depends(current_user)):
+    return ok(_get(task_id, user))
+
+
+@app.get("/ai/tasks/{task_id}/stream")
+async def stream_task(task_id: str, after: int = Query(0, description="이 seq 이후 이벤트부터"), user: Employee = Depends(current_user)):
+    _get(task_id, user)
 
     async def gen():
-        tc = ToolCall(id="tc_1", name="get_my_profile", input={}, started_at=_now())
-        result = RunResult(answer="(스텁) 등록 업무를 확인했습니다.", evidence=[Evidence(source="me", ref=run.requester_id)])
-        seq = [
-            RunEvent(type=EventType.run_started, run_id=run_id, seq=1, at=_now()),
-            RunEvent(type=EventType.tool_called, run_id=run_id, seq=2, at=_now(), tool_call=tc),
-            RunEvent(type=EventType.tool_result, run_id=run_id, seq=3, at=_now(), tool_call=tc.model_copy(update={"output": {"ok": True}, "finished_at": _now()})),
-            RunEvent(type=EventType.message_delta, run_id=run_id, seq=4, at=_now(), text="등록 업무를 확인했습니다."),
-            RunEvent(type=EventType.run_completed, run_id=run_id, seq=5, at=_now(), result=result),
-        ]
-        for ev in seq:
-            await asyncio.sleep(0.2)
-            yield {"event": ev.type.value, "data": ev.model_dump_json()}
-        RUNS[run_id] = run.model_copy(update={"status": RunStatus.completed, "result": result, "tool_calls": [tc], "updated_at": _now()})
+        async for ev in runner().bus.subscribe(task_id, after):
+            if ev is None:
+                yield {"comment": "keep-alive"}
+            else:
+                yield {"event": ev.type.value, "id": str(ev.seq), "data": ev.model_dump_json()}
 
     return EventSourceResponse(gen())
+
+
+@app.post("/ai/tasks/{task_id}/approval", response_model=Envelope[TaskCreated], status_code=202)
+async def approve_task(task_id: str, body: ApprovalDecision, user: Employee = Depends(current_user)):
+    task = _get(task_id, user)
+    if task.status != TaskStatus.waiting_approval:
+        raise ApiError(ErrorCode.conflict, f"승인 대기 상태가 아님: {task.status.value}")
+    if user.role not in (Role.asset, Role.approver, Role.hrd, Role.system):
+        raise ApiError(ErrorCode.forbidden, "변경 실행은 자산관리·승인자·HRD만 승인할 수 있습니다")
+    try:
+        task = await runner().resume(task, {"approved": body.approved, "reason": body.reason, "by": user.id})
+    except RuntimeError as exc:
+        raise ApiError(ErrorCode.conflict, str(exc))
+    return ok(TaskCreated(task_id=task.task_id, thread_id=task.thread_id, status=task.status))

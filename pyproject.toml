@@ -13,10 +13,18 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
-agent = ["anthropic>=0.40"]
+agent = [
+    "langgraph>=1.2",
+    "langchain>=1.4",
+    "langchain-anthropic>=1.7",
+    "langchain-openai>=1.7",
+    "langchain-mcp-adapters>=0.3",
+    "langgraph-checkpoint-sqlite>=3.1",
+    "python-dotenv>=1.0",
+]
 mcp = ["mcp>=1.2"]
 slack = ["slack-bolt>=1.20"]
-ui = ["streamlit>=1.38"]
+ui = ["streamlit>=1.38", "requests>=2.32"]
 
 [build-system]
 requires = ["setuptools>=69"]

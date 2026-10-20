@@ -8,9 +8,12 @@ uv sync --all-extras          # 또는: pip install -e ".[dev]"
 cp .env.example .env
 uv run uvicorn apps.backend.main:app --reload --port 8000         # http://localhost:8000/docs
 uv run uvicorn apps.agent_runtime.main:app --reload --port 8002   # http://localhost:8002/docs
-uv run pytest                 # 계약 테스트
+uv run streamlit run apps/admin_ui/app.py                         # http://localhost:8501
+uv run pytest                 # 계약 테스트 + 에이전트 테스트 (키 불필요)
 uv run python specs/export.py # specs/*.json 갱신
 ```
+
+에이전트는 `.env`의 `LLM_MODEL`로 모델을 고른다. `ANTHROPIC_API_KEY`(또는 `OPENAI_API_KEY` + `LLM_MODEL=openai:...`)가 있어야 실제 모델이 돌고, 키가 없으면 `LLM_MODEL=fake`로 배선만 확인할 수 있다. `MCP_WORK_URL`이 비어 있으면 백엔드 REST를 직접 부르는 로컬 모드다. 설계는 `apps/agent_runtime/AGENT_DESIGN.md`.
 
 ## 토큰 발급 (MVP 인증)
 ```bash
@@ -23,7 +26,8 @@ curl -s localhost:8000/inventory -H 'Authorization: Bearer dev.emp_asset_01'
 ```
 packages/schemas/   공유 Pydantic 스키마 = 명세 (common, entities, rest, mcp_tools, agent)
 apps/backend/       REST API (현재 스텁: 고정 데이터, 권한·승인·실행 규칙은 동작)
-apps/agent_runtime/ 에이전트 실행·SSE 이벤트 (현재 스텁)
+apps/agent_runtime/ LangGraph 에이전트: graph.py(StateGraph) · harness/(8요소) · prompts/ · tasks.py(작업·이벤트) · main.py(/ai/tasks API)
+apps/admin_ui/      Streamlit 관리자 화면 (메인 · 자산 관리 · 승인함 · 에이전트)
 apps/mcp_work, apps/mcp_docs   MCP 서버 (schemas.mcp_tools.TOOLS를 순회해 등록)
 apps/slack_bot, apps/admin_ui  접점
 apps/mock_vendor, jobs/, db/   Mock 벤더, 배치, 스키마·시드
