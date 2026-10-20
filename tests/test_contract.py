@@ -44,9 +44,26 @@ def test_hrd_sees_team_only_candidates():
     assert all(c["employee_id"] for c in data["candidates"])
 
 
-def test_suggestion_requires_relevance():
+def test_suggestion_requires_relevance_unless_on_hold():
     body = {"update_id": "upd_ai_a_doc_compare", "target_type": "employee", "target_id": "emp_hrd_01", "relevance": " ", "body": "x"}
     assert client.post("/suggestions", json=body, headers=SYS).status_code == 422
+    hold = {"update_id": "upd_ai_b_price", "target_type": "all", "status": "on_hold", "hold_reason": "회사 플랜에 없는 기능"}
+    r = client.post("/suggestions", json=hold, headers=SYS)
+    assert r.status_code == 201 and r.json()["data"]["status"] == "on_hold" and r.json()["data"]["hold_reason"]
+    assert client.post("/suggestions", json={**hold, "hold_reason": ""}, headers=SYS).status_code == 422
+
+
+def test_low_risk_plan_executes_immediately():
+    body = {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "미배정 좌석", "evidence": []}
+    d = client.post("/plans", json=body, headers=EMP).json()["data"]
+    assert d["risk_level"] == "low" and d["status"] == "executed" and d["executed_at"]
+    sv = client.get("/savings", headers=ASSET).json()["data"]
+    assert sv["by_kind"].get("purchase_avoided", 0) > 0
+
+
+def test_anomaly_detail_has_project_purpose():
+    d = client.get("/anomalies/anm_001", headers=ASSET).json()["data"]
+    assert d["project"]["purpose"] and d["series"] and d["breakdown_by_input_length"]
 
 
 def test_estimate_formula():
@@ -86,7 +103,7 @@ def test_employee_usage_self_only():
 
 def test_mcp_registry_roles_and_schemas():
     names = [t.name for t in TOOLS]
-    assert len(names) == len(set(names)) == 22
+    assert len(names) == len(set(names)) == 23
     assert "execute_approved_plan" not in {t.name for t in tools_for_role(Role.employee)}
     assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.asset)}
     for t in TOOLS:

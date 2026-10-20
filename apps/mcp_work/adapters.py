@@ -111,6 +111,11 @@ async def get_anomalies(i: M.GetAnomaliesIn) -> dict:
     return {"anomalies": await call("GET", "/anomalies", params={"status": i.status and i.status.value})}
 
 
+@adapter("get_anomaly_detail")
+async def get_anomaly_detail(i: M.GetAnomalyDetailIn) -> dict:
+    return await call("GET", f"/anomalies/{i.anomaly_id}")
+
+
 # ---------- F4 이용권 ----------
 @adapter("get_license_inventory")
 async def get_license_inventory(i: M.GetLicenseInventoryIn) -> dict:

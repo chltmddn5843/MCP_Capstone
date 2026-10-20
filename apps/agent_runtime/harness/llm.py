@@ -25,25 +25,37 @@ class ScriptedModel(BaseChatModel):
 
     def _generate(self, messages: list[BaseMessage], stop=None, run_manager=None, **kwargs: Any) -> ChatResult:
         humans = [m for m in messages if isinstance(m, HumanMessage)]
-        tools_done = [m for m in messages if isinstance(m, ToolMessage)]
-        last_human = humans[-1].content if humans else ""
-        wants_seat = "이용권" in str(last_human) or "좌석" in str(last_human)
+        last_idx = max((i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=-1)
+        tools_done = [m for m in messages[last_idx + 1:] if isinstance(m, ToolMessage)]  # 이번 요청 이후의 도구 결과만
+        last_human = str(humans[-1].content) if humans else ""
         names = [m.name for m in tools_done]
-        if not tools_done:
-            if wants_seat:
-                call = {"name": "create_action_plan", "args": {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "미배정 이용권이 있어 신청자에게 배정", "evidence": [{"source": "inventory", "ref": "ctr_ai_a_2026", "value": {"unassigned": 2}}]}, "id": f"call_{uuid.uuid4().hex[:8]}"}
-            else:
-                call = {"name": "get_my_profile", "args": {}, "id": f"call_{uuid.uuid4().hex[:8]}"}
-            msg = AIMessage(content="", tool_calls=[call])
-        elif names[-1] == "create_action_plan":
+
+        def _cid():
+            return f"call_{uuid.uuid4().hex[:8]}"
+
+        def _last_json():
             try:
-                plan_id = json.loads(tools_done[-1].content).get("plan_id", "plan_001")
+                return json.loads(tools_done[-1].content)
             except Exception:  # noqa: BLE001
-                plan_id = "plan_001"
-            msg = AIMessage(content="", tool_calls=[{"name": "execute_approved_plan", "args": {"plan_id": plan_id, "idempotency_key": f"idem_{uuid.uuid4().hex[:8]}"}, "id": f"call_{uuid.uuid4().hex[:8]}"}])
+                return {}
+
+        import re
+
+        if not tools_done:
+            if "회수" in last_human or "재배정" in last_human:
+                call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026", "confirmation_id": "cfm_001", "reassign_to_employee_id": "emp_mkt_01"}], "rationale": "휴직 중, 본인 반납 응답 있음", "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]}, "id": _cid()}
+            elif "실행" in last_human and re.search(r"plan_\w+", last_human):
+                call = {"name": "execute_approved_plan", "args": {"plan_id": re.search(r"plan_\w+", last_human).group(0), "idempotency_key": f"idem_{uuid.uuid4().hex[:8]}"}, "id": _cid()}
+            elif "이용권" in last_human or "좌석" in last_human:
+                call = {"name": "create_action_plan", "args": {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "미배정 이용권이 있어 신청자에게 배정", "evidence": [{"source": "inventory", "ref": "ctr_ai_a_2026", "value": {"unassigned": 2}}]}, "id": _cid()}
+            else:
+                call = {"name": "get_my_profile", "args": {}, "id": _cid()}
+            msg = AIMessage(content="", tool_calls=[call])
         else:
             last = tools_done[-1].content[:300]
-            msg = AIMessage(content=f"(스크립트 모델) 요청을 처리했습니다. 마지막 도구 {names[-1]} 결과 근거: {last}")
+            status = _last_json().get("status")
+            summary = {"executed": "조치가 즉시 실행됐습니다.", "pending_approval": "조치안을 만들었고 담당자 승인을 기다립니다.", "approved": "승인된 조치안입니다."}.get(status, "요청을 처리했습니다.")
+            msg = AIMessage(content=f"(스크립트 모델) {summary} 마지막 단계 {names[-1]} 결과 근거: {last}")
         return ChatResult(generations=[ChatGeneration(message=msg)])
 
 

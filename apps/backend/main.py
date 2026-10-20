@@ -28,11 +28,13 @@ from schemas.common import (
     PlanType,
     RiskLevel,
     Role,
+    SavingsKind,
     SuggestionStatus,
     UsageScope,
 )
 from schemas.entities import (
     ActionPlan,
+    SavingsEntry,
     Anomaly,
     AuditEntry,
     BreakdownRow,
@@ -184,10 +186,17 @@ def list_suggestions(status: SuggestionStatus | None = None, update_id: str | No
 
 @app.post("/suggestions", response_model=Envelope[Suggestion], status_code=201, tags=["F1"])
 def create_suggestion(body: SuggestionCreate, user: Employee = Depends(require(Role.system, Role.hrd))):
-    if not body.relevance.strip():
-        raise ApiError(ErrorCode.invalid, "관련성 근거(relevance) 없이는 제안을 저장할 수 없습니다")
-    status = SuggestionStatus.draft if body.target_type.value == "employee" else SuggestionStatus.pending_approval
-    s = Suggestion(id=_new_id("sug"), status=status, **body.model_dump())
+    if body.status == SuggestionStatus.on_hold:
+        if not (body.hold_reason or "").strip():
+            raise ApiError(ErrorCode.invalid, "보류(on_hold)에는 hold_reason이 필요합니다")
+        status = SuggestionStatus.on_hold
+    else:
+        if not body.relevance.strip():
+            raise ApiError(ErrorCode.invalid, "관련성 근거(relevance) 없이는 제안을 보낼 수 없습니다. 보내지 않으려면 status=on_hold와 hold_reason을 쓰세요")
+        if not body.body.strip():
+            raise ApiError(ErrorCode.invalid, "제안 본문(body)이 비어 있습니다")
+        status = SuggestionStatus.draft if body.target_type.value == "employee" else SuggestionStatus.pending_approval
+    s = Suggestion(id=_new_id("sug"), **body.model_dump(exclude={"status"}), status=status)
     fx.SUGGESTIONS[s.id] = s
     return ok(s)
 
@@ -359,6 +368,8 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
     status = PlanStatus.approved if risk == RiskLevel.low else PlanStatus.pending_approval
     plan = ActionPlan(id=_new_id("plan"), risk_level=risk, status=status, requested_by=user.id, created_at=_now(), **body.model_dump())
     fx.PLANS[plan.id] = plan
+    if risk == RiskLevel.low:  # 11절: 낮은 위험(되돌릴 수 있는 조치)은 승인 없이 즉시 실행하고 사후 기록
+        plan = _execute(plan, f"auto_{plan.id}").plan
     return ok(plan)
 
 
@@ -396,26 +407,31 @@ def reject_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(requi
     return ok(_decide(plan_id, body, user, approve=False))
 
 
+def _execute(p: ActionPlan, idempotency_key: str) -> PlanExecuteResponse:
+    """실행기. 1) 승인 상태 2) 멱등 키 3) 대상 재검증 4) 벤더(Mock) 호출·재조회 5) 절감 기록."""
+    if idempotency_key in fx.EXECUTIONS:  # 같은 키면 첫 결과 그대로
+        return fx.EXECUTIONS[idempotency_key]
+    if p.status != PlanStatus.approved:
+        raise ApiError(ErrorCode.forbidden, f"승인 상태가 아님: {p.status.value}")
+    if p.risk_level == RiskLevel.high:
+        raise ApiError(ErrorCode.forbidden, "높은 위험도 조치는 MVP에서 실행하지 않습니다 (요청만 생성)")
+    if any(i.get("_stale") for i in p.items):  # 스텁: 재검증 실패 흉내
+        raise ApiError(ErrorCode.stale, "승인 뒤 대상 상태가 바뀌어 실행을 멈췄습니다", {"plan_id": p.id})
+    executed = p.model_copy(update={"status": PlanStatus.executed, "executed_at": _now(), "result": {"vendor": "mock", "ok": True}})
+    fx.PLANS[p.id] = executed
+    if p.type == PlanType.seat_assign and not any(s.plan_id == p.id for s in fx.SAVINGS):
+        fx.SAVINGS.append(SavingsEntry(id=_new_id("sav"), plan_id=p.id, kind=SavingsKind.purchase_avoided, amount_krw=45000 * 2, basis="미배정 좌석 배정으로 추가 구매 회피 (월 45,000원 × 남은 2개월)"))
+    resp = PlanExecuteResponse(plan=executed, result={"vendor": "mock", "ok": True, "items": p.items}, verified={"items": p.items, "state": "applied"}, savings=[s.model_dump() for s in fx.SAVINGS if s.plan_id == p.id])
+    fx.EXECUTIONS[idempotency_key] = resp
+    return resp
+
+
 @app.post("/plans/{plan_id}/execute", response_model=Envelope[PlanExecuteResponse], tags=["plans"])
 def execute_plan(plan_id: str, idempotency_key: str = Header(alias="Idempotency-Key"), user: Employee = Depends(require(Role.asset, Role.system))):
     p = fx.PLANS.get(plan_id)
     if not p:
         raise ApiError(ErrorCode.not_found, "조치안 없음")
-    if idempotency_key in fx.EXECUTIONS:  # 2. 같은 키면 첫 결과 그대로
-        return ok(fx.EXECUTIONS[idempotency_key])
-    if p.status != PlanStatus.approved:  # 1. 승인 아니면 403
-        raise ApiError(ErrorCode.forbidden, f"승인 상태가 아님: {p.status.value}")
-    if p.risk_level == RiskLevel.high:
-        raise ApiError(ErrorCode.forbidden, "높은 위험도 조치는 MVP에서 실행하지 않습니다 (요청만 생성)")
-    # 3. 재검증 (스텁: items에 stale=True가 있으면 중단)
-    if any(i.get("_stale") for i in p.items):
-        raise ApiError(ErrorCode.stale, "승인 뒤 대상 상태가 바뀌어 실행을 멈췄습니다", {"plan_id": plan_id})
-    # 4. 실행기(Mock 벤더) 호출 + 재조회 (스텁)
-    executed = p.model_copy(update={"status": PlanStatus.executed, "executed_at": _now(), "result": {"vendor": "mock", "ok": True}})
-    fx.PLANS[plan_id] = executed
-    resp = PlanExecuteResponse(plan=executed, result={"vendor": "mock", "ok": True, "items": p.items}, verified={"items": p.items, "state": "applied"}, savings=[s.model_dump() for s in fx.SAVINGS if s.plan_id == plan_id])
-    fx.EXECUTIONS[idempotency_key] = resp
-    return ok(resp)
+    return ok(_execute(p, idempotency_key))
 
 
 def _add_business_days(start: datetime, days: int) -> datetime:
