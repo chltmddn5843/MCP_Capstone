@@ -101,8 +101,8 @@ def render_stream(task_id: str, after: int = 0) -> None:
             elif t == "APPROVAL_REQUIRED":
                 status.update(label="담당자 승인 대기", state="error", expanded=True)
                 card = ev["approval"]
-                st.warning(f"**담당자 승인이 필요한 단계입니다.** {card['summary']}")
-                st.caption("자산관리 담당이 승인함에서 승인하면 이어서 자동 처리됩니다. 처리 결과는 '요청 이력'에서 볼 수 있습니다.")
+                st.warning(f"**관리자 확인이 필요한 단계입니다.** {card['summary']}")
+                st.caption("관리자가 '승인 대기'에서 확인하면 이어서 자동 처리됩니다. 결과는 '내 요청'에서 볼 수 있습니다.")
                 return
             elif t == "DONE":
                 status.update(label="완료", state="complete", expanded=False)
@@ -139,7 +139,7 @@ def assistant_panel(role: str, title: str = "AI 비서") -> None:
 
 
 def task_history(mine: bool = True, limit: int = 10) -> None:
-    st.subheader("요청 이력")
+    st.subheader("내 요청")
     tasks = api("GET", "/ai/tasks", base=AGENT, params={"mine": mine, "limit": limit}) or []
     if not tasks:
         st.caption("아직 요청이 없습니다.")
@@ -156,17 +156,17 @@ def task_history(mine: bool = True, limit: int = 10) -> None:
 
 
 def approval_inbox(me: dict) -> None:
-    """조치안 승인 + 에이전트 실행 승인. 자산관리·승인자·HRD가 쓴다."""
-    st.subheader("승인 대기 조치안")
-    st.caption("위험도 '중간'은 담당자 승인 뒤 실행되고, '높음'은 승인자(IT·보안 책임자)만 결정하며 실행하지 않고 요청만 남깁니다.")
+    """승인 대기: 처리 요청 결정 + AI 비서 처리 확인. 관리자가 쓴다."""
+    st.subheader("승인 대기 요청")
+    st.caption("'담당자 승인' 요청은 승인하면 처리됩니다. '책임자 결정' 요청(구매, 운영 환경 변경)은 결정만 기록하고 처리는 시스템 밖에서 합니다.")
     page = api("GET", "/plans", params={"status": "pending_approval"})
     items = (page or {}).get("items", [])
     for p in items:
         with st.container(border=True):
-            st.markdown(f"**{L.PLAN_TYPE.get(p['type'], p['type'])}** · 위험도 {L.RISK.get(p['risk_level'], p['risk_level'])} · 요청자 `{p['requested_by']}`")
+            st.markdown(f"**{L.PLAN_TYPE.get(p['type'], p['type'])}** · {L.RISK.get(p['risk_level'], p['risk_level'])} · 요청자 `{p['requested_by']}`")
             st.write(p["rationale"])
-            with st.expander("대상과 근거"):
-                st.json({"대상": p["items"], "근거": p["evidence"]}, expanded=True)
+            with st.expander("대상과 참고한 데이터"):
+                st.json({"대상": p["items"], "참고한 데이터": p["evidence"]}, expanded=True)
             reason = st.text_input("결정 사유 (필수)", key=f"r_{p['id']}")
             c1, c2 = st.columns(2)
             if c1.button("승인", key=f"a_{p['id']}", type="primary") and api("POST", f"/plans/{p['id']}/approve", json={"reason": reason}):
@@ -176,10 +176,10 @@ def approval_inbox(me: dict) -> None:
                 st.success("반려했습니다.")
                 st.rerun()
     if not items:
-        st.caption("승인 대기 중인 조치안이 없습니다.")
+        st.caption("승인 대기 중인 요청이 없습니다.")
 
-    st.subheader("AI 비서 실행 승인")
-    st.caption("AI 비서가 실제 변경(이용권 배정 실행 등)을 하기 직전에 멈춘 건입니다. 승인하면 그 지점부터 이어서 처리합니다.")
+    st.subheader("AI 비서 처리 확인")
+    st.caption("AI 비서가 실제 변경을 하기 직전에 멈춘 건입니다. 확인하면 그 지점부터 이어서 처리합니다.")
     tasks = api("GET", "/ai/tasks", base=AGENT, params={"mine": False}, quiet=True) or []
     waiting = [t for t in tasks if t["status"] == "waiting_approval"]
     for t in waiting:
@@ -190,9 +190,9 @@ def approval_inbox(me: dict) -> None:
             reason = st.text_input("결정 사유 (필수)", key=f"tr_{t['task_id']}")
             c1, c2 = st.columns(2)
             after = len(t["tool_calls"]) * 2 + 1
-            if c1.button("승인하고 실행", key=f"ta_{t['task_id']}", type="primary") and api("POST", f"/ai/tasks/{t['task_id']}/approval", base=AGENT, json={"approved": True, "reason": reason}):
+            if c1.button("확인하고 처리", key=f"ta_{t['task_id']}", type="primary") and api("POST", f"/ai/tasks/{t['task_id']}/approval", base=AGENT, json={"approved": True, "reason": reason}):
                 render_stream(t["task_id"], after=after)
             if c2.button("거절", key=f"tj_{t['task_id']}") and api("POST", f"/ai/tasks/{t['task_id']}/approval", base=AGENT, json={"approved": False, "reason": reason}):
                 render_stream(t["task_id"], after=after)
     if not waiting:
-        st.caption("승인 대기 중인 AI 비서 작업이 없습니다.")
+        st.caption("확인을 기다리는 AI 비서 작업이 없습니다.")
