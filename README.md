@@ -23,6 +23,46 @@ uv run pytest                 # 계약 테스트 + 에이전트 테스트 (키 �
 uv run python specs/export.py # specs/*.json 갱신
 ```
 
+### Docker로 팀원에게 공유
+
+Docker Desktop이 실행된 상태에서 다음 명령을 실행합니다.
+
+```bash
+cp .env.example .env
+# 외부에 공유할 때는 .env의 JWT_SECRET과 POSTGRES_PASSWORD를 반드시 변경합니다.
+docker compose up -d --build
+```
+
+브라우저에서 `http://localhost:8080`으로 접속합니다. 같은 네트워크의 팀원에게는 실행 PC의 사설 IP와 포트를 공유합니다(예: `http://192.168.0.10:8080`). Backend·Agent 포트는 외부에 직접 공개하지 않고 Nginx를 통해서만 접근합니다. PostgreSQL은 DBeaver 사용을 위해 실행 PC의 `127.0.0.1:5432`에만 바인딩되며 팀원 LAN에는 공개되지 않습니다.
+
+최초 기동 시 `app` 스키마와 시드 데이터가 자동으로 생성됩니다. 기존 볼륨을 지우고 처음부터 다시 시작할 때만 다음 명령을 사용합니다.
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+로그 확인:
+
+```bash
+docker compose logs -f web backend agent
+```
+
+### GitHub Push 자동 배포
+
+현재 Mac에 GitHub Actions self-hosted runner를 설치하면 `main` 또는 `master` 브랜치에
+push할 때마다 Docker Compose가 자동으로 재빌드·재기동됩니다.
+
+1. GitHub 저장소의 **Settings → Actions → Runners → New self-hosted runner**에서 macOS 명령을 복사합니다.
+2. 이 저장소 폴더가 아닌 GitHub가 안내하는 runner 전용 폴더에서 명령을 실행합니다.
+3. runner 등록 시 라벨에 `docker`를 추가하고 runner 프로세스를 계속 실행합니다.
+4. 저장소의 **Actions**에서 `Deploy Docker app`이 대기 없이 실행되는지 확인합니다.
+
+runner가 꺼져 있거나 Mac이 잠자기 상태면 자동 배포되지 않습니다. Quick Tunnel도 같은 Mac의
+프로세스이므로 Mac과 터널이 종료되면 외부 주소도 함께 끊깁니다.
+
+자동 배포를 끄려면 GitHub Actions에서 workflow를 disable하거나 runner를 중지합니다.
+
 에이전트는 `.env`의 `LLM_MODEL`로 모델을 고른다. 값은 DB `models.id`와 같은 `공급사:API 모델명` 키다
 (예: `anthropic:claude-sonnet-5-5`, `anthropic:claude-opus-5-5`, `xai:grok-4.7`). 공급사별 API 키가 필요하다.
 키가 없으면 `LLM_MODEL=fake`로 배선만 확인할 수 있다. `MCP_WORK_URL`이 비어 있으면 백엔드 REST를

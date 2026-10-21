@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -126,6 +127,17 @@ class GetAnomalyDetailIn(BaseModel):
 
 class GetLicenseInventoryIn(BaseModel):
     contract_id: str | None = None
+
+
+class SaveAiNoteIn(BaseModel):
+    target_type: Literal["plan", "anomaly"] = Field(description="plan=승인 대기 조치안 의견, anomaly=경보 원인 조사 요약")
+    target_id: str
+    note: str = Field(min_length=1, max_length=1500, description="승인자·관리자가 읽을 자연어 2~5문장. 근거 수치 포함, 단정 금지")
+
+
+class SaveAiNoteOut(BaseModel):
+    target_id: str
+    saved: bool
 
 
 class GetEmployeeAssetsIn(BaseModel):
@@ -318,6 +330,7 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_anomalies", "사용량 경보 목록.", GetAnomaliesIn, AnomaliesOut, [Role.admin, Role.system], backend="GET /anomalies", features=["F3"]),
     ToolSpec("get_anomaly_detail", "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.", GetAnomalyDetailIn, AnomalyDetail, [Role.admin, Role.system], backend="GET /anomalies/{id}", features=["F3"]),
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.admin, Role.system], backend="GET /inventory", features=["F4"]),
+    ToolSpec("save_ai_note", "자동 검토 결과를 남긴다: 승인 대기 조치안의 AI 의견, 경보의 원인 조사 요약. 시스템 작업 전용.", SaveAiNoteIn, SaveAiNoteOut, [Role.system], read_only=False, idempotent=True, backend="PATCH /plans/{id}/opinion | /anomalies/{id}/note", features=["F3", "F4"]),
     ToolSpec("get_employee_assets", "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.", GetEmployeeAssetsIn, MyProfileOut, [Role.admin, Role.system], backend="GET /employees/{id}/assets", features=["F4"]),
     ToolSpec("record_unmet_need", "승인 제품으로 할 수 없는 요청(미지원 요청)을 기록한다.", RecordUnmetNeedIn, RecordUnmetNeedOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /unmet-needs", features=["F5"]),
     ToolSpec("list_unmet_needs", "미지원 요청을 기능 태그별로 집계한다.", ListUnmetNeedsIn, ListUnmetNeedsOut, [Role.admin, Role.system], backend="GET /unmet-needs", features=["F5"]),

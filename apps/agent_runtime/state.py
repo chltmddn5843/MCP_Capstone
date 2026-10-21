@@ -23,4 +23,6 @@ class AgentState(TypedDict, total=False):
     approval_decision: dict | None  # {approved, reason, by}
     answer: str | None
     started_at: float
-    stop_reason: str | None  # answer | turn_limit | time_limit | tool_repeat | rejected | error
+    stop_reason: str | None  # answer | turn_limit | time_limit | tool_repeat | rejected | error | ask_user
+    intent: str  # recommend | license | update_review | anomaly | general (harness/intent.py)
+    conditions: dict[str, bool]  # F2 필수 조건 5개 충족 여부 (recommend일 때만)

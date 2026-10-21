@@ -97,6 +97,10 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
             return await _call(client, "GET", f"/anomalies/{a['anomaly_id']}")
         case "get_license_inventory":
             return {"contracts": await _call(client, "GET", "/inventory", params={"contract_id": a.get("contract_id")})}
+        case "save_ai_note":
+            path = f"/plans/{a['target_id']}/opinion" if a["target_type"] == "plan" else f"/anomalies/{a['target_id']}/note"
+            d = await _call(client, "PATCH", path, json_body={"note": a["note"]})
+            return d if "error" in d else {"target_id": a["target_id"], "saved": True}
         case "get_employee_assets":
             return await _call(client, "GET", f"/employees/{a['employee_id']}/assets")
         case "record_unmet_need":

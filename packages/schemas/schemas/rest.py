@@ -58,6 +58,10 @@ class DevLoginRequest(BaseModel):
     employee_id: str
 
 
+class SlackExchangeRequest(BaseModel):
+    slack_user_id: str
+
+
 class LoginRequest(BaseModel):
     login_id: str = Field(description="사번(예: emp_mkt_01) 또는 회사 이메일")
     password: str = Field(min_length=1)
@@ -328,6 +332,10 @@ class PlanListQuery(BaseModel):
     type: PlanType | None = None
 
 
+class AiNote(BaseModel):
+    note: str = Field(min_length=1, max_length=1500, description="에이전트가 남기는 의견·조사 요약 (자연어)")
+
+
 class PlanDecision(BaseModel):
     reason: str = Field(min_length=1, description="승인·반려 모두 사유 필수")
 
@@ -369,6 +377,7 @@ class JobRunResponse(BaseModel):
 # ---------- 경로 표 (문서용, 백엔드 라우터와 일치해야 함) ----------
 ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("POST", "/auth/login", "사번·비밀번호로 로그인, JWT 발급", []),
+    ("POST", "/auth/slack-exchange", "Slack 사용자 → 직원 토큰 (Slack 봇 시스템 토큰 전용)", [Role.system]),
     ("POST", "/auth/dev-login", "시드 직원으로 토큰 발급 (APP_ENV=dev 전용)", []),
     ("GET", "/me", "본인 프로필·업무·실제로 쓸 수 있는 도구", [Role.employee, Role.admin, Role.system]),
     ("GET", "/me/tasks", "본인 등록 업무", [Role.employee]),
@@ -388,6 +397,8 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/unmet-needs", "미충족 수요 집계", [Role.admin]),
     ("POST", "/unmet-needs", "미충족 수요 기록", [Role.employee, Role.admin, Role.system]),
     ("GET", "/inventory", "이용권 현황", [Role.admin, Role.system]),
+    ("PATCH", "/plans/{plan_id}/opinion", "승인 대기 조치안에 AI 의견 저장 (에이전트 시스템 작업)", [Role.system]),
+    ("PATCH", "/anomalies/{anomaly_id}/note", "경보에 AI 원인 조사 요약 저장 (에이전트 시스템 작업)", [Role.system]),
     ("GET", "/employees/{employee_id}/assets", "직원이 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)", [Role.admin, Role.system]),
     ("GET", "/usage", "사용량", [Role.employee, Role.admin, Role.system]),
     ("GET", "/projects", "API 프로젝트 목록·월 예산", [Role.admin, Role.system]),

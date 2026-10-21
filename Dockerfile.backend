@@ -1,0 +1,23 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+RUN apt-get update \
+   && apt-get install -y --no-install-recommends postgresql-client \
+   && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml uv.lock ./
+COPY packages ./packages
+RUN uv sync --frozen --no-dev
+
+COPY apps ./apps
+COPY db ./db
+COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+RUN chmod +x ./scripts/docker-entrypoint.sh
+
+EXPOSE 8000
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
+CMD ["uv", "run", "uvicorn", "apps.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

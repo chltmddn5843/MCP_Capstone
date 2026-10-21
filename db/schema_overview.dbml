@@ -1,0 +1,290 @@
+// 핵심 업무 흐름만 보여주는 간략 ERD
+// 전체 구조와 상세 필드는 db/schema.dbml 참고
+// dbdiagram.io에서 이 파일을 붙여 넣어 시각화한다.
+
+Project capstone_overview {
+  database_type: 'PostgreSQL'
+  Note: '조직, 구독·사용량, 업무 제안, 승인 흐름 중심. 로그·알림·배치 테이블은 생략.'
+}
+
+Enum role {
+  employee
+  admin
+  system
+}
+Enum employee_status {
+  active
+  on_leave
+  resigned
+}
+Enum tool_kind {
+  ai
+  software
+}
+Enum tool_approval_status {
+  approved
+  under_review
+  denied
+}
+Enum data_class {
+  public
+  internal
+  confidential
+}
+Enum billing_type {
+  seat_flat
+  seat_plus_usage
+  api_usage
+}
+Enum environment {
+  test
+  prod
+}
+Enum seat_status {
+  assigned
+  unassigned
+}
+Enum target_type {
+  employee
+  team
+  all
+}
+Enum suggestion_status {
+  draft
+  pending_approval
+  sent
+  on_hold
+}
+Enum reaction {
+  useful
+  irrelevant
+  question
+}
+Enum unmet_need_status {
+  open
+  under_review
+  closed
+}
+Enum source_kind {
+  release_notes
+  pricing
+  docs
+}
+Enum plan_type {
+  seat_assign
+  seat_reclaim
+  model_change
+  budget_review
+  purchase_review
+}
+Enum plan_status {
+  draft
+  pending_approval
+  approved
+  executed
+  failed
+  rejected
+}
+Enum risk_level {
+  low
+  medium
+  high
+}
+Enum confirmation_answer {
+  still_needed
+  return_seat
+  on_leave
+}
+Enum savings_kind {
+  purchase_avoided
+  renewal_reduced
+  billing_reduced
+  projected
+}
+
+Table departments {
+  id varchar [pk]
+  name varchar [not null]
+  parent_id varchar [ref: >? departments.id]
+}
+
+Table employees {
+  id varchar [pk]
+  dept_id varchar [not null, ref: > departments.id]
+  name varchar [not null]
+  email varchar [not null, unique]
+  role role [not null]
+  status employee_status [not null]
+}
+
+Table tools {
+  id varchar [pk]
+  kind tool_kind [not null]
+  vendor varchar [not null]
+  product varchar [not null]
+  category varchar [not null]
+  approval_status tool_approval_status [not null]
+  allowed_data_class data_class [not null]
+}
+
+Table contracts {
+  id varchar [pk]
+  tool_id varchar [not null, ref: > tools.id]
+  plan_name varchar [not null]
+  billing_type billing_type [not null]
+  seats_purchased int [not null]
+  term_start date [not null]
+  term_end date [not null]
+}
+
+Table models {
+  id varchar [pk]
+  tool_id varchar [ref: >? tools.id]
+  vendor varchar [not null]
+  name varchar [not null]
+  approved boolean [not null]
+  allowed_data_class data_class [not null]
+  indexes { (vendor, name) [unique] }
+}
+
+Table projects {
+  id varchar [pk]
+  name varchar [not null]
+  dept_id varchar [not null, ref: > departments.id]
+  owner_id varchar [not null, ref: > employees.id]
+  model_id varchar [not null, ref: > models.id]
+  environment environment [not null]
+  monthly_budget_krw int [not null]
+}
+
+Table usage_records {
+  id bigserial [pk]
+  contract_id varchar [not null, ref: > contracts.id]
+  period_start timestamptz [not null]
+  employee_id varchar [ref: >? employees.id]
+  project_id varchar [ref: >? projects.id]
+  model_id varchar [ref: >? models.id]
+  requests int [not null]
+  input_tokens bigint [not null]
+  output_tokens bigint [not null]
+  cost_krw int [not null]
+}
+
+Table seat_assignments {
+  id varchar [pk]
+  contract_id varchar [not null, ref: > contracts.id]
+  employee_id varchar [not null, ref: > employees.id]
+  status seat_status [not null]
+  assigned_at timestamptz [not null]
+  last_activity_at timestamptz
+}
+
+Table registered_tasks {
+  id varchar [pk]
+  employee_id varchar [not null, ref: > employees.id]
+  title varchar [not null]
+  frequency varchar [not null]
+  tools_used "varchar[]" [not null]
+}
+
+Table vendor_sources {
+  id varchar [pk]
+  vendor varchar [not null]
+  url varchar [not null, unique]
+  kind source_kind [not null]
+}
+
+Table vendor_updates {
+  id varchar [pk]
+  source_id varchar [not null, ref: > vendor_sources.id]
+  vendor varchar [not null]
+  published_at timestamptz [not null]
+  title varchar [not null]
+  url varchar [not null, unique]
+}
+
+Table suggestions {
+  id varchar [pk]
+  update_id varchar [not null, ref: > vendor_updates.id]
+  target_type target_type [not null]
+  target_employee_id varchar [ref: >? employees.id]
+  target_dept_id varchar [ref: >? departments.id]
+  task_id varchar [ref: >? registered_tasks.id]
+  body text [not null]
+  status suggestion_status [not null]
+  sent_at timestamptz
+}
+
+Table feedback {
+  id varchar [pk]
+  suggestion_id varchar [not null, ref: > suggestions.id]
+  employee_id varchar [not null, ref: > employees.id]
+  reaction reaction [not null]
+  created_at timestamptz [not null]
+  indexes { (suggestion_id, employee_id) [unique] }
+}
+
+Table unmet_needs {
+  id varchar [pk]
+  employee_id varchar [not null, ref: > employees.id]
+  dept_id varchar [not null, ref: > departments.id]
+  summary text [not null]
+  capability_tag varchar [not null]
+  status unmet_need_status [not null]
+}
+
+Table action_plans {
+  id varchar [pk]
+  type plan_type [not null]
+  risk_level risk_level [not null]
+  status plan_status [not null]
+  items jsonb [not null]
+  requested_by varchar [not null, ref: > employees.id]
+  approver_id varchar [ref: >? employees.id]
+  created_at timestamptz [not null]
+}
+
+Table confirmations {
+  id varchar [pk]
+  plan_id varchar [not null, ref: > action_plans.id]
+  employee_id varchar [not null, ref: > employees.id]
+  answer confirmation_answer
+  due_at timestamptz [not null]
+  indexes { (plan_id, employee_id) [unique] }
+}
+
+Table savings_ledger {
+  id varchar [pk]
+  plan_id varchar [not null, ref: > action_plans.id]
+  kind savings_kind [not null]
+  amount_krw int [not null]
+  created_at timestamptz [not null]
+}
+
+TableGroup org {
+  departments
+  employees
+}
+TableGroup catalog {
+  tools
+  contracts
+  models
+}
+TableGroup usage {
+  projects
+  usage_records
+  seat_assignments
+}
+TableGroup suggestions_flow {
+  registered_tasks
+  vendor_sources
+  vendor_updates
+  suggestions
+  feedback
+  unmet_needs
+}
+TableGroup approvals {
+  action_plans
+  confirmations
+  savings_ledger
+}

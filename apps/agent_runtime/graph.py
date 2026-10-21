@@ -1,9 +1,10 @@
 """LangGraph StateGraph. 노드·분기·반복은 AGENT_DESIGN.md의 그래프 그림과 같다.
 
-prepare → call_model → check_limits ─┬─ tools ──────────┐
-                                      ├─ approval_gate ─┤ (승인 → tools / 거절 → call_model)
-                                      └─ finalize → END │
-                 ▲────────────────────────────────────────┘
+prepare → classify_intent ─┬─ ask_user → END            (모델 추천인데 F2 조건 부족, 한 번만 묻는다)
+                           └─ call_model → check_limits ─┬─ tools ──────────┐
+                                                          ├─ approval_gate ─┤ (승인 → tools / 거절 → call_model)
+                                                          └─ finalize → END │
+                              ▲───────────────────────────────────────────────┘
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
@@ -21,6 +22,7 @@ from langgraph.types import interrupt
 
 from apps.agent_runtime.config import MAX_SAME_TOOL, MAX_SECONDS, MAX_TURNS
 from apps.agent_runtime.harness.context import fit_context
+from apps.agent_runtime.harness import intent as intent_rules
 from apps.agent_runtime.harness.guardrails import approval_summary, is_destructive, public_channel, sanitize_public_answer
 from apps.agent_runtime.harness.observability import record, usage_of
 from apps.agent_runtime.harness.recovery import call_with_recovery
@@ -56,6 +58,32 @@ async def prepare(state: AgentState) -> dict:
     """작업 단위 카운터를 초기화한다. 대화(messages)는 thread에 남아 이어진다."""
     return {"turn": 0, "tool_counts": {}, "evidence": [], "plan_id": state.get("plan_id"), "pending_approval": None,
             "approval_decision": None, "answer": None, "started_at": time.time(), "stop_reason": None}
+
+
+async def classify_intent(state: AgentState) -> dict:
+    """요청 의도를 정하고, 모델 추천이면 F2 조건 5개가 대화에 나왔는지 본다."""
+    msgs = state["messages"]
+    text = str(next((m.content for m in reversed(msgs) if isinstance(m, HumanMessage)), ""))
+    found = intent_rules.classify(text, state.get("prompt_name"))
+    record(_rt(state).trace_id, "intent", intent=found)
+    if found != "recommend":
+        return {"intent": found, "conditions": {}}
+    return {"intent": found, "conditions": intent_rules.conditions([str(m.content) for m in msgs if isinstance(m, HumanMessage)])}
+
+
+def route_after_intent(state: AgentState) -> str:
+    if state.get("intent") != "recommend" or state.get("channel") == "system" or all(state.get("conditions", {}).values()):
+        return "call_model"
+    prev_ai = next((m for m in reversed(state["messages"][:-1]) if isinstance(m, AIMessage)), None)
+    if prev_ai is not None and prev_ai.additional_kwargs.get("ask_user"):
+        return "call_model"  # 이미 한 번 물었다. 같은 질문을 반복하지 않고 있는 정보로 진행한다
+    return "ask_user"
+
+
+async def ask_user(state: AgentState) -> dict:
+    """부족한 조건을 질문 하나로 묶어 답으로 돌려주고 끝낸다. 직원이 답하면 같은 thread로 이어진다."""
+    q = intent_rules.question([k for k, ok in state.get("conditions", {}).items() if not ok])
+    return {"messages": [AIMessage(content=q, additional_kwargs={"ask_user": True})], "answer": q, "stop_reason": "ask_user"}
 
 
 async def call_model(state: AgentState) -> dict:
@@ -173,13 +201,17 @@ async def finalize(state: AgentState) -> dict:
 def build_graph(checkpointer):
     g = StateGraph(AgentState)
     g.add_node("prepare", prepare)
+    g.add_node("classify_intent", classify_intent)
+    g.add_node("ask_user", ask_user)
     g.add_node("call_model", call_model)
     g.add_node("check_limits", check_limits)
     g.add_node("approval_gate", approval_gate)
     g.add_node("tools", tools)
     g.add_node("finalize", finalize)
     g.add_edge(START, "prepare")
-    g.add_edge("prepare", "call_model")
+    g.add_edge("prepare", "classify_intent")
+    g.add_conditional_edges("classify_intent", route_after_intent, {"call_model": "call_model", "ask_user": "ask_user"})
+    g.add_edge("ask_user", END)
     g.add_edge("call_model", "check_limits")
     g.add_conditional_edges("check_limits", route_after_limits, {"tools": "tools", "approval_gate": "approval_gate", "finalize": "finalize"})
     g.add_conditional_edges("approval_gate", route_after_approval, {"tools": "tools", "call_model": "call_model"})

@@ -122,6 +122,13 @@ async def get_license_inventory(i: M.GetLicenseInventoryIn) -> dict:
     return {"contracts": await call("GET", "/inventory", params={"contract_id": i.contract_id})}
 
 
+@adapter("save_ai_note")
+async def save_ai_note(i: M.SaveAiNoteIn) -> dict:
+    path = f"/plans/{i.target_id}/opinion" if i.target_type == "plan" else f"/anomalies/{i.target_id}/note"
+    await call("PATCH", path, json_body={"note": i.note})
+    return {"target_id": i.target_id, "saved": True}
+
+
 @adapter("get_employee_assets")
 async def get_employee_assets(i: M.GetEmployeeAssetsIn) -> dict:
     return await call("GET", f"/employees/{i.employee_id}/assets")

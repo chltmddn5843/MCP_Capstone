@@ -247,6 +247,7 @@ CREATE TABLE anomalies (
   projected_monthly_krw int,
   projected_monthly_usd numeric(12,4),
   status anomaly_status NOT NULL DEFAULT 'open',
+  ai_note text,  -- 에이전트 원인 조사 요약 (시스템 작업이 save_ai_note로 남김)
   created_at timestamptz NOT NULL
 );
 CREATE INDEX ON anomalies (scope_type, scope_id, rule, created_at);
@@ -330,15 +331,19 @@ CREATE TABLE audit_log (
 );
 CREATE INDEX ON audit_log (target, created_at);
 
--- F1 발송함. Slack 봇이 읽어 보내고 delivered_at을 채운다
+-- 발송함. F1 제안·F3 경보·F4 사용 의사 확인을 담고, deliver_notifications 배치가 Slack으로 보내 delivered_at을 채운다
 CREATE TABLE notify_outbox (
   id varchar PRIMARY KEY,
-  suggestion_id varchar NOT NULL REFERENCES suggestions(id),
+  kind varchar NOT NULL DEFAULT 'suggestion' CHECK (kind IN ('suggestion', 'alert', 'confirmation')),
+  ref_id varchar NOT NULL,  -- kind별 대상: suggestions.id · anomalies.id · confirmations.id
+  suggestion_id varchar REFERENCES suggestions(id),
   channel varchar NOT NULL,
   target varchar,
   text text NOT NULL,
   created_at timestamptz NOT NULL,
-  delivered_at timestamptz
+  delivered_at timestamptz,
+  attempts int NOT NULL DEFAULT 0,
+  last_error text
 );
 
 -- 운영 (대기열)

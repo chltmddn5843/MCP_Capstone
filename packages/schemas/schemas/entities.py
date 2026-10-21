@@ -228,6 +228,7 @@ class Anomaly(Base):
     ratio: float
     projected_monthly_cost: Money | None = None
     status: AnomalyStatus
+    ai_note: str | None = Field(None, description="에이전트 원인 조사 요약. 경보 생성 시 자동 조사가 남긴다")
     created_at: datetime
 
 
@@ -239,6 +240,7 @@ class ActionPlan(Base):
     items: list[dict] = Field(description="type별 실행 항목. 예: [{employee_id, contract_id}]")
     rationale: str
     evidence: list[Evidence] = []
+    ai_opinion: str | None = Field(None, description="승인 대기 시 에이전트가 자동으로 붙인 의견 (save_ai_note)")
     requested_by: str
     approver_id: str | None = None
     approved_at: datetime | None = None

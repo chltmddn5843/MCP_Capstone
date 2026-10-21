@@ -7,9 +7,13 @@ B(백엔드)는 이 파일의 라우트 시그니처와 response_model을 유지
 
 from __future__ import annotations
 
+import logging
+import os
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from fastapi import Depends, FastAPI, Header, Query
 
 from apps.backend import db
@@ -19,6 +23,7 @@ from apps.backend.errors import ApiError, install_error_handlers, ok
 from schemas.common import (
     RISK_BY_PLAN_TYPE,
     BreakdownBy,
+    EmployeeStatus,
     Envelope,
     ErrorCode,
     ErrorEnvelope,
@@ -56,6 +61,8 @@ from pydantic import ValidationError
 
 from schemas.plan_items import validate_items
 from schemas.rest import (
+    AiNote,
+    SlackExchangeRequest,
     AnomalyDetail,
     BudgetSet,
     BudgetView,
@@ -115,6 +122,18 @@ def _now() -> datetime:
 @app.post("/auth/login", response_model=Envelope[DevLoginResponse], tags=["auth"])
 def login(body: LoginRequest):
     emp = authenticate(body.login_id, body.password)
+    return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
+
+
+@app.post("/auth/slack-exchange", response_model=Envelope[DevLoginResponse], tags=["auth"])
+def slack_exchange(body: SlackExchangeRequest, user: Employee = Depends(require(Role.system))):
+    """Slack 봇(시스템 토큰)이 Slack 사용자를 직원 토큰으로 바꾼다. 재직 중인 사람만."""
+    r = db.one("SELECT id FROM employees WHERE slack_user_id = :s", s=body.slack_user_id)
+    emp = r and get_employee(r["id"])
+    if not emp:
+        raise ApiError(ErrorCode.not_found, "이 Slack 사용자와 연결된 직원이 없습니다")
+    if emp.status == EmployeeStatus.resigned:
+        raise ApiError(ErrorCode.forbidden, "퇴사자는 사용할 수 없습니다")
     return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
 
 
@@ -598,7 +617,7 @@ def usage(scope: UsageScope, scope_id: str, start: datetime, end: datetime, gran
 
 
 ANM_COLS = ("a.id, a.scope_type, a.scope_id, p.name AS scope_name, a.rule, a.baseline::float AS baseline, a.observed::float AS observed,"
-            " a.ratio::float AS ratio, a.projected_monthly_krw, a.projected_monthly_usd::float AS projected_monthly_usd, a.status, a.created_at")
+            " a.ratio::float AS ratio, a.projected_monthly_krw, a.projected_monthly_usd::float AS projected_monthly_usd, a.status, a.ai_note, a.created_at")
 
 
 def _anomaly(r: dict) -> Anomaly:
@@ -655,6 +674,46 @@ def anomaly_detail(anomaly_id: str, user: Employee = Depends(require(Role.admin,
     return ok(AnomalyDetail(anomaly=a, project=Project(**prj) if prj else None, series=_series_rows(scope, a.scope_id, start, end),
                             breakdown_by_model=_breakdown(scope, a.scope_id, start, end, BreakdownBy.model),
                             breakdown_by_input_length=_breakdown(scope, a.scope_id, start, end, BreakdownBy.input_length)))
+
+
+@app.patch("/anomalies/{anomaly_id}/note", response_model=Envelope[Anomaly], tags=["F3"])
+def anomaly_note(anomaly_id: str, body: AiNote, user: Employee = Depends(require(Role.system))):
+    with db.tx() as c:
+        if not c.execute(db.text("UPDATE anomalies SET ai_note = :n WHERE id = :id"), dict(n=body.note, id=anomaly_id)).rowcount:
+            raise ApiError(ErrorCode.not_found, "경보 없음")
+        _audit(c, user, "anomaly.ai_note", anomaly_id, None, {"note": body.note[:200]})
+    return ok(_anomaly(db.one(f"SELECT {ANM_COLS} FROM anomalies a LEFT JOIN projects p ON p.id = a.scope_id WHERE a.id = :id", id=anomaly_id)))
+
+
+# ---------- 배치 → 에이전트 (시스템 계정 작업) ----------
+log = logging.getLogger("backend")
+
+
+def _trigger_agent(target: str, text: str, prompt_name: str | None = None, prompt_args: dict | None = None) -> None:
+    """에이전트에 시스템 작업을 맡긴다. 응답(202)만 기다리지 않고 바로 돌아온다. AGENT_URL이 비면(테스트·에이전트 없이 띄울 때) 건너뛴다.
+    ponytail: 실패하면 로그와 감사 기록만 남기고 재시도하지 않는다. 놓치면 안 되면 notify·batch 큐(Celery)로 옮겨 재시도한다."""
+    url = os.getenv("AGENT_URL", "")
+    if not url:
+        return
+
+    def run():
+        status, task_id = "failed", None
+        try:
+            token = issue_token(get_employee("sys"))
+            r = httpx.post(f"{url}/ai/tasks", headers={"Authorization": f"Bearer {token}"}, timeout=10,
+                           json={"input": text, "prompt_name": prompt_name, "prompt_args": prompt_args or {}, "channel": "system"})
+            task_id = r.json().get("data", {}).get("task_id")
+            status = "queued" if task_id else f"rejected {r.status_code}"
+        except Exception as exc:  # noqa: BLE001 — 에이전트 장애가 배치·요청을 막지 않게
+            log.warning("agent trigger %s failed: %s", target, exc)
+        with db.tx() as c:
+            _audit(c, get_employee("sys"), "agent.trigger", target, None, {"prompt": prompt_name, "task_id": task_id, "status": status})
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+OPINION_ASK = ("[작업: 승인 대기 의견] plan_id={pid}\nget_plan_status로 조치안을 보고 관련 도구로 근거(좌석·사용량·평가·예산)를 확인한 뒤, "
+               "save_ai_note(target_type=plan, target_id={pid})로 승인자가 읽을 의견을 2~4문장으로 남긴다. 권고와 확인할 점을 구분하고 단정하지 않는다.")
 
 
 # ---------- F4 ----------
@@ -738,7 +797,20 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
     plan = _plan(pid)
     if risk == RiskLevel.low:  # 11절: 낮은 위험(되돌릴 수 있는 조치)은 승인 없이 즉시 실행하고 사후 기록
         plan = _execute(plan, f"auto_{pid}", user).plan
+    elif user.role != Role.system:  # 승인 대기 건에 AI 의견 자동 첨부 (에이전트가 만든 건은 이미 근거를 담고 있어 생략)
+        seat = body.type in (PlanType.seat_reclaim, PlanType.purchase_review)
+        _trigger_agent(pid, OPINION_ASK.format(pid=pid), "review_seat_request" if seat else None, {"plan_id": pid} if seat else None)
     return ok(plan)
+
+
+@app.patch("/plans/{plan_id}/opinion", response_model=Envelope[ActionPlan], tags=["plans"])
+def plan_opinion(plan_id: str, body: AiNote, user: Employee = Depends(require(Role.system))):
+    with db.tx() as c:  # 승인 결정이 난 뒤에는 의견을 바꾸지 않는다 (승인자가 본 근거 보존)
+        if not c.execute(db.text("UPDATE action_plans SET ai_opinion = :n WHERE id = :id AND status = 'pending_approval'"), dict(n=body.note, id=plan_id)).rowcount:
+            p = _plan(plan_id, c)
+            raise ApiError(ErrorCode.not_found if not p else ErrorCode.conflict, "조치안 없음" if not p else f"승인 대기 상태가 아님: {p.status.value}")
+        _audit(c, user, "plan.ai_opinion", plan_id, None, {"opinion": body.note[:200]})
+    return ok(_plan(plan_id))
 
 
 @app.get("/plans/{plan_id}", response_model=Envelope[ActionPlan], tags=["plans"])
@@ -917,6 +989,7 @@ def create_confirmation(body: ConfirmationCreate, user: Employee = Depends(requi
         with db.tx() as c:
             r = db.one(f"INSERT INTO confirmations (id, plan_id, employee_id, question, due_at) VALUES (:id, :p, :e, :q, :due) RETURNING {CFM_COLS}", c,
                        id=_new_id("cfm"), p=body.plan_id, e=body.employee_id, q=body.question, due=_add_business_days(_now(), 5))
+            _outbox(c, "confirmation", r["id"], get_employee(body.employee_id).slack_user_id, body.question, _now())  # 본인 DM
     return ok(Confirmation(**r))
 
 
@@ -946,7 +1019,7 @@ def audit_log(limit: int = 50, offset: int = 0, user: Employee = Depends(require
     return ok(Page(items=[AuditEntry(**r) for r in rs], total=total, limit=limit, offset=offset))
 
 
-JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "aggregate_unmet_needs", "send_suggestions"}
+JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "aggregate_unmet_needs", "send_suggestions", "deliver_notifications"}
 WEEKLY_CAP = 2  # 알림 정책: 팀당 주 2건
 
 
@@ -970,6 +1043,12 @@ def _job_check_thresholds(now: datetime) -> dict:
                                       " VALUES (:id, 'project', :p, 'daily_cost_gt_3x_baseline', :b, :o, :r, :pk, :pu, :n)"),
                               dict(id=aid, p=p["id"], b=base, o=last["krw"], r=round(last["krw"] / base, 2), pk=round(last["krw"] * 30), pu=round(last["usd"] * 30, 4), n=now))
                     made.append(aid)
+                    admins = [r["slack_user_id"] for r in db.rows("SELECT slack_user_id FROM employees WHERE role = 'admin' AND status = 'active' AND slack_user_id IS NOT NULL", c)]
+                    for to in admins or [None]:  # 관리자 DM. Slack 연결된 관리자가 없으면 대상 없음으로 남겨 화면에서 보이게
+                        _outbox(c, "alert", aid, to, f"비용 급증 알림 {p['id']} {round(last['krw'] / base, 2)}배", now)
+    for aid in made:  # 경보마다 원인 조사를 에이전트에 맡긴다. 결과는 save_ai_note로 anomalies.ai_note에 남는다
+        _trigger_agent(aid, f"[작업: 사용량 경보 조사] anomaly_id={aid}\n조사가 끝나면 save_ai_note(target_type=anomaly, target_id={aid})로 원인 후보·근거·선택 가능한 처리를 3~5문장으로 남긴다.",
+                       "investigate_anomaly", {"anomaly_id": aid})
     return {"new_anomalies": made}
 
 
@@ -1007,8 +1086,7 @@ def _job_send_suggestions(now: datetime) -> dict:
                 held.append({"suggestion_id": g["id"], "dept_id": g["dept_id"], "reason": reason})
                 continue
             to = g["slack_user_id"] if g["target_employee_id"] else g["slack_channel_id"]
-            c.execute(db.text("INSERT INTO notify_outbox (id, suggestion_id, channel, target, text, created_at) VALUES (:id, :s, 'slack', :t, :x, :n)"),
-                      dict(id=_new_id("out"), s=g["id"], t=to, x=g["body"], n=now))
+            _outbox(c, "suggestion", g["id"], to, g["body"], now)
             c.execute(db.text("UPDATE suggestions SET status = 'sent', sent_at = :n WHERE id = :id"), dict(n=now, id=g["id"]))
             sent.append({"suggestion_id": g["id"], "dept_id": g["dept_id"], "to": to})
         by_update: dict = {}
@@ -1031,6 +1109,14 @@ def run_job(job_name: str, now: datetime | None = Query(None, description="시�
         result = _job_send_suggestions(now)
     elif job_name == "aggregate_unmet_needs":
         result = {"aggregates": [a.model_dump() for a in _unmet_aggs()]}
+    elif job_name == "deliver_notifications":
+        result = _job_deliver_notifications(now)
+    elif job_name == "collect_release_notes":  # 수집은 mock_vendor가 생기면 붙인다. 지금은 수집된(시드) 업데이트 중 아직 검토 안 한 것을 넘긴다
+        new = [r["id"] for r in db.rows("SELECT u.id FROM vendor_updates u WHERE NOT EXISTS (SELECT 1 FROM review_runs r WHERE r.update_id = u.id)"
+                                         " AND NOT EXISTS (SELECT 1 FROM suggestions g WHERE g.update_id = u.id) ORDER BY u.published_at")]
+        for uid in new:
+            _trigger_agent(uid, f"[작업: 업데이트 검토] update_id={uid}", "review_update", {"update_id": uid})
+        result = {"collected": "stub (mock_vendor 미구현, 시드 데이터)", "review_requested": new}
     else:  # 수집 배치는 mock_vendor가 생기면 연결한다
         result = {"stub": True, "reason": "mock_vendor 미구현. 시드 데이터로 대신함"}
     with db.tx() as c:
@@ -1046,7 +1132,68 @@ def review_runs(user: Employee = Depends(require(Role.admin))):
     return ok(db.rows("SELECT r.id, r.update_id, u.title, r.ran_at, r.sent_dept_ids, r.held FROM review_runs r JOIN vendor_updates u ON u.id = r.update_id ORDER BY r.ran_at DESC"))
 
 
+def _outbox(c, kind: str, ref_id: str, target: str | None, text: str, now: datetime) -> None:
+    c.execute(db.text("INSERT INTO notify_outbox (id, kind, ref_id, suggestion_id, channel, target, text, created_at) VALUES (:id, :k, :r, :s, 'slack', :t, :x, :n)"),
+              dict(id=_new_id("out"), k=kind, r=ref_id, s=ref_id if kind == "suggestion" else None, t=target, x=text, n=now))
+
+
+MAX_SEND_ATTEMPTS = 5
+
+
+def _slack_client():
+    """SLACK_BOT_TOKEN이 없으면 None (발송함에 쌓아만 둔다). 테스트는 이 함수를 바꿔 끼운다."""
+    token = os.getenv("SLACK_BOT_TOKEN", "")
+    if not token:
+        return None
+    from slack_sdk import WebClient
+
+    return WebClient(token=token)
+
+
+def _blocks(kind: str, ref_id: str) -> tuple[str, list[dict]]:
+    """발송함 한 건 → Slack 메시지(대체 텍스트, Block Kit). 모양은 slack_bot/send.py 하나만 쓴다."""
+    from apps.slack_bot import send
+
+    if kind == "suggestion":
+        g = db.one("SELECT g.id, g.body, t.title AS task_title, u.vendor, u.url, u.affected_plans FROM suggestions g"
+                   " JOIN vendor_updates u ON u.id = g.update_id LEFT JOIN registered_tasks t ON t.id = g.task_id WHERE g.id = :id", id=ref_id)
+        return g["body"][:200], send.build_suggestion(g, g["task_title"], g)
+    if kind == "alert":
+        a = _anomaly(db.one(f"SELECT {ANM_COLS} FROM anomalies a LEFT JOIN projects p ON p.id = a.scope_id WHERE a.id = :id", id=ref_id))
+        return "비용 급증 알림", send.build_alert(a.model_dump(mode="json"))
+    r = db.one("SELECT f.id, t.product, s.last_activity_at FROM confirmations f JOIN action_plans p ON p.id = f.plan_id"
+               " LEFT JOIN contracts c ON c.id = p.items->0->>'contract_id' LEFT JOIN tools t ON t.id = c.tool_id"
+               " LEFT JOIN seat_assignments s ON s.contract_id = c.id AND s.employee_id = f.employee_id AND s.status = 'assigned' WHERE f.id = :id", id=ref_id)
+    product = r["product"] or "AI 도구"
+    return f"{product} 이용권 사용 여부를 확인해 주세요", send.build_confirmation(r, product, r["last_activity_at"] and r["last_activity_at"].isoformat())
+
+
+def _job_deliver_notifications(now: datetime) -> dict:
+    """발송함의 미발송 건을 Slack으로 보낸다. 실패는 attempts·last_error에 남기고 다음 실행에 다시 시도한다(최대 5회).
+    ponytail: 배치가 돌 때만 보낸다(즉시성 = 배치 주기). 지연이 문제면 notify 큐 워커로 옮긴다."""
+    rows = db.rows("SELECT id, kind, ref_id, target FROM notify_outbox WHERE delivered_at IS NULL AND attempts < :m ORDER BY created_at", m=MAX_SEND_ATTEMPTS)
+    client = _slack_client()
+    if client is None:
+        return {"skipped": "SLACK_BOT_TOKEN 없음. 발송함에 쌓아 둠", "pending": len(rows)}
+    sent, failed = [], []
+    for r in rows:
+        err = None
+        if not r["target"]:
+            err = "Slack 연결 정보 없음 (팀 채널 또는 직원 slack_user_id)"
+        else:
+            try:
+                text, blocks = _blocks(r["kind"], r["ref_id"])
+                client.chat_postMessage(channel=r["target"], text=text, blocks=blocks)
+            except Exception as exc:  # noqa: BLE001 — 한 건 실패가 나머지 발송을 막지 않게
+                err = str(exc)[:300]
+        with db.tx() as c:
+            c.execute(db.text("UPDATE notify_outbox SET attempts = attempts + 1, last_error = :e, delivered_at = CASE WHEN :ok THEN :n END WHERE id = :id"),
+                      dict(e=err, ok=err is None, n=now, id=r["id"]))
+        (failed if err else sent).append({"id": r["id"], "kind": r["kind"], **({"error": err} if err else {})})
+    return {"sent": sent, "failed": failed}
+
+
 @app.get("/notify-outbox", tags=["F1"])
 def notify_outbox(user: Employee = Depends(require(Role.admin))):
     """Slack 연결 전 발송함. Slack 봇이 붙으면 delivered_at이 채워진다."""
-    return ok(db.rows("SELECT id, suggestion_id, channel, target, text, created_at, delivered_at FROM notify_outbox ORDER BY created_at DESC"))
+    return ok(db.rows("SELECT id, kind, ref_id, suggestion_id, channel, target, text, created_at, delivered_at, attempts, last_error FROM notify_outbox ORDER BY created_at DESC"))

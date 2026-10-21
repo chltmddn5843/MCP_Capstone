@@ -3,8 +3,11 @@
 세션 시작과 테스트마다 app 스키마를 지우고 시드를 다시 넣어, 테스트끼리 데이터가 섞이지 않게 한다.
 """
 
+import os
 import subprocess
 import sys
+
+os.environ["AGENT_URL"] = ""  # 백엔드가 테스트 중 실제 에이전트를 부르지 않게 (.env보다 먼저 정해 둔다)
 from pathlib import Path
 
 import pytest

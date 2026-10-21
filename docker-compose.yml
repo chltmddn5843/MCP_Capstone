@@ -1,4 +1,3 @@
-# 지금은 postgres만. 나머지 서비스는 docs/아키텍처.md 9절 순서대로 추가한다.
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-capstone}
       POSTGRES_DB: ${POSTGRES_DB:-capstone}
     ports:
-      - "127.0.0.1:5432:5432"   # DBeaver 접속용. 로컬에서만 열린다
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432" # DBeaver용. 팀원 LAN에는 공개하지 않는다
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,5 +15,65 @@ services:
       retries: 10
     restart: unless-stopped
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-capstone}:${POSTGRES_PASSWORD:-capstone}@postgres:5432/${POSTGRES_DB:-capstone}
+      APP_ENV: ${APP_ENV:-dev}
+      JWT_SECRET: ${JWT_SECRET:-change-this-before-production}
+      JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-60}
+      SYSTEM_TOKEN: ${SYSTEM_TOKEN:-dev.sys}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    volumes:
+      - ./db:/app/db
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["uv", "run", "uvicorn", "apps.agent_runtime.main:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      SKIP_DB_INIT: "1"
+      MCP_WORK_URL: ""
+      MCP_DOCS_URL: ""
+      LLM_MODEL: ${LLM_MODEL:-fake}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_BASE_URL: ${XAI_BASE_URL:-https://api.x.ai/v1}
+      AGENT_CHECKPOINT_DB: /app/data/agent_checkpoints.db
+      AGENT_TASK_DB: /app/data/agent_tasks.db
+    depends_on:
+      backend:
+        condition: service_started
+    expose:
+      - "8002"
+    volumes:
+      - agentdata:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/admin_web
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_started
+      agent:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  agentdata:

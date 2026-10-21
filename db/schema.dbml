@@ -349,6 +349,7 @@ Table anomalies {
   projected_monthly_krw int
   projected_monthly_usd numeric(12,4)
   status anomaly_status [not null, default: 'open']
+  ai_note text [note: '에이전트 원인 조사 요약 (save_ai_note)']
   created_at timestamptz [not null]
   indexes { (scope_type, scope_id, rule, created_at) }
 }
@@ -437,12 +438,16 @@ Table audit_log {
 
 Table notify_outbox {
   id varchar [pk]
-  suggestion_id varchar [not null, ref: > suggestions.id]
+  kind varchar [not null, default: 'suggestion', note: 'suggestion | alert | confirmation']
+  ref_id varchar [not null, note: 'kind별 대상 id: suggestions · anomalies · confirmations']
+  suggestion_id varchar [ref: >? suggestions.id]
   channel varchar [not null, note: 'slack']
   target varchar [note: '팀 채널 또는 직원 Slack ID']
   text text [not null]
   created_at timestamptz [not null]
-  delivered_at timestamptz [note: 'Slack 봇이 보낸 뒤 채운다']
+  delivered_at timestamptz [note: 'deliver_notifications 배치가 보낸 뒤 채운다']
+  attempts int [not null, default: 0]
+  last_error text
 }
 
 // ───────── 운영 (v3 대기열) ─────────

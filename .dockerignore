@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+__pycache__
+*.py[cod]
+*.db
+dist
+node_modules
+logs
+.env
+tests
+docs
+학습관리.md

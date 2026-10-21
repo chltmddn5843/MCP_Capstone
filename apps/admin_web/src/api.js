@@ -62,7 +62,7 @@ export async function getSeatRequests() {
   }))
 }
 
-// GET /anomalies + GET /anomalies/{id} → 알림 + 추이 + 조사 틀. AI 조사 결과는 알림 상세의 project·breakdown으로 근거만 채우고, 원인 후보는 '원인 조사 실행'(에이전트)으로 받는다.
+// GET /anomalies + GET /anomalies/{id} → 알림 + 추이 + 조사 틀. 근거는 알림 상세의 project·breakdown, 원인 후보는 자동 조사(ai_note) 또는 '원인 조사 실행'(에이전트).
 export async function getAnomalies() {
   const [list, names, tools, models] = await Promise.all([get('/anomalies'), getNames(), get('/tools').catch(() => []), get('/models').catch(() => [])])
   const productOf = (modelId) => tools.find((t) => t.vendor === models.find((m) => m.id === modelId)?.vendor && t.contract?.billing_type === 'api_usage')?.product ?? ''
@@ -77,7 +77,8 @@ export async function getAnomalies() {
       budget: d.project?.monthly_budget_krw ?? 0, monthToDate, daily, dailyStart: d.series[0]?.period_start?.slice(5, 10).replace('-', '/') ?? '',
       projectId: d.project?.id, purpose: d.project?.purpose,
       investigation: {
-        doneAt: null, causes: [],
+        // 경보 생성 때 배치가 맡긴 자동 조사 결과(ai_note)가 있으면 바로 보여 주고, 없으면 '원인 조사 실행'으로 받는다
+        doneAt: a.ai_note ? '자동 조사' : null, causes: a.ai_note ? [{ title: 'AI 조사 결과 (경보 생성 시 자동)', body: a.ai_note }] : [],
         evidence: ['프로젝트 등록 목적·예산', ...d.breakdown_by_model.map((b) => `모델 ${b.key} ${Math.round(b.share * 100)}%`), ...d.breakdown_by_input_length.map((b) => `입력 ${b.key} ${Math.round(b.share * 100)}%`)],
         actions: [
           { id: 'repeat_check', label: '반복 요청 점검 · 부서 확인 요청' },

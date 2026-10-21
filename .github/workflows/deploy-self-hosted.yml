@@ -1,0 +1,32 @@
+name: Deploy Docker app
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: self-hosted-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, macOS, docker]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Deploy services
+        run: docker compose up -d --build --remove-orphans
+
+      - name: Verify deployment
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://localhost:8080/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs --tail=100 web backend agent
+          exit 1

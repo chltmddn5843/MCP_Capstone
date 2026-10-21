@@ -140,3 +140,29 @@ def test_admin_web_answer_keeps_evidence_line(client):
     events(client, task_id, ASSET)
     t = wait_status(client, task_id, ASSET, {"done"})
     assert "get_my_profile" in t["result"]["answer"]  # 관리자 웹에서는 상세 유지 (스크립트 모델은 도구 이름을 답에 넣는다)
+
+
+def test_recommend_asks_missing_conditions_once_then_continues(client):
+    """모델 추천인데 F2 조건이 부족하면 도구 없이 질문 하나로 끝내고, 같은 대화에서 답하면 루프로 진행한다."""
+    r = client.post("/ai/tasks", json={"input": "고객 문의 분류에 어떤 모델 쓰면 좋을까요?"}, headers=EMP).json()["data"]
+    t = wait_status(client, r["task_id"], EMP, {"done"})
+    assert not t["tool_calls"] and "하루 건수" in t["result"]["answer"] and "허용 응답 시간" in t["result"]["answer"]
+    # 일부만 답해도 두 번째는 묻지 않고 진행한다 (스크립트 모델은 get_my_profile을 부른다)
+    r2 = client.post("/ai/tasks", json={"input": "하루 1,000건 정도예요", "thread_id": r["thread_id"]}, headers=EMP).json()["data"]
+    t2 = wait_status(client, r2["task_id"], EMP, {"done"})
+    assert [c["name"] for c in t2["tool_calls"]] == ["get_my_profile"]
+
+
+SYS = {"Authorization": "Bearer dev.sys"}
+
+
+@pytest.mark.parametrize("kind,target,column", [("plan", "plan_002", "ai_opinion"), ("anomaly", "anm_001", "ai_note")])
+def test_system_task_saves_ai_note(client, kind, target, column):
+    """배치가 맡긴 시스템 작업(승인 대기 의견·경보 조사)이 save_ai_note로 결과를 백엔드에 남긴다."""
+    from apps.backend import db
+    text = f"[작업] 검토 후 save_ai_note(target_type={kind}, target_id={target})로 남긴다."
+    r = client.post("/ai/tasks", json={"input": text, "channel": "system"}, headers=SYS).json()["data"]
+    t = wait_status(client, r["task_id"], SYS, {"done"})
+    assert [c["name"] for c in t["tool_calls"]] == ["save_ai_note"] and not t["tool_calls"][0]["error"]
+    table = "action_plans" if kind == "plan" else "anomalies"
+    assert "자동 검토 의견" in db.one(f"SELECT {column} FROM {table} WHERE id = :id", id=target)[column]

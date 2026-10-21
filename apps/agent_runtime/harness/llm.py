@@ -43,7 +43,11 @@ class ScriptedModel(BaseChatModel):
         import re
 
         if not tools_done:
-            if "회수" in last_human or "재배정" in last_human:
+            note_target = re.search(r"target_type=(plan|anomaly), target_id=(\w+)", last_human)
+            if note_target:  # 배치가 맡긴 시스템 작업: 검토 결과를 남긴다
+                kind, tid = note_target.groups()
+                call = {"name": "save_ai_note", "args": {"target_type": kind, "target_id": tid, "note": f"(스크립트 모델) {tid} 자동 검토 의견. 근거 확인 필요."}, "id": _cid()}
+            elif "회수" in last_human or "재배정" in last_human:
                 call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026", "confirmation_id": "cfm_001", "reassign_to_employee_id": "emp_mkt_01"}], "rationale": "휴직 중, 본인 반납 응답 있음", "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]}, "id": _cid()}
             elif "실행" in last_human and re.search(r"plan_\w+", last_human):
                 call = {"name": "execute_approved_plan", "args": {"plan_id": re.search(r"plan_\w+", last_human).group(0), "idempotency_key": f"idem_{uuid.uuid4().hex[:8]}"}, "id": _cid()}

@@ -148,3 +148,26 @@ def test_model_change_execute_applies_and_revalidates():
     assert db.one("SELECT model_id FROM projects WHERE id = 'prj_faq'")["model_id"] == "anthropic:claude-haiku-5-5"
     r = run("mc2")
     assert r.status_code == 409 and "이미" in r.json()["error"]["message"]
+
+
+def test_batches_hand_work_to_agent(monkeypatch):
+    """승인 대기 조치안 → 의견, 새 경보 → 원인 조사, 검토 안 한 업데이트 → 제안 검토를 에이전트에 맡긴다."""
+    from apps.backend import main
+    calls = []
+    monkeypatch.setattr(main, "_trigger_agent", lambda target, text, prompt=None, args=None: calls.append((target, prompt)))
+    p = client.post("/plans", headers=ADMIN, json={"type": "budget_review", "items": [{"project_id": "prj_faq", "current_budget_krw": 50000, "proposed_budget_krw": 80000}],
+                                                   "rationale": "t", "evidence": []}).json()["data"]
+    assert calls == [(p["id"], None)]
+    client.post("/plans", headers=ADMIN, json={"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "t", "evidence": []})
+    assert len(calls) == 1  # 즉시 실행(낮은 위험)은 맡기지 않는다
+    with db.tx() as c:
+        c.execute(db.text("DELETE FROM anomalies"))
+    new = client.post("/internal/jobs/check_thresholds/run", headers=SYS).json()["data"]["result"]["new_anomalies"]
+    assert new and all((a, "investigate_anomaly") in calls for a in new)
+    reviewed = client.post("/internal/jobs/collect_release_notes/run", headers=SYS).json()["data"]["result"]["review_requested"]
+    assert all((u, "review_update") in calls for u in reviewed)
+    # 의견은 승인 대기일 때만 저장, 결정 뒤엔 conflict
+    assert client.patch(f"/plans/{p['id']}/opinion", headers=SYS, json={"note": "예산 증액 근거 확인 필요"}).json()["data"]["ai_opinion"] == "예산 증액 근거 확인 필요"
+    assert client.patch(f"/plans/{p['id']}/opinion", headers=ADMIN, json={"note": "x"}).status_code == 403
+    client.post(f"/plans/{p['id']}/reject", headers=ADMIN, json={"reason": "t"})
+    assert client.patch(f"/plans/{p['id']}/opinion", headers=SYS, json={"note": "x"}).status_code == 409
