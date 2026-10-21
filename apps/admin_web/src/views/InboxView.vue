@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getPlans, approvePlan, rejectPlan } from '../api.js'
 import { RISK, PLAN_STATUS } from '../labels.js'
+import TaskApprovals from '../components/TaskApprovals.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,7 +24,8 @@ const select = (id) => router.replace({ query: { id } })
 async function decide(fn, verb) {
   busy.value = true
   const p = selected.value
-  const status = await fn(p.id)
+  let status
+  try { status = await fn(p.id) } catch (e) { notice.value = `${p.id} ${verb} 실패: ${e.message}`; busy.value = false; return }
   notice.value = `${p.id} ${verb}: ${PLAN_STATUS[status ?? 'rejected']}`
   await load()
   router.replace({ query: {} })
@@ -106,6 +108,8 @@ async function decide(fn, verb) {
     </section>
   </div>
   <p v-else class="card small muted">{{ tab === 'pending' ? '승인 대기 중인 요청이 없습니다.' : '처리 이력이 없습니다.' }}</p>
+
+  <TaskApprovals />
 </template>
 
 <style scoped>

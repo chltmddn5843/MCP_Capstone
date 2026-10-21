@@ -44,14 +44,22 @@ class TaskStore:
         self.conn.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?)", (t.task_id, t.requester_id, t.created_at.isoformat(), t.model_dump_json()))
         self.conn.commit()
 
+    @staticmethod
+    def _parse(body: str) -> Task | None:
+        try:
+            return Task.model_validate_json(body)
+        except Exception as exc:  # noqa: BLE001  — 스키마가 바뀐 옛 행은 건너뛴다 (예: 역할 축소 전 role=asset)
+            log.warning("skip unreadable task row: %s", str(exc)[:120])
+            return None
+
     def get(self, task_id: str) -> Task | None:
         row = self.conn.execute("SELECT body FROM tasks WHERE task_id=?", (task_id,)).fetchone()
-        return Task.model_validate_json(row[0]) if row else None
+        return self._parse(row[0]) if row else None
 
     def list(self, requester_id: str | None = None, limit: int = 50) -> list[Task]:
         q = "SELECT body FROM tasks" + (" WHERE requester_id=?" if requester_id else "") + " ORDER BY created_at DESC LIMIT ?"
         args = (requester_id, limit) if requester_id else (limit,)
-        return [Task.model_validate_json(r[0]) for r in self.conn.execute(q, args)]
+        return [t for t in (self._parse(r[0]) for r in self.conn.execute(q, args)) if t is not None]
 
 
 class EventBus:
@@ -105,9 +113,9 @@ class Runner:
         await self._ensure_runtime(task)
         config = {"configurable": {"thread_id": task.thread_id}}
         existing = await self.graph.aget_state(config)
-        msgs = [] if (existing.values or {}).get("messages") else [SystemMessage(content=build_system_prompt(requester_role.value, prompt_name, prompt_args))]
+        msgs = [] if (existing.values or {}).get("messages") else [SystemMessage(content=build_system_prompt(requester_role.value, prompt_name, prompt_args, channel))]
         msgs.append(HumanMessage(content=text))
-        inputs = {"messages": msgs, "task_id": task.task_id, "requester_id": requester_id, "requester_role": requester_role.value, "prompt_name": prompt_name}
+        inputs = {"messages": msgs, "task_id": task.task_id, "requester_id": requester_id, "requester_role": requester_role.value, "prompt_name": prompt_name, "channel": channel}
         asyncio.create_task(self._run(task, inputs, config))
         return task
 

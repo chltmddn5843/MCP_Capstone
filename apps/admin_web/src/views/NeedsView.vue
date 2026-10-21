@@ -11,7 +11,7 @@ onMounted(async () => {
 })
 
 // 설계 문서 D-2: 같은 기능 3건 이상 · 2개 부서 이상이면 검토 기준 충족
-const meets = (n) => n.count >= 3 && n.depts.length >= 2
+const meets = (n) => n.thresholdMet ?? (n.count >= 3 && n.depts.length >= 2)
 const lowTeams = computed(() => adoption.value.filter((t) => t.rate < LOW))
 </script>
 
@@ -35,9 +35,9 @@ const lowTeams = computed(() => adoption.value.filter((t) => t.rate < LOW))
           <tr v-for="n in needs" :key="n.capability">
             <td style="font-weight: 600">{{ n.capability }}</td>
             <td class="num" style="font-weight: 700">{{ n.count }}</td>
-            <td>{{ n.depts.join(', ') }}</td>
+            <td>{{ n.deptCount != null ? `${n.deptCount}개 부서` : n.depts.join(', ') }}</td>
             <td class="muted">"{{ n.example }}"</td>
-            <td><span class="pill" :class="meets(n) ? 'pill-alert' : 'pill-neutral'">{{ meets(n) ? '기준 충족' : `부서 ${n.depts.length}개` }}</span></td>
+            <td><span class="pill" :class="meets(n) ? 'pill-alert' : 'pill-neutral'">{{ meets(n) ? '기준 충족' : `부서 ${n.deptCount ?? n.depts.length}개` }}</span></td>
           </tr>
         </tbody>
       </table>

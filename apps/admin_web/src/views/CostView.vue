@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAnomalies, getProjects, createPlanFromAnomaly } from '../api.js'
 import { won, pct } from '../labels.js'
+import TaskStream from '../components/TaskStream.vue'
+import { createTask, errorLabel } from '../request.js'
 
 const router = useRouter()
 const anomalies = ref([])
@@ -10,6 +12,13 @@ const projects = ref([])
 const action = ref('')
 const busy = ref(false)
 const CHART_H = 180
+const investigating = ref(null)
+const err = ref('')
+async function investigate() {
+  try { const c = await createTask(`알림 ${a.value.id}의 원인을 조사하고 처리 방법을 제안해줘`, { promptName: 'investigate_anomaly', promptArgs: { anomaly_id: a.value.id } }); investigating.value = c.task_id; err.value = '' }
+  catch (e) { err.value = errorLabel(e) }
+}
+function onDone(ev) { a.value.investigation.causes = [{ title: 'AI 조사 결과', body: ev.result.answer }]; a.value.investigation.doneAt = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) }
 
 onMounted(async () => {
   ;[anomalies.value, projects.value] = await Promise.all([getAnomalies(), getProjects()])
@@ -100,9 +109,14 @@ async function submit() {
           <div class="ai-icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
           </div>
-          <div><h2 id="ai-h">AI 조사 결과</h2><span class="xs muted">알림 생성 시 자동 조사 · {{ a.investigation.doneAt }} 완료</span></div>
+          <div><h2 id="ai-h">AI 조사 결과</h2><span class="xs muted">{{ a.investigation.doneAt ? `${a.investigation.doneAt} 완료` : '아직 조사하지 않음 · 아래에서 실행' }}</span></div>
         </div>
 
+        <div v-if="!a.investigation.causes.length" class="tags" style="gap: 8px">
+          <button type="button" class="btn btn-dark btn-sm" :disabled="!!investigating" @click="investigate">{{ investigating ? '조사 중…' : 'AI 조사 실행' }}</button>
+          <span v-if="err" class="small" style="color: #b00020">{{ err }}</span>
+        </div>
+        <TaskStream v-if="investigating" :key="investigating" :task-id="investigating" @done="onDone" />
         <div class="stack" style="gap: 10px">
           <span class="small"><strong>원인 후보</strong> <span class="muted">· 확정이 아닌 후보입니다</span></span>
           <div v-for="(c, i) in a.investigation.causes" :key="c.title" class="inset">
@@ -127,7 +141,7 @@ async function submit() {
             <button type="submit" class="btn btn-primary" style="flex: 1 1 160px; min-height: 48px" :disabled="busy || a.status !== 'open'">
               {{ a.status === 'open' ? '처리 요청 만들기' : '이미 처리 요청을 보냈습니다' }}
             </button>
-            <button type="button" class="btn" style="min-height: 48px">AI 비서에게 더 묻기</button>
+            <RouterLink :to="{ path: '/assistant', query: { q: `${a.scopeName} 프로젝트 비용 급증에 대해 더 알려줘`, prompt: 'investigate_anomaly', anomaly: a.id } }" class="btn" style="min-height: 48px">AI 비서에게 더 묻기</RouterLink>
           </div>
           <span class="xs muted">만든 요청은 승인 대기로 이동합니다.</span>
         </form>

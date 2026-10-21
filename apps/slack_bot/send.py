@@ -60,18 +60,18 @@ def send_confirmation(client, channel: str, confirmation: dict, tool_name: str, 
 
 
 # ---------- 4. 승인 요청 (관리자 DM) ----------
-def build_approval_request(task: dict) -> list[dict]:
+def build_approval_request(task: dict, web_url: str | None = None) -> list[dict]:
+    """관리자 알림. 상세와 결정은 웹 콘솔이 기본 창구이고, 버튼은 빠른 처리용이다."""
     card = task["approval"]
-    ev = "\n".join(f"• {e['source']} · {e['ref']}" for e in card.get("evidence", [])[:3]) or "없음"
+    link = f"\n<{web_url}|웹 콘솔에서 상세 보기·결정>" if web_url else ""
     return [
-        _section(f"*AI 비서 처리 확인 요청*\n{card['summary']}\n요청: {task['input']}\n요청자: `{task['requester_id']}`"),
-        _section(f"참고한 데이터\n{ev}"),
-        _buttons([("확인하고 처리", f"ap_yes", task["task_id"], "primary"), ("거절", f"ap_no", task["task_id"], "danger")]),
+        _section(f"*AI 비서 처리 확인 요청*\n{card['summary']}\n요청: {task['input']}\n요청자: `{task['requester_id']}`{link}"),
+        _buttons([("확인하고 처리", "ap_yes", task["task_id"], "primary"), ("거절", "ap_no", task["task_id"], "danger")]),
     ]
 
 
-def send_approval_request(client, channel: str, task: dict) -> dict:
-    return client.chat_postMessage(channel=channel, text="AI 비서 처리 확인 요청", blocks=build_approval_request(task))
+def send_approval_request(client, channel: str, task: dict, web_url: str | None = None) -> dict:
+    return client.chat_postMessage(channel=channel, text="AI 비서 처리 확인 요청", blocks=build_approval_request(task, web_url))
 
 
 # ---------- 5. 비용 급증 알림 (F3) ----------
@@ -89,8 +89,5 @@ def send_alert(client, channel: str, anomaly: dict) -> dict:
 
 # ---------- 2. 답변 (F2 등, 봇이 직접) ----------
 def build_answer(result: dict) -> list[dict]:
-    blocks = [_section(result["answer"][:2900])]
-    if result.get("evidence"):
-        refs = ", ".join(f"{e['source']}({e['ref']})" for e in result["evidence"][:5])
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"참고한 데이터: {refs}"}]})
-    return blocks
+    """Slack 답변은 자연어만. 참고 데이터(evidence)는 웹 콘솔과 로그에만 남긴다."""
+    return [_section(result["answer"][:2900])]

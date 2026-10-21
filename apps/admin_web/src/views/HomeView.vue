@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getSummary, getAnomalies, getPlans, getProducts } from '../api.js'
+import { getSummary, getAnomalies, getPlans, getProducts, getMe } from '../api.js'
 import { RISK, won, pct } from '../labels.js'
 
 const s = ref(null)
 const anomalies = ref([])
 const plans = ref([])
 const products = ref([])
+const me = ref({ name: '' })
+getMe().then((v) => (me.value = v)).catch(() => {})
 
 onMounted(async () => {
   ;[s.value, anomalies.value, plans.value, products.value] = await Promise.all([getSummary(), getAnomalies(), getPlans(), getProducts()])
@@ -21,8 +23,8 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
 <template>
   <header class="page-head">
     <div>
-      <span class="small muted">{{ today }} · 시연용 가상 데이터</span>
-      <h1>안녕하세요, 광철 님</h1>
+      <span class="small muted">{{ today }}</span>
+      <h1>안녕하세요, {{ me.name }} 님</h1>
     </div>
     <label class="search">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>

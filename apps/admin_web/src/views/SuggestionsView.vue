@@ -63,7 +63,7 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
         <span class="small muted" style="padding-bottom: 8px">끄면 그 팀에는 보내지 않고 기록만 남깁니다.</span>
         <label v-for="t in switches" :key="t.id" class="switch-row">
           <span>{{ t.team }} <span class="xs muted">{{ t.channel }}</span></span>
-          <input v-model="t.enabled" type="checkbox" role="switch" @change="toggle(t)">
+          <input v-model="t.enabled" type="checkbox" role="switch" :disabled="t.readonly" :title="t.readonly ? '백엔드 PATCH /departments 연결 전' : ''" @change="toggle(t)">
         </label>
       </section>
       <section class="card-dark small" aria-label="알림 정책" style="line-height: 1.6">

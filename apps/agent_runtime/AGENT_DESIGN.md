@@ -66,7 +66,7 @@ flowchart TD
 | Agent Loop | `graph.py` `check_limits` | 최대 8턴, 120초, 같은 도구 3회 |
 | Context | `harness/context.py` | 토큰 예산 24k. 넘으면 오래된 대화를 자른다 (system·마지막 human 유지) |
 | State·Memory | `AsyncSqliteSaver`, `tasks.TaskStore` | thread_id 단위 저장, 승인 대기 후 그대로 재개, 작업 이력 SQLite |
-| Guardrails | `harness/guardrails.py`, `approval_gate` | destructiveHint 도구는 interrupt. 도구 결과의 이메일·전화번호 마스킹 |
+| Guardrails | `harness/guardrails.py`, `approval_gate`, `finalize` | destructiveHint 도구는 interrupt. 도구 결과의 이메일·전화번호 마스킹. 직원·Slack 채널 답변은 출력 필터로 도구 이름·식별자·오류 코드·근거 줄 제거 (참고 데이터는 evidence에 유지) |
 | Recovery | `harness/recovery.py` | 429·503 등 일시 오류 2회 재시도, 계속 실패하면 LLM_FALLBACK_MODEL, 그래도 실패면 FAILED |
 | Observability | `harness/observability.py` | trace_id 하나로 Node·도구·토큰·지연 JSON 로그. LANGSMITH_TRACING=true면 LangSmith trace |
 

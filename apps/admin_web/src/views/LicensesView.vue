@@ -26,8 +26,8 @@ const filters = computed(() => [
 
 function selectProduct(id) { activeId.value = id; flagFilter.value = 'all' }
 async function ask(seat) {
-  await requestConfirmation(seat.id)
-  notice.value = `${seat.name} 님에게 사용 의사 확인을 보냈습니다.`
+  try { await requestConfirmation(seat.id); notice.value = `${seat.name} 님에게 사용 의사 확인을 보냈습니다.` }
+  catch (e) { notice.value = `확인 요청 실패: ${e.message}` }
   await load()
 }
 </script>

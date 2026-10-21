@@ -43,7 +43,8 @@ def test_builders_have_buttons_and_links():
     assert "응답이 없어도 회수되지 않습니다" in c[0]["text"]["text"]
     a = send.build_approval_request({"task_id": "task_1", "input": "회수해줘", "requester_id": "emp_asset_01", "approval": {"summary": "승인된 조치안 plan_9 을(를) 실행합니다.", "evidence": [{"source": "confirmations", "ref": "cfm_001"}]}})
     assert [e["action_id"] for e in a[-1]["elements"]] == ["ap_yes", "ap_no"]
-    assert send.build_answer({"answer": "추천: b-mid", "evidence": [{"source": "get_eval_results", "ref": "customer_inquiry_classification"}]})[1]["type"] == "context"
+    blocks = send.build_answer({"answer": "추천: b-mid", "evidence": [{"source": "get_eval_results", "ref": "customer_inquiry_classification"}]})
+    assert len(blocks) == 1 and "get_eval_results" not in blocks[0]["text"]["text"]  # Slack에는 참고 데이터를 보여 주지 않는다
 
 
 def test_follow_updates_one_message_then_answers(monkeypatch):
@@ -54,8 +55,9 @@ def test_follow_updates_one_message_then_answers(monkeypatch):
     monkeypatch.setattr(api, "stream_events", lambda token, task_id, after=0, timeout=180: iter(events))
     bot._follow(slack, "dev.emp_mkt_01", "task_1", "D1", "ts1", None, 0)
     final = slack.updated[-1]
-    assert final["text"] == "완료" and final["blocks"][0]["text"]["text"].startswith("등록 업무는 2개")
+    assert final["text"].startswith("등록 업무는 2개") and final["blocks"][0]["text"]["text"].startswith("등록 업무는 2개")
     assert all(u["ts"] == "ts1" for u in slack.updated)  # 같은 메시지만 갱신
+    assert all("get_my_profile" not in u["text"] for u in slack.updated)  # 진행 표시에 도구 이름 없음
 
 
 def test_follow_approval_notifies_admin_and_resumes_after_decision(monkeypatch):
@@ -81,7 +83,28 @@ def test_follow_approval_notifies_admin_and_resumes_after_decision(monkeypatch):
     import time
     time.sleep(0.3)  # 백그라운드 스레드 완료 대기
     assert approved == {"task_id": "task_1", "ok": True}
-    assert slack.updated[-1]["text"] == "완료" and "task_1" not in bot.PENDING
+    assert slack.updated[-1]["text"].startswith("처리했습니다.") and "task_1" not in bot.PENDING
+
+
+def test_poll_pending_resumes_after_web_approval(monkeypatch):
+    """웹 콘솔에서 승인되면(Slack 버튼이 아니어도) 폴링이 감지해 요청자 메시지를 이어서 갱신한다."""
+    slack = FakeSlack()
+    bot.PENDING.clear()
+    bot.PENDING["task_9"] = {"token": "dev.emp_mkt_01", "channel": "D1", "ts": "ts1", "thread_ts": None, "after": 1, "is_admin": False}
+    monkeypatch.setattr(api, "agent", lambda m, p, t, **kw: {"task_id": "task_9", "status": "done"})
+    done = [ev("DONE", 2, result={"answer": "배정됐어요. 지금 바로 쓸 수 있어요.", "evidence": []})]
+    monkeypatch.setattr(api, "stream_events", lambda token, task_id, after=0, timeout=180: iter(done))
+    bot.poll_pending(slack, once=True)
+    import time as _t
+    _t.sleep(0.3)
+    assert "task_9" not in bot.PENDING and slack.updated[-1]["text"].startswith("배정됐어요")
+
+
+def test_errors_are_friendly_to_employees(monkeypatch):
+    slack = FakeSlack()
+    monkeypatch.setattr(identity, "resolve", lambda uid: (_ for _ in ()).throw(api.ApiError("not_found", "Slack 사용자 U9 에 연결된 직원이 없습니다. SLACK_USER_MAP을 확인하세요.")))
+    bot._handle_request(slack, {"channel": "D1", "user": "U9", "ts": "1.0", "channel_type": "im"}, "이용권 주세요")
+    assert "SLACK_USER_MAP" not in slack.posted[-1]["text"] and "찾을 수 없는" in slack.posted[-1]["text"]
 
 
 def test_feedback_button_calls_backend(monkeypatch):
