@@ -418,6 +418,16 @@ Table audit_log {
   Note: 'append-only. UPDATE·DELETE 권한을 주지 않는다'
 }
 
+Table notify_outbox {
+  id varchar [pk]
+  suggestion_id varchar [not null, ref: > suggestions.id]
+  channel varchar [not null, note: 'slack']
+  target varchar [note: '팀 채널 또는 직원 Slack ID']
+  text text [not null]
+  created_at timestamptz [not null]
+  delivered_at timestamptz [note: 'Slack 봇이 보낸 뒤 채운다']
+}
+
 // ───────── 운영 (v3 대기열) ─────────
 Table job_runs {
   id varchar [pk]
@@ -452,6 +462,7 @@ TableGroup f1_suggestion [color: #198754] {
   feedback
   suggestion_holds
   review_runs
+  notify_outbox
 }
 TableGroup f3_usage [color: #fd7e14] {
   projects

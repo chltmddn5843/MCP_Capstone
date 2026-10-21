@@ -13,7 +13,7 @@ import streamlit as st  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
 from apps.admin_ui import labels as L  # noqa: E402
-from apps.admin_ui.common import AGENT, BACKEND, api, approval_inbox, assistant_panel, login, render_stream, start_task, task_history  # noqa: E402
+from apps.admin_ui.common import AGENT, BACKEND, api, approval_inbox, assistant_panel, dev_login, login, logout, render_stream, start_task, task_history  # noqa: E402
 
 load_dotenv()
 SEED_USERS = {"emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이지우 · 고객지원 직원", "emp_hrd_01": "김하나 · HRD 직원",
@@ -22,15 +22,47 @@ SEED_USERS = {"emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이�
 st.set_page_config(page_title="한빛제조 AI 활용·운영", layout="wide")
 
 # ---------- 로그인 ----------
+if "token" not in st.session_state:
+    st.space("large")
+    brand, form = st.columns([1.1, 1], gap="large", vertical_alignment="center")
+    with brand:
+        st.caption("한빛제조 · AI·구독 SW 운영")
+        st.title("회사가 쓰는 AI를, 업무에 맞게")
+        st.markdown("직원은 업무에 맞는 제품과 모델을 안내받고, 관리자는 이용권과 비용을 한 화면에서 챙깁니다.")
+        st.space("small")
+        for icon, title, desc in [(":material/campaign:", "업데이트 활용 제안", "새 기능 중 우리 팀 업무에 맞는 것만 골라 알려 줍니다"),
+                                  (":material/tune:", "업무별 모델 추천", "품질 기준을 통과한 모델 중 비용이 낮은 것을 근거와 함께"),
+                                  (":material/monitoring:", "비용 경보와 원인", "사용량이 튀면 원인 후보와 대응안을 먼저 정리합니다"),
+                                  (":material/badge:", "이용권 운영", "남은 좌석은 바로 배정, 없으면 AI 의견과 함께 승인 대기")]:
+            st.markdown(f"{icon} **{title}**  \n:gray[{desc}]")
+    with form:
+        with st.container(border=True):
+            st.subheader("로그인")
+            with st.form("login", border=False, enter_to_submit=True):
+                login_id = st.text_input("사번 또는 회사 이메일", placeholder="예: emp_mkt_01", icon=":material/person:")
+                password = st.text_input("비밀번호", type="password", icon=":material/key:")
+                if st.form_submit_button("로그인", type="primary", width="stretch", icon=":material/login:"):
+                    if not login_id.strip() or not password:
+                        st.warning("사번(또는 이메일)과 비밀번호를 모두 입력하세요.")
+                    elif login(login_id.strip(), password):
+                        st.rerun()
+            st.caption("5번 틀리면 5분 동안 잠깁니다. 로그인은 1시간 동안 유지됩니다.")
+        if os.getenv("APP_ENV", "dev") != "prod":
+            with st.expander("시연용 빠른 로그인", icon=":material/bolt:"):
+                st.caption("개발 환경에서만 보입니다. 시드 계정 비밀번호는 db/seed/seed.py의 DEMO_PASSWORD입니다.")
+                pick = st.pills("계정", list(SEED_USERS), format_func=lambda k: SEED_USERS[k], label_visibility="collapsed")
+                if pick and dev_login(pick):
+                    st.rerun()
+    st.stop()
+
+me = st.session_state.me
 with st.sidebar:
     st.title("한빛제조 AI 활용·운영")
-    who = st.selectbox("사용자 선택 (시연용 로그인)", list(SEED_USERS), format_func=lambda k: SEED_USERS[k])
-    if st.button("이 사용자로 로그인", width="stretch") or "token" not in st.session_state:
-        if not login(who):
-            st.stop()
-    me = st.session_state.me
     st.markdown(f"**{me['name']}** · {me['job_title']}\n\n{me.get('dept_name', '')} · 역할: **{L.ROLE.get(me['role'], me['role'])}**")
     st.caption(L.ROLE_DESC.get(me["role"], ""))
+    if st.button("로그아웃", icon=":material/logout:", width="stretch"):
+        logout()
+        st.rerun()
     with st.expander("연결 정보"):
         st.caption(f"backend {BACKEND}\n\nagent {AGENT}")
 

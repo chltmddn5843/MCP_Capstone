@@ -13,6 +13,8 @@ from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
+import bcrypt
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 저장소 루트 (apps.backend.fixtures)
 from apps.backend import fixtures as fx  # noqa: E402
 
@@ -77,7 +79,11 @@ for i in range(1, 55):  # AI-A 60석 중 58석 배정 (fixtures와 같은 수치
                      "email": f"user{i:03d}@hanbit.example", "dept_id": dept, "role": "employee",
                      "job_title": TITLES[dept], "status": "on_leave" if i in (7, 23) else "active",
                      "hire_date": (NOW - timedelta(days=20 if i in (52, 53, 54) else 400 + i * 9)).date()})
-insert("employees", dump(fx.EMPLOYEES.values(), drop=("dept_name",)) + gen_emps)
+# 시연용 로그인 비밀번호. 모든 사람 계정 공통(시스템 계정 sys는 비밀번호 없음 = 로그인 불가)
+DEMO_PASSWORD = "demo1234"
+pw = bcrypt.hashpw(DEMO_PASSWORD.encode(), bcrypt.gensalt(rounds=10)).decode()
+emps = dump(fx.EMPLOYEES.values(), drop=("dept_name",)) + gen_emps
+insert("employees", [{**e, "password_hash": None if e["id"] == "sys" else pw} for e in emps])
 humans = [e for e in list(fx.EMPLOYEES) + [g["id"] for g in gen_emps] if e != "sys"]
 
 # ── 제품·계약·모델 ──
@@ -105,8 +111,17 @@ for s in dump(fx.SUGGESTIONS.values()):
 sugs.append({"id": "sug_002", "update_id": "upd_ai_a_doc_compare", "target_type": "team", "target_dept_id": "dept_prod",
              "relevance": "생산관리팀 등록 업무에 문서 비교 근거 없음", "body": "-", "status": "on_hold",
              "hold_reason": "관련 업무 근거 없음 · 팀 자동 발송 꺼짐"})
+for i, (dept, n_fb) in enumerate([("dept_mkt", 3), ("dept_cs", 2)], start=10):
+    sugs.append({"id": f"sug_{i:03d}", "update_id": "upd_ai_a_doc_compare", "target_type": "team", "target_dept_id": dept,
+                 "relevance": "팀 등록 업무에 여러 문서 비교가 있음", "body": "문서 비교 기능으로 캠페인 시안·문의 응답 초안을 나란히 비교해 보세요.",
+                 "status": "sent", "sent_at": NOW - timedelta(days=3)})
 insert("suggestions", sugs)
-insert("feedback", [{"id": "fb_001", "suggestion_id": "sug_001", "employee_id": "emp_hrd_01", "reaction": "useful", "created_at": NOW}])
+fb = [{"id": "fb_001", "suggestion_id": "sug_001", "employee_id": "emp_hrd_01", "reaction": "useful", "created_at": NOW}]
+for sid, dept, reactions in [("sug_010", "dept_mkt", ["useful", "useful", "question"]), ("sug_011", "dept_cs", ["useful", "irrelevant"])]:
+    members = [g["id"] for g in gen_emps if g["dept_id"] == dept]
+    fb += [{"id": f"fb_{sid}_{k}", "suggestion_id": sid, "employee_id": members[k], "reaction": r, "created_at": NOW - timedelta(days=2)}
+           for k, r in enumerate(reactions)]
+insert("feedback", fb)
 insert("review_runs", [{"id": "rr_001", "update_id": "upd_ai_a_doc_compare", "agent_task_id": "task_demo_001", "ran_at": NOW,
                         "sent_dept_ids": ["dept_hrd"], "held": [{"dept_id": "dept_prod", "reason": "근거 없음"}]}])
 
@@ -116,19 +131,25 @@ insert("api_keys", [{"id": f"key_{p}", "project_id": p, "label": f"{p} 운영 �
                     for p in fx.PROJECTS])
 usage = []
 base_reqs = {"prj_cs_classify": 1000, "prj_quote_summary": 2100, "prj_faq": 60}
+TOKENS = {"0-2k": 1200, "2k-8k": 4500, "8k+": 12000}  # 구간별 요청당 입력 토큰
+MIX = {"prj_cs_classify": {"0-2k": 0.95, "2k-8k": 0.05}, "prj_faq": {"0-2k": 0.7, "2k-8k": 0.3},
+       "prj_quote_summary": {"2k-8k": 0.7, "8k+": 0.3}}
+SPIKE_MIX = {"2k-8k": 0.2, "8k+": 0.8}  # 급증 구간: 긴 견적서 PDF가 몰림
 for d in range(60):
     day = DAY0 + timedelta(days=d)
     for pid, reqs in base_reqs.items():
         p = fx.PROJECTS[pid]
         m = fx.MODELS[p.model_id]
-        spike = pid == "prj_quote_summary" and d >= 57  # 마지막 3일 비용 급증 (anm_001)
-        r = int(reqs * random.uniform(0.85, 1.15) * (1.6 if spike else 1))
-        tin, tout = r * (4200 if spike else 1500), r * 300
-        usd = round(tin / 1e6 * m.input_usd_per_mtok + tout / 1e6 * m.output_usd_per_mtok, 4)
-        usage.append({"vendor_record_id": f"vr_{pid}_{d:02d}", "contract_id": "ctr_ai_b_2026", "period_start": day,
-                      "project_id": pid, "api_key_id": f"key_{pid}", "model_id": p.model_id,
-                      "input_length_bucket": "4-16k" if spike else "1-4k", "requests": r, "input_tokens": tin,
-                      "output_tokens": tout, "cost_usd": usd, "fx_rate": fx.FX, "cost_krw": round(usd * fx.FX)})
+        spike = pid == "prj_quote_summary" and d >= 57  # 마지막 3일 비용 급증 (anm_001, 약 3배)
+        total = int(reqs * random.uniform(0.9, 1.1) * (2 if spike else 1))
+        for bucket, share in (SPIKE_MIX if spike else MIX[pid]).items():
+            r = int(total * share)
+            tin, tout = r * TOKENS[bucket], r * 300
+            usd = round(tin / 1e6 * m.input_usd_per_mtok + tout / 1e6 * m.output_usd_per_mtok, 4)
+            usage.append({"vendor_record_id": f"vr_{pid}_{d:02d}_{bucket}", "contract_id": "ctr_ai_b_2026", "period_start": day,
+                          "project_id": pid, "api_key_id": f"key_{pid}", "model_id": p.model_id, "input_length_bucket": bucket,
+                          "requests": r, "input_tokens": tin, "output_tokens": tout, "cost_usd": usd, "fx_rate": fx.FX,
+                          "cost_krw": round(usd * fx.FX)})
 insert("usage_records", usage)
 anm = dump(fx.ANOMALIES.values(), drop=("scope_name",))
 for a in anm:

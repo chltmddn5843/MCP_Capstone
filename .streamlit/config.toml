@@ -1,0 +1,27 @@
+# 화면 테마. 통신 구조 그림(docs/diagrams)과 같은 색: 잉크 + 청록 포인트
+[theme]
+font = "'IBM Plex Sans KR':https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap"
+codeFont = "'IBM Plex Mono':https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+baseFontSize = 15
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
+showWidgetBorder = true
+showSidebarBorder = true
+linkUnderline = false
+
+[theme.light]
+primaryColor = "#2d8a86"
+backgroundColor = "#f6f7f5"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1d2a2f"
+borderColor = "#d3d9d7"
+linkColor = "#226f6b"
+
+[theme.dark]
+primaryColor = "#4fb5b0"
+backgroundColor = "#141a1c"
+secondaryBackgroundColor = "#1c2427"
+textColor = "#e3e8e6"
+borderColor = "#34413f"
+linkColor = "#6cc7c2"

@@ -312,6 +312,17 @@ CREATE TABLE audit_log (
 );
 CREATE INDEX ON audit_log (target, created_at);
 
+-- F1 발송함. Slack 봇이 읽어 보내고 delivered_at을 채운다
+CREATE TABLE notify_outbox (
+  id varchar PRIMARY KEY,
+  suggestion_id varchar NOT NULL REFERENCES suggestions(id),
+  channel varchar NOT NULL,
+  target varchar,
+  text text NOT NULL,
+  created_at timestamptz NOT NULL,
+  delivered_at timestamptz
+);
+
 -- 운영 (대기열)
 CREATE TABLE job_runs (
   id varchar PRIMARY KEY,
