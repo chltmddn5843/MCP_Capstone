@@ -133,3 +133,18 @@ SEED_CHECKS = {  # 시드 일관성: 모두 0건이어야 한다
 
 def test_seed_is_consistent():
     assert {k: db.one(q)["n"] for k, q in SEED_CHECKS.items()} == dict.fromkeys(SEED_CHECKS, 0)
+
+
+def test_model_change_execute_applies_and_revalidates():
+    """모델 변경은 실행하면 프로젝트 모델이 실제로 바뀌고, 이미 바뀐 뒤 같은 요청은 stale(failed)로 멈춘다."""
+    item = {"project_id": "prj_faq", "from_model_id": "anthropic:claude-sonnet-5-5", "to_model_id": "anthropic:claude-haiku-5-5", "environment": "test"}
+
+    def run(key):
+        p = client.post("/plans", headers=ADMIN, json={"type": "model_change", "items": [item], "rationale": "t", "evidence": []}).json()["data"]
+        client.post(f"/plans/{p['id']}/approve", headers=ADMIN, json={"reason": "t"})
+        return client.post(f"/plans/{p['id']}/execute", headers={**ADMIN, "Idempotency-Key": key})
+
+    assert run("mc1").status_code == 200
+    assert db.one("SELECT model_id FROM projects WHERE id = 'prj_faq'")["model_id"] == "anthropic:claude-haiku-5-5"
+    r = run("mc2")
+    assert r.status_code == 409 and "이미" in r.json()["error"]["message"]

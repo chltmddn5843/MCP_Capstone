@@ -122,6 +122,11 @@ async def get_license_inventory(i: M.GetLicenseInventoryIn) -> dict:
     return {"contracts": await call("GET", "/inventory", params={"contract_id": i.contract_id})}
 
 
+@adapter("get_employee_assets")
+async def get_employee_assets(i: M.GetEmployeeAssetsIn) -> dict:
+    return await call("GET", f"/employees/{i.employee_id}/assets")
+
+
 @adapter("request_confirmation")
 async def request_confirmation(i: M.RequestConfirmationIn) -> dict:
     c = await call("POST", "/confirmations", json_body=i.model_dump())

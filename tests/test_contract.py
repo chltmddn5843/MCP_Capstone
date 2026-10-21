@@ -161,7 +161,7 @@ def test_employee_usage_self_only():
 
 def test_mcp_registry_roles_and_schemas():
     names = [t.name for t in TOOLS]
-    assert len(names) == len(set(names)) == 23
+    assert len(names) == len(set(names)) == 24
     assert "execute_approved_plan" not in {t.name for t in tools_for_role(Role.employee)}
     assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.admin)}
     for t in TOOLS:
@@ -185,7 +185,8 @@ def test_plan_items_validated_per_type():
 
 
 def test_confirmation_create_and_answer():
-    r = client.post("/confirmations", json={"employee_id": "emp_sales_02", "plan_id": "plan_002", "question": "계속 쓰시나요?"}, headers=ASSET)
+    # cfm_001(emp_sales_02)은 이미 반납 응답이 있으므로 아직 묻지 않은 휴직자로 새 요청을 만든다
+    r = client.post("/confirmations", json={"employee_id": "emp_gen_007", "plan_id": "plan_002", "question": "계속 쓰시나요?"}, headers=ASSET)
     assert r.status_code == 201, r.text
     c = r.json()["data"]
     assert c["id"].startswith("cfm_") and c["due_at"] and c["answer"] is None and c["answered_at"] is None
