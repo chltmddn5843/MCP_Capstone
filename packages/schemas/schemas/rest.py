@@ -6,13 +6,16 @@ MCP 서버·UI·Slack은 이 모델로 응답을 파싱한다.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
 from schemas.common import (
+    BillingType,
     BreakdownBy,
     ConfirmationAnswer,
+    DataClass,
+    Environment,
     Evidence,
     Granularity,
     LicenseFlag,
@@ -35,6 +38,7 @@ from schemas.entities import (
     BreakdownRow,
     Confirmation,
     Contract,
+    Department,
     Employee,
     EvalResult,
     Model,
@@ -194,6 +198,98 @@ class ContractInventory(BaseModel):
     low_usage_candidates: list[LowUsageCandidate]
 
 
+# ---------- /org/members (관리자 좌석 배치도) ----------
+class MemberTool(BaseModel):
+    tool_id: str
+    product: str
+    via: str  # seat: 본인 배정 좌석 · project: 소속 팀 API 프로젝트
+    detail: str  # 좌석이면 플랜 이름, 프로젝트면 "프로젝트명 · 모델명"
+    flag: LicenseFlag | None = None
+    last_activity_at: datetime | None = None
+    active_days_30: int | None = None  # 좌석만: 최근 30일 중 쓴 날 수 (사용 기록을 주는 제품만, 없으면 None)
+    requests_30: int | None = None
+
+
+class OrgMember(BaseModel):
+    employee: Employee
+    tools: list[MemberTool]
+
+
+# ---------- /setup (초기 설정 마법사) · /budgets ----------
+# 회사는 한 곳. 첫 관리자가 가입하면 회사·부서·관리자 계정이 생기고, 이어서 부서·직원 → 구독 제품(좌석) → AI 모델·API 프로젝트 → 연간 예산 순으로 채운다.
+# 설정 변경은 처리 요청(plan) 없이 관리자가 바로 하되 모두 audit_log에 남긴다 (초기 구성이라 되돌릴 대상이 없음).
+class SetupStatus(BaseModel):
+    company_name: str | None
+    has_admin: bool
+    setup_completed: bool
+    steps: dict[str, int]  # departments·employees·contracts·models·projects·budgets 건수
+
+
+class SignupRequest(BaseModel):
+    company_name: str = Field(min_length=1, max_length=100)
+    admin_name: str = Field(min_length=1, max_length=50)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=200)
+    password: str = Field(min_length=8, max_length=128)
+    dept_name: str = Field(default="경영지원", min_length=1, max_length=50, description="관리자가 속한 부서")
+    job_title: str = Field(default="IT 자산 관리자", min_length=1, max_length=50)
+
+
+class DepartmentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+
+class EmployeeCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=200)
+    dept_id: str
+    job_title: str = Field(min_length=1, max_length=50)
+    role: Role = Role.employee
+    hire_date: date | None = None
+
+
+class ContractCreate(BaseModel):
+    """구독 제품(사내 자산) 등록. tool_id가 없으면 제품을 새로 만든다."""
+    tool_id: str | None = None
+    vendor: str = Field(min_length=1, max_length=50)
+    product: str = Field(min_length=1, max_length=80)
+    category: str = Field(default="chat_assistant", max_length=50)
+    kind: str = Field(default="ai", pattern="^(ai|software)$")
+    allowed_data_class: DataClass = DataClass.internal
+    plan_name: str = Field(min_length=1, max_length=80)
+    billing_type: BillingType
+    seats_purchased: int = Field(ge=0, le=100000)
+    seat_price_krw: int = Field(ge=0)
+    term_start: date
+    term_end: date
+
+
+class ModelApproval(BaseModel):
+    model_ids: list[str] = Field(description="승인할 모델 id. 목록(GET /setup/model-catalog)에 있는 것만. 빠진 모델은 승인 해제")
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    dept_id: str
+    owner_id: str
+    purpose: str = Field(min_length=1, max_length=300)
+    model_id: str
+    environment: Environment = Environment.test
+    monthly_budget_krw: int = Field(ge=0)
+
+
+class BudgetSet(BaseModel):
+    fiscal_year: int = Field(ge=2000, le=2100)
+    seat_annual_krw: int = Field(ge=0)
+    api_annual_krw: int = Field(ge=0)
+
+
+class BudgetView(BudgetSet):
+    seat_monthly_krw: int
+    api_monthly_krw: int
+    seat_monthly_cost_krw: int = Field(description="구매 좌석 × 단가 (월). 미배정 좌석도 돈을 낸다")
+    project_budget_sum_krw: int = Field(description="API 프로젝트 월 예산 합. api_monthly_krw를 넘으면 경고")
+
+
 # ---------- /usage ----------
 class UsageQuery(BaseModel):
     scope: UsageScope
@@ -274,7 +370,7 @@ class JobRunResponse(BaseModel):
 ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("POST", "/auth/login", "사번·비밀번호로 로그인, JWT 발급", []),
     ("POST", "/auth/dev-login", "시드 직원으로 토큰 발급 (APP_ENV=dev 전용)", []),
-    ("GET", "/me", "본인 프로필·업무·이용 가능 도구", [Role.employee, Role.admin, Role.system]),
+    ("GET", "/me", "본인 프로필·업무·실제로 쓸 수 있는 도구", [Role.employee, Role.admin, Role.system]),
     ("GET", "/me/tasks", "본인 등록 업무", [Role.employee]),
     ("POST", "/me/tasks", "업무 등록", [Role.employee]),
     ("PATCH", "/me/tasks/{task_id}", "업무 수정", [Role.employee]),
@@ -292,8 +388,23 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/unmet-needs", "미충족 수요 집계", [Role.admin]),
     ("POST", "/unmet-needs", "미충족 수요 기록", [Role.employee, Role.admin, Role.system]),
     ("GET", "/inventory", "이용권 현황", [Role.admin, Role.system]),
+    ("GET", "/employees/{employee_id}/assets", "직원이 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)", [Role.admin, Role.system]),
     ("GET", "/usage", "사용량", [Role.employee, Role.admin, Role.system]),
+    ("GET", "/projects", "API 프로젝트 목록·월 예산", [Role.admin, Role.system]),
+    ("GET", "/org/members", "직원별 쓰는 도구(좌석·팀 프로젝트) — 좌석 배치도", [Role.admin, Role.system]),
     ("GET", "/anomalies", "경보 목록", [Role.admin, Role.system]),
+    ("GET", "/setup/status", "초기 설정 상태 (가입 전이면 company_name=null)", []),
+    ("POST", "/setup/signup", "첫 관리자 가입: 회사·부서·관리자 계정 생성 후 토큰 발급. 회사가 있으면 409", []),
+    ("POST", "/setup/complete", "초기 설정 완료 표시", [Role.admin]),
+    ("GET", "/setup/model-catalog", "고를 수 있는 AI 모델 목록(공식 단가)", [Role.admin]),
+    ("GET", "/departments", "부서 목록", [Role.admin, Role.system]),
+    ("POST", "/departments", "부서 추가", [Role.admin]),
+    ("POST", "/employees", "직원 여러 명 추가 (비밀번호 없음 = 로그인 전)", [Role.admin]),
+    ("POST", "/contracts", "구독 제품·계약 등록", [Role.admin]),
+    ("PUT", "/models/approved", "쓸 AI 모델 승인 목록 교체", [Role.admin]),
+    ("POST", "/projects", "API 프로젝트 등록", [Role.admin]),
+    ("GET", "/budgets", "연간 예산과 월 배분", [Role.admin, Role.system]),
+    ("PUT", "/budgets", "연간 예산 설정", [Role.admin]),
     ("GET", "/anomalies/{anomaly_id}", "경보 상세", [Role.admin, Role.system]),
     ("GET", "/plans", "조치안 목록", [Role.employee, Role.admin, Role.system]),
     ("POST", "/plans", "처리 요청 생성. 모든 요청은 승인 대기(pending_approval). 직원: seat_assign·seat_reclaim(본인), api_access, model_change(본인 소유 프로젝트, test)", [Role.employee, Role.admin, Role.system]),

@@ -130,6 +130,10 @@ class GetLicenseInventoryIn(BaseModel):
     contract_id: str | None = None
 
 
+class GetEmployeeAssetsIn(BaseModel):
+    employee_id: str
+
+
 class RecordUnmetNeedIn(BaseModel):
     summary: str
     capability_tag: str
@@ -330,6 +334,7 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_anomalies", "사용량 경보 목록.", GetAnomaliesIn, AnomaliesOut, [Role.admin, Role.system], backend="GET /anomalies", features=["F3"]),
     ToolSpec("get_anomaly_detail", "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.", GetAnomalyDetailIn, AnomalyDetail, [Role.admin, Role.system], backend="GET /anomalies/{id}", features=["F3"]),
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.admin, Role.system], backend="GET /inventory", features=["F4"]),
+    ToolSpec("get_employee_assets", "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.", GetEmployeeAssetsIn, MyProfileOut, [Role.admin, Role.system], backend="GET /employees/{id}/assets", features=["F4"]),
     ToolSpec("record_unmet_need", "승인 제품으로 할 수 없는 요청(미지원 요청)을 기록한다.", RecordUnmetNeedIn, RecordUnmetNeedOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /unmet-needs", features=["F5"]),
     ToolSpec("list_unmet_needs", "미지원 요청을 기능 태그별로 집계한다.", ListUnmetNeedsIn, ListUnmetNeedsOut, [Role.admin, Role.system], backend="GET /unmet-needs", features=["F5"]),
     ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.admin], read_only=False, backend="POST /confirmations", features=["F4"]),

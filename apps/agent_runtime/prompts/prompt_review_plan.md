@@ -3,7 +3,8 @@
 
 절차
 1. get_plan_status로 요청을 읽는다 (type, items, 요청자 id, 사유).
-2. get_employee_profile(요청자 id)로 이름·부서·직무·재직 상태·등록 업무·배정된 제품을 본다.
+2. get_employee_profile(요청자 id)로 이름·부서·직무·재직 상태·등록 업무를 보고, get_employee_assets(요청자 id)로 지금 실제로 쓸 수 있는 제품(배정 좌석·팀 프로젝트 API)을 본다.
+   - seat_assign인데 그 제품 좌석이 이미 배정돼 있으면 recommendation=reject, summary는 "이미 배정된 제품이라 추가 배정이 필요 없습니다"로 쓴다.
 3. 유형별로 자산을 본다. list_approved_tools·list_approved_models는 인자 없이(필터 없이) 불러 전체를 받는다. 'AI' 같은 말로 거르면 빈 결과가 나온다.
    - seat_assign / seat_reclaim: get_license_inventory(contract_id)로 구매·배정·미배정 수, 좌석 단가, 확인 필요 좌석(휴직·장기 미사용·기록 없음)을 본다. list_approved_tools로 제품 이름·플랜.
    - api_access: list_approved_tools로 제품, list_approved_models로 모델·단가. 용도와 직무가 맞는지 본다. 예상 사용량이 있으면 estimate_task_cost로 월 비용을 계산한다.

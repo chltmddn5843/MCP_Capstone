@@ -1,22 +1,32 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { getSummary, getAnomalies, getPlans, getProducts, getMe } from '../api.js'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { getSummary, getAnomalies, getPlans, getProducts, getMe, getModelCostMonths } from '../api.js'
 import { RISK, won, pct } from '../labels.js'
+import ModelCostDonut from '../components/ModelCostDonut.vue'
+import ProductLogo from '../components/ProductLogo.vue'
 
 const s = ref(null)
 const anomalies = ref([])
 const plans = ref([])
 const products = ref([])
+const months = ref([])
 const me = ref({ name: '' })
 getMe().then((v) => (me.value = v)).catch(() => {})
 
-onMounted(async () => {
-  ;[s.value, anomalies.value, plans.value, products.value] = await Promise.all([getSummary(), getAnomalies(), getPlans(), getProducts()])
+async function load() {
+  ;[s.value, anomalies.value, plans.value, products.value, months.value] = await Promise.all([getSummary(), getAnomalies(), getPlans(), getProducts(), getModelCostMonths().catch(() => [])])
+}
+onMounted(() => {
+  load()
+  const onFocus = () => { if (document.visibilityState === 'visible') load() }  // 승인·실행 뒤 돌아오면 다시 읽는다
+  window.addEventListener('focus', onFocus); document.addEventListener('visibilitychange', onFocus)
+  onBeforeUnmount(() => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) })
 })
 
 const pending = computed(() => plans.value.filter((p) => p.status === 'pending_approval'))
-const awaiting = computed(() => products.value.flatMap((p) => p.seats).filter((x) => x.action === 'remind').length)
-const maxMonthly = computed(() => Math.max(...(s.value?.monthly ?? []).map((m) => m.value)))
+// 이번 달 API 사용량 비용 = 도넛의 마지막(진행 중) 달 합계
+// ponytail: API 제품이 하나(Claude API)라 제품 표의 API 비용에 이 합계를 그대로 쓴다. API 계약이 늘면 제품별로 나눠 받아야 한다.
+const apiCost = computed(() => months.value.at(-1)?.models.reduce((t, m) => t + m.cost, 0) ?? 0)
 const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
 </script>
 
@@ -26,19 +36,16 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
       <span class="small muted">{{ today }}</span>
       <h1>안녕하세요, {{ me.name }} 님</h1>
     </div>
-    <label class="search">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
-      <span class="sr-only">검색</span>
-      <input type="search" placeholder="제품·직원·처리 요청 검색">
-    </label>
   </header>
 
   <template v-if="s">
     <section class="kpis" aria-label="핵심 지표">
       <div class="card-dark kpi">
-        <span class="small muted">이번 달 구독 비용</span>
-        <span class="value">{{ won(s.monthCost) }}</span>
-        <span class="xs lime">월 예산 {{ won(s.monthBudget) }}의 {{ pct(s.monthCost, s.monthBudget) }}%</span>
+        <span class="small muted">이번 달 비용 (오늘까지)</span>
+        <span class="value">{{ won(s.seatCost + apiCost) }}</span>
+        <span v-if="s.seatBudget + s.apiBudget" class="xs lime">월 예산 {{ won(s.seatBudget + s.apiBudget) }}의 {{ pct(s.seatCost + apiCost, s.seatBudget + s.apiBudget) }}%</span>
+        <span class="xs muted">좌석 정액 {{ won(s.seatCost) }}<template v-if="s.seatBudget"> / {{ won(s.seatBudget) }}</template> · API 사용량 {{ won(apiCost) }}<template v-if="s.apiBudget"> / {{ won(s.apiBudget) }}</template></span>
+        <RouterLink v-if="!(s.seatBudget + s.apiBudget)" to="/setup?step=budget" class="xs lime">연간 예산 설정하기</RouterLink>
       </div>
       <RouterLink to="/licenses" class="card kpi">
         <span class="small muted">이용권 배정</span>
@@ -66,7 +73,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
           <span class="pill pill-alert">비용 급증 알림</span>
           <div class="feed-body">
             <span class="feed-title">{{ a.scopeName }} 프로젝트 · 하루 비용이 기준의 {{ a.ratio }}배</span>
-            <span class="small muted">{{ won(a.observed) }} / 기준 {{ won(a.baseline) }} · AI 조사 완료, 원인 후보 {{ a.investigation.causes.length }}개</span>
+            <span class="small muted">{{ won(a.observed) }} / 기준 {{ won(a.baseline) }} · 원인 조사는 비용·사용량에서 실행</span>
           </div>
           <span class="small muted nowrap">{{ a.detectedAt }}</span>
         </RouterLink>
@@ -78,28 +85,17 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
           </div>
           <span class="small muted nowrap">{{ p.createdAt }}</span>
         </RouterLink>
-        <RouterLink v-if="awaiting" to="/licenses" class="feed-item">
-          <span class="pill pill-neutral">확인 응답 대기</span>
+        <RouterLink v-if="s.seatsToCheck" to="/licenses" class="feed-item">
+          <span class="pill pill-neutral">이용권 확인</span>
           <div class="feed-body">
-            <span class="feed-title">사용 의사 확인 {{ awaiting }}건 응답 없음</span>
-            <span class="small muted">무응답이어도 이용권은 유지됩니다</span>
+            <span class="feed-title">사용 의사를 아직 묻지 않은 이용권 {{ s.seatsToCheck }}석</span>
+            <span class="small muted">장기 미사용·휴직 등 · 묻기 전에는 회수하지 않습니다</span>
           </div>
         </RouterLink>
-        <p v-if="!pending.length && !awaiting" class="small muted">지금 확인할 일이 없습니다.</p>
+        <p v-if="!pending.length && !s.seatsToCheck && !anomalies.some((x) => x.status === 'open')" class="small muted">지금 확인할 일이 없습니다.</p>
       </section>
 
-      <section class="card col-2" aria-labelledby="trend-h">
-        <div class="card-head">
-          <div><h2 id="trend-h">월별 구독 비용</h2><span class="small muted">최근 6개월 · 단위 만원</span></div>
-        </div>
-        <div class="chart" role="img" :aria-label="s.monthly.map((m) => `${m.label} ${Math.round(m.value / 10000)}만원`).join(', ')">
-          <div v-for="(m, i) in s.monthly" :key="m.label" class="chart-col">
-            <span class="xs" :class="i === s.monthly.length - 1 ? 'strong' : 'muted'">{{ Math.round(m.value / 10000) }}</span>
-            <div class="chart-bar" :class="{ now: i === s.monthly.length - 1 }" :style="{ height: `${(m.value / maxMonthly) * 168}px` }" />
-            <span class="xs" :class="i === s.monthly.length - 1 ? 'strong' : 'muted'">{{ m.label }}</span>
-          </div>
-        </div>
-      </section>
+      <ModelCostDonut v-if="months.length" class="col-2" :months="months" />
     </div>
 
     <section class="card" aria-labelledby="prod-h">
@@ -112,7 +108,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
           <thead><tr><th scope="col">제품</th><th scope="col">과금 방식</th><th scope="col">이용권</th><th scope="col" class="num">이번 달 비용</th><th scope="col">갱신일</th></tr></thead>
           <tbody>
             <tr v-for="p in products" :key="p.id">
-              <td><div class="cell-2"><span>{{ p.name }}</span><span>{{ p.plan }} · {{ p.kind }}</span></div></td>
+              <td><div class="prod"><ProductLogo :tool-id="p.id" :name="p.name" /><div class="cell-2"><span>{{ p.name }}</span><span>{{ p.plan }} · {{ p.kind }}</span></div></div></td>
               <td>{{ p.billing }}</td>
               <td>
                 <div v-if="p.seatsPurchased" class="bar-inline">
@@ -121,7 +117,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
                 </div>
                 <span v-else class="muted">좌석 없음 · 프로젝트 {{ p.projects }}개</span>
               </td>
-              <td class="num">{{ won(p.monthCost) }}</td>
+              <td class="num">{{ won(p.monthCost ?? apiCost) }}<span v-if="p.monthCost == null" class="xs muted"><br />오늘까지 사용량</span></td>
               <td>{{ p.renewal }}</td>
             </tr>
           </tbody>
@@ -132,13 +128,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
 </template>
 
 <style scoped>
-.search { flex: 0 1 360px; min-width: 220px; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; background: var(--white); border: 1px solid rgba(17, 17, 19, 0.12); border-radius: 10px; }
-.search input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: 14px; outline: none; }
-.search:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
 .lime { color: var(--lime); }
 .strong { font-weight: 700; }
-.chart { height: 220px; display: flex; align-items: flex-end; gap: 12px; }
-.chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.chart-bar { width: 100%; background: rgba(17, 17, 19, 0.12); border-radius: 6px 6px 0 0; }
-.chart-bar.now { background: var(--ink); }
+.prod { display: flex; align-items: center; gap: 12px; }
 </style>

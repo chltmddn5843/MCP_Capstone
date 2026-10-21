@@ -1,11 +1,27 @@
 // 화면이 부르는 데이터 함수 전부. 백엔드 응답(Envelope{data}, packages/schemas)을 화면 모양으로 바꾼다. 화면은 이 파일만 본다.
 // 함수 이름과 반환 모양은 목업 시절과 같다 (화면 수정 없이 연결). 변환 규칙은 각 함수 주석.
-import { get, post, request, createTask } from './request.js'
-import { PLAN_TYPE, BILLING, TOOL_LABEL, cap } from './labels.js'
+import { get, post, put, request, createTask } from './request.js'
+import { PLAN_TYPE, PLAN_STATUS, BILLING, TOOL_LABEL, cap } from './labels.js'
 
 const dt = (s) => (s ? s.slice(5, 16).replace('T', ' ') : '')
 const daysAgo = (s) => (s ? `${Math.max(0, Math.round((Date.now() - new Date(s)) / 86400000))}일 전` : '기록 없음')
-const ym = (d) => `${d.getMonth() + 1}월`
+
+// 화면에 ID 대신 이름을 보이기 위한 사전: 직원·계약(제품)·제품·모델·프로젝트. 세션 동안 한 번만 받는다.
+// ponytail: 새로 생긴 직원·프로젝트는 새로고침 전까지 ID로 보인다. 필요하면 화면 이동 때 다시 받는다.
+let namesP
+export function getNames() {
+  namesP ??= Promise.all(['/org/members', '/tools', '/models', '/projects'].map((u) => get(u).catch(() => []))).then(([ms, tools, models, projects]) => new Map([
+    ['sys', 'AI 비서(시스템)'],
+    ...ms.map((m) => [m.employee.id, m.employee.name]),
+    ...ms.map((m) => [m.employee.dept_id, m.employee.dept_name]),
+    ...tools.map((t) => [t.id, t.product]),
+    ...tools.filter((t) => t.contract).map((t) => [t.contract.id, t.product]),
+    ...models.map((m) => [m.id, m.name]),
+    ...projects.map((p) => [p.id, p.name]),
+  ]))
+  return namesP
+}
+const named = (names, v) => (typeof v === 'string' ? names.get(v) ?? v : typeof v === 'number' ? v.toLocaleString('ko-KR') : String(v))
 
 // GET /me
 export async function getMe() {
@@ -16,11 +32,12 @@ export async function getMe() {
 
 // GET /inventory → 제품 목록 (좌석형) + GET /tools (API형 제품)
 export async function getProducts() {
-  const [inv, tools] = await Promise.all([get('/inventory'), get('/tools')])
+  const [inv, tools, projects, models] = await Promise.all([get('/inventory'), get('/tools'), get('/projects').catch(() => []), get('/models').catch(() => [])])
+  const vendorOf = Object.fromEntries(models.map((m) => [m.id, m.vendor])) // 모델 → 공급사 → 그 공급사의 API 제품
   const seatProducts = inv.map((i) => ({
     id: i.contract.tool_id, name: i.tool_name, plan: i.contract.plan_name, kind: (tools.find((t) => t.id === i.contract.tool_id)?.kind === 'software') ? '일반 소프트웨어' : 'AI',
     billing: BILLING[i.contract.billing_type] ?? i.contract.billing_type,
-    seatsPurchased: i.purchased, seatsAssigned: i.assigned, seatPrice: i.contract.seat_price_krw, monthCost: i.assigned * i.contract.seat_price_krw,
+    seatsPurchased: i.purchased, seatsAssigned: i.assigned, seatPrice: i.contract.seat_price_krw, monthCost: i.purchased * i.contract.seat_price_krw, // 미배정 좌석도 돈을 낸다
     renewal: i.contract.term_end?.slice(0, 10),
     seats: i.low_usage_candidates.map((c) => ({
       id: c.employee_id, name: c.employee_name, dept: c.dept_name, flag: c.flag, lastUsed: daysAgo(c.last_activity_at),
@@ -30,31 +47,32 @@ export async function getProducts() {
   }))
   const apiProducts = tools.filter((t) => t.contract?.billing_type === 'api_usage').map((t) => ({
     id: t.id, name: t.product, plan: t.contract.plan_name, kind: 'AI', billing: BILLING.api_usage, seatsPurchased: 0, seatsAssigned: 0, seatPrice: 0,
-    monthCost: 0, renewal: t.contract.term_end?.slice(0, 10), projects: 0, seats: [],
+    monthCost: null, renewal: t.contract.term_end?.slice(0, 10), projects: projects.filter((p) => vendorOf[p.model_id] === t.vendor).length, seats: [],
   }))
   return [...seatProducts, ...apiProducts]
 }
 
 // GET /plans?type=seat_assign → 이용권 신청 목록
 export async function getSeatRequests() {
-  const page = await get('/plans', { type: 'seat_assign' })
+  const [page, names] = await Promise.all([get('/plans', { type: 'seat_assign' }), getNames()])
   return page.items.map((p) => ({
-    id: p.id, who: p.requested_by, product: p.items[0]?.contract_id ?? '', purpose: p.rationale,
+    id: p.id, who: named(names, p.requested_by), product: named(names, p.items[0]?.contract_id ?? ''), purpose: p.rationale,
     status: p.status === 'pending_approval' ? 'pending' : 'done',
-    note: p.status === 'executed' ? `미배정 좌석 배정 완료 · ${dt(p.executed_at)}` : p.status === 'pending_approval' ? '미배정 좌석 없음 → AI 의견과 함께 승인 대기' : (PLAN_TYPE[p.type] + ' · ' + p.status),
+    note: p.status === 'executed' ? `미배정 좌석 배정 완료 · ${dt(p.executed_at)}` : p.status === 'pending_approval' ? '미배정 좌석 없음 → AI 의견과 함께 승인 대기' : (PLAN_TYPE[p.type] + ' · ' + (PLAN_STATUS[p.status] ?? p.status)),
   }))
 }
 
 // GET /anomalies + GET /anomalies/{id} → 알림 + 추이 + 조사 틀. AI 조사 결과는 알림 상세의 project·breakdown으로 근거만 채우고, 원인 후보는 '원인 조사 실행'(에이전트)으로 받는다.
 export async function getAnomalies() {
-  const list = await get('/anomalies')
+  const [list, names, tools, models] = await Promise.all([get('/anomalies'), getNames(), get('/tools').catch(() => []), get('/models').catch(() => [])])
+  const productOf = (modelId) => tools.find((t) => t.vendor === models.find((m) => m.id === modelId)?.vendor && t.contract?.billing_type === 'api_usage')?.product ?? ''
   return Promise.all(list.map(async (a) => {
     const d = await get(`/anomalies/${a.id}`)
     const daily = d.series.map((p) => p.cost.krw)
     const now = new Date()
     const monthToDate = d.series.filter((p) => new Date(p.period_start).getMonth() === now.getMonth()).reduce((s, p) => s + p.cost.krw, 0)
     return {
-      id: a.id, status: a.status, scopeName: a.scope_name ?? a.scope_id, product: d.project?.model_id ? 'AI-B API' : '', model: d.project?.model_id ?? '', env: d.project?.environment === 'prod' ? '운영' : '테스트', dept: d.project?.dept_id ?? '',
+      id: a.id, status: a.status, scopeName: a.scope_name ?? a.scope_id, product: productOf(d.project?.model_id), model: named(names, d.project?.model_id ?? ''), env: d.project?.environment === 'prod' ? '운영' : '테스트', dept: named(names, d.project?.dept_id ?? ''),
       detectedAt: dt(a.created_at), baseline: Math.round(a.baseline), observed: Math.round(a.observed), ratio: a.ratio, projected: a.projected_monthly_cost?.krw ?? 0,
       budget: d.project?.monthly_budget_krw ?? 0, monthToDate, daily, dailyStart: d.series[0]?.period_start?.slice(5, 10).replace('-', '/') ?? '',
       projectId: d.project?.id, purpose: d.project?.purpose,
@@ -71,31 +89,56 @@ export async function getAnomalies() {
   }))
 }
 
-// 프로젝트 목록: 백엔드에 GET /projects 가 없어 알림 상세에서 아는 프로젝트만 보인다 (백엔드 요청 항목).
+// GET /projects + 프로젝트별 이번 달 GET /usage. 급증 표시는 열린 알림에서.
 export async function getProjects() {
-  const anomalies = await getAnomalies()
-  return anomalies.filter((a) => a.projectId).map((a) => ({ id: a.projectId, name: a.scopeName, dept: a.dept, model: a.model, env: a.env, cost: a.monthToDate, budget: a.budget, anomaly: a.status === 'open' }))
+  const [projects, anomalies, names] = await Promise.all([get('/projects'), get('/anomalies', { status: 'open' }).catch(() => []), getNames()])
+  const now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), 1)
+  return Promise.all(projects.map(async (p) => {
+    const u = await get('/usage', { scope: 'project', scope_id: p.id, start: start.toISOString(), end: now.toISOString() }).catch(() => null)
+    return { id: p.id, name: p.name, dept: named(names, p.dept_id), model: named(names, p.model_id), env: p.environment === 'prod' ? '운영' : '테스트', cost: u?.summary.cost.krw ?? 0, budget: p.monthly_budget_krw,
+      anomaly: anomalies.some((a) => a.scope_id === p.id) }
+  }))
 }
 
-// GET /inventory + /savings + /usage → 홈 요약. 월별 추이는 계약 사용량 60일을 주 단위로 묶는다 (월 단위 API 없음).
+// GET /projects + GET /usage(scope=contract, group_by=model) → 최근 n개월 API 모델별 비용과 예산.
+// 좌석 정액료는 특정 모델에 귀속되지 않으므로 넣지 않는다.
+// 예산 = API 연간 예산 ÷ 12 (설정 안 했으면 프로젝트 월 예산 합). 과거 예산 이력은 없어 지난달도 지금 예산과 비교한다.
+export async function getModelCostMonths(n = 3) {
+  const [projects, tools, b] = await Promise.all([get('/projects'), get('/tools'), get('/budgets').catch(() => null)])
+  const contracts = tools.filter((t) => t.contract?.billing_type === 'api_usage').map((t) => t.contract.id)
+  const allocated = projects.reduce((s, p) => s + p.monthly_budget_krw, 0)
+  const budget = b?.api_monthly_krw || allocated, budgetSource = b?.api_monthly_krw ? 'annual' : 'projects'
+  const now = new Date()
+  return Promise.all(Array.from({ length: n }, async (_, k) => {
+    const start = new Date(now.getFullYear(), now.getMonth() - (n - 1 - k), 1)
+    const next = new Date(start.getFullYear(), start.getMonth() + 1, 1)
+    const ongoing = next > now
+    const us = await Promise.all(contracts.map((id) => get('/usage', { scope: 'contract', scope_id: id, start: start.toISOString(), end: (ongoing ? now : new Date(next - 1)).toISOString(), group_by: 'model' })))
+    const models = new Map()
+    for (const b of us.flatMap((u) => u.breakdown)) {
+      const m = models.get(b.key) ?? { name: b.key, cost: 0, requests: 0 }
+      m.cost += b.cost.krw; m.requests += b.requests; models.set(b.key, m)
+    }
+    const days = us.flatMap((u) => u.series.map((p) => p.period_start.slice(0, 10))).sort()
+    const monthDays = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
+    return { label: `${start.getMonth() + 1}월`, budget, budgetSource, allocated, monthDays, elapsed: ongoing ? now.getDate() : monthDays, ongoing,
+      dataDays: new Set(days).size, firstDay: days[0]?.slice(5).replace('-', '/'), models: [...models.values()].sort((a, b) => b.cost - a.cost) }
+  }))
+}
+
+// GET /org/members → 좌석 배치도. 도구 판정(배정 좌석 + 팀 프로젝트 API)은 백엔드가 한다.
+export async function getOrgMembers() {
+  return (await get('/org/members')).map((m) => ({ ...m.employee, tools: m.tools }))
+}
+
+// GET /inventory + /savings + /budgets → 홈 요약. 좌석 정액료만 센다 (API 사용량 비용은 getModelCostMonths).
 export async function getSummary() {
-  const [inv, savings, products] = await Promise.all([get('/inventory'), get('/savings').catch(() => ({ by_kind: {}, total_krw: 0 })), getProducts()])
+  const [inv, savings, products, budget] = await Promise.all([get('/inventory'), get('/savings').catch(() => ({ by_kind: {}, total_krw: 0 })), getProducts(), get('/budgets').catch(() => null)])
   const seatsTotal = inv.reduce((s, i) => s + i.purchased, 0), seatsAssigned = inv.reduce((s, i) => s + i.assigned, 0)
   const seatsToCheck = inv.reduce((s, i) => s + i.low_usage_candidates.filter((c) => c.needs_confirmation).length, 0)
-  const monthCost = products.reduce((s, p) => s + (p.monthCost || 0), 0)
-  let monthly = []
-  if (inv[0]) {
-    const end = new Date(), start = new Date(end.getTime() - 42 * 86400000)
-    const u = await get('/usage', { scope: 'contract', scope_id: inv[0].contract.id, start: start.toISOString(), end: end.toISOString() }).catch(() => null)
-    if (u) {
-      const buckets = new Map()
-      for (const p of u.series) { const d = new Date(p.period_start); const key = `${d.getMonth() + 1}/${Math.ceil(d.getDate() / 7)}주`; buckets.set(key, (buckets.get(key) || 0) + p.cost.krw) }
-      monthly = [...buckets.entries()].slice(-6).map(([label, value]) => ({ label, value }))
-    }
-  }
-  return { monthCost, monthBudget: Math.round(monthCost * 1.08), seatsAssigned, seatsTotal, seatsToCheck, savingsMonth: savings.total_krw,
-    savingsNote: Object.entries(savings.by_kind).map(([k, v]) => `${k === 'purchase_avoided' ? '아낀 구매 비용' : k} ${Math.round(v).toLocaleString('ko-KR')}원`).join(' · ') || '기록 없음',
-    monthly: monthly.length ? monthly : [{ label: ym(new Date()), value: monthCost }] }
+  const seatCost = products.reduce((s, p) => s + (p.monthCost || 0), 0)
+  return { seatCost, seatBudget: budget?.seat_monthly_krw ?? 0, apiBudget: budget?.api_monthly_krw ?? 0, seatsAssigned, seatsTotal, seatsToCheck, savingsMonth: savings.total_krw,
+    savingsNote: Object.entries(savings.by_kind).map(([k, v]) => `${k === 'purchase_avoided' ? '아낀 구매 비용' : k} ${Math.round(v).toLocaleString('ko-KR')}원`).join(' · ') || '기록 없음' }
 }
 
 // GET /plans → 승인 대기·이력. steps는 상태에서 만들고, AI 의견은 ai_opinion(없으면 요청 사유)에서 만든다.
@@ -254,3 +297,21 @@ export async function rejectPlan(id, reason = '관리자 반려') {
   await post(`/plans/${id}/reject`, { reason })
   return 'rejected'
 }
+
+// ── 초기 설정 마법사·설정 (GET/POST /setup·/departments·/employees·/contracts·/models/approved·/projects·/budgets) ──
+export const getSetupStatus = () => get('/setup/status')
+export const completeSetup = () => post('/setup/complete')
+export const getDepartments = () => get('/departments')
+export const createDepartment = (name) => post('/departments', { name })
+export const createEmployees = (rows) => post('/employees', rows)
+export const createContract = (body) => post('/contracts', body)
+export const getModelCatalog = () => get('/setup/model-catalog')
+export const approveModels = (ids) => put('/models/approved', { model_ids: ids })
+export const createProject = (body) => post('/projects', body)
+export const getBudgets = (year) => get('/budgets', year ? { fiscal_year: year } : undefined)
+export const setBudgets = (body) => put('/budgets', body)
+export async function getContracts() {
+  const tools = await get('/tools')
+  return tools.filter((t) => t.contract).map((t) => ({ toolId: t.id, product: t.product, vendor: t.vendor, ...t.contract }))
+}
+export const getEmployees = async () => (await get('/org/members')).map((m) => m.employee)

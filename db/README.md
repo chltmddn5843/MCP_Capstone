@@ -4,7 +4,7 @@ PostgreSQL 16, 스키마 `app`(업무)·`agent`(LangGraph, 라이브러리가 �
 
 | 파일 | 내용 |
 | --- | --- |
-| `schema.dbml` | 테이블 24개 ERD 원본. [dbdiagram.io](https://dbdiagram.io/d)에 붙여 넣으면 그림으로 본다 |
+| `schema.dbml` | 테이블 25개 ERD 원본. [dbdiagram.io](https://dbdiagram.io/d)에 붙여 넣으면 그림으로 본다 |
 | `migrations/` | Alembic (다음 PR). `schema.dbml`과 같이 고친다 |
 | `seed/` | 10절 '한빛제조' 시드. `apps/backend/fixtures.py`의 id를 반드시 포함 (계약 테스트) |
 

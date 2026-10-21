@@ -76,6 +76,15 @@ def test_employee_seat_request_waits_for_admin(client):
 
 
 def test_release_and_api_access_intents_create_plans(client):
+    # 반납 요청은 좌석이 있어야 승인 대기로 들어간다: 먼저 관리자가 배정을 승인·실행해 둔다
+    from apps.backend.main import app as backend_app
+    from fastapi.testclient import TestClient as BackendClient
+    bc = BackendClient(backend_app)
+    r = bc.post("/plans", json={"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "t", "evidence": []}, headers=EMP).json()
+    if "data" in r:
+        pid = r["data"]["id"]
+        bc.post(f"/plans/{pid}/approve", json={"reason": "t"}, headers=ASSET)
+        bc.post(f"/plans/{pid}/execute", headers={**ASSET, "Idempotency-Key": f"k_{pid}"})
     for text, plan_type in [("이제 안써요, 반납할게요", "seat_reclaim"), ("세일즈 분석용으로 B API 사용해야 해요", "api_access")]:
         task_id = client.post("/ai/tasks", json={"input": text, "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
         evs = events(client, task_id, EMP)
@@ -101,7 +110,7 @@ def test_claim_without_plan_is_corrected(client):
 
 def test_reclaim_needs_approval_then_execute_interrupts_and_resumes(client):
     """중간 위험(회수·재배정): 조치안 → 담당자 승인(백엔드) → 에이전트 실행 요청 → 실행 도구 앞 interrupt → 승인 → 실행."""
-    r = client.post("/ai/tasks", json={"input": "한도윤 님 휴직 중이라 이용권 회수해서 박서준 님에게 재배정해줘"}, headers=ASSET)
+    r = client.post("/ai/tasks", json={"input": "한도윤 님 휴직 중이라 이용권 회수해서 박지후 님에게 재배정해줘"}, headers=ASSET)
     task_id, thread_id = r.json()["data"]["task_id"], r.json()["data"]["thread_id"]
     evs = events(client, task_id, ASSET)
     assert [e["type"] for e in evs] == ["TOOL_START", "TOOL_END", "TOKEN", "DONE"]

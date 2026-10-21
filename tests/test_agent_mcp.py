@@ -92,7 +92,7 @@ def test_execute_via_mcp_with_approval(client):
 
 
 def test_seat_assign_via_mcp_waits_for_admin(client):
-    task_id = client.post("/ai/tasks", json={"input": "박서준 님 AI-A 이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
+    task_id = client.post("/ai/tasks", json={"input": "박지후 님 ChatGPT Enterprise 이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
     evs = events(client, task_id, ASSET)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
     assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"

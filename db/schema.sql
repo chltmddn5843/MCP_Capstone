@@ -75,8 +75,25 @@ CREATE TABLE contracts (
   mid_term_reduction boolean NOT NULL DEFAULT false
 );
 
+-- 회사는 한 곳뿐(초기 설정 마법사로 만든다). 행이 없으면 아직 가입 전
+CREATE TABLE company (
+  id varchar PRIMARY KEY DEFAULT 'company' CHECK (id = 'company'),
+  name varchar NOT NULL,
+  setup_completed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- 연간 예산. 월 예산 = 연간 ÷ 12. seat: 좌석 구독료, api: API 사용량(프로젝트 월 예산 합의 상한)
+CREATE TABLE budgets (
+  fiscal_year int NOT NULL,
+  category varchar NOT NULL CHECK (category IN ('seat', 'api')),
+  annual_krw bigint NOT NULL CHECK (annual_krw >= 0),
+  PRIMARY KEY (fiscal_year, category)
+);
+
 CREATE TABLE models (
-  id varchar PRIMARY KEY,
+  -- "공급사:API 모델명" (예: anthropic:claude-sonnet-5-5). 에이전트 LLM_MODEL 값과 같아 그대로 호출에 쓴다
+  id varchar PRIMARY KEY CHECK (id ~ '^[a-z]+:[a-z0-9.-]+$'),
   tool_id varchar REFERENCES tools(id),
   vendor varchar NOT NULL,
   name varchar NOT NULL,

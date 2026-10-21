@@ -100,7 +100,7 @@ async def test_f1_admin_sees_team_level_only(monkeypatch):
         found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_ai_a_doc_compare"})).structured_content
         adoption = (await c.call_tool("get_team_adoption", {"period": PERIOD})).structured_content
     assert all(cand["employee_id"] is None for cand in found["candidates"])
-    assert {t["team_id"] for t in adoption["teams"]} == {"dept_mkt", "dept_cs"}
+    assert {t["team_id"] for t in adoption["teams"]} == {"dept_mkt", "dept_cs", "dept_md"}  # 제안 반응이 있는 팀만
 
 
 async def test_profile_and_task_upsert(monkeypatch):
@@ -120,14 +120,14 @@ async def test_f2_eval_then_cost(monkeypatch):
     async with connect(mcp, monkeypatch, "cs") as c:
         evals = (await c.call_tool("get_eval_results", {"task_type": "customer_inquiry_classification"})).structured_content
         passed = [r["model_id"] for r in evals["results"] if r["passed"]]
-        assert passed == ["mdl_b_large", "mdl_b_mid"]
+        assert passed == ["anthropic:claude-opus-5-5", "anthropic:claude-sonnet-5-5"]
         costs = {}
         for model_id in passed:
             est = (await c.call_tool("estimate_task_cost", {"model_id": model_id, "requests_per_day": 1000,
                                                             "avg_input_tokens": 600, "avg_output_tokens": 20})).structured_content
             costs[model_id] = est["monthly"]["krw"]
             assert "formula" in est and est["fx_rate_krw_per_usd"] > 0
-        assert costs["mdl_b_mid"] < costs["mdl_b_large"]
+        assert costs["anthropic:claude-sonnet-5-5"] < costs["anthropic:claude-opus-5-5"]
         none_confidential = (await c.call_tool("list_approved_models", {"data_class": "confidential"})).structured_content
     assert none_confidential["models"] == []
 

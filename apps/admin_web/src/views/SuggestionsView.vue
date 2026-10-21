@@ -61,9 +61,10 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
       <section class="card" aria-labelledby="sw-h" style="gap: 4px">
         <h2 id="sw-h">팀별 자동 발송</h2>
         <span class="small muted" style="padding-bottom: 8px">끄면 그 팀에는 보내지 않고 기록만 남깁니다.</span>
+        <p v-if="switches.some((t) => t.readonly)" id="sw-note" class="inset small" style="margin: 0 0 8px">지금은 보기만 됩니다. 팀별 설정을 바꾸는 서버 기능이 아직 연결되지 않았습니다.</p>
         <label v-for="t in switches" :key="t.id" class="switch-row">
           <span>{{ t.team }} <span class="xs muted">{{ t.channel }}</span></span>
-          <input v-model="t.enabled" type="checkbox" role="switch" :disabled="t.readonly" :title="t.readonly ? '백엔드 PATCH /departments 연결 전' : ''" @change="toggle(t)">
+          <input v-model="t.enabled" type="checkbox" role="switch" :disabled="t.readonly" :aria-describedby="t.readonly ? 'sw-note' : undefined" @change="toggle(t)">
         </label>
       </section>
       <section class="card-dark small" aria-label="알림 정책" style="line-height: 1.6">
@@ -78,6 +79,7 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
 </template>
 
 <style scoped>
+.switch-row:has(input:disabled) { cursor: default; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; border-top: 1px solid var(--line); font-size: 14px; cursor: pointer; }
 .switch-row input { accent-color: var(--ink); width: 20px; height: 20px; margin: 0; }
 </style>

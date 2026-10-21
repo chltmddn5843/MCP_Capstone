@@ -434,6 +434,7 @@
                 }
               ],
               "default": null,
+              "description": "보통 비워 둔다(전체 조회). 'AI' 같은 말로 거르지 말 것. 코드값 예: chat_assistant, llm_api. AI/일반 SW 구분은 결과의 kind(ai|software)로 한다",
               "title": "Category"
             }
           },
@@ -636,7 +637,8 @@
                   "type": "null"
                 }
               ],
-              "default": null
+              "default": null,
+              "description": "보통 비워 둔다(전체 조회). 허용 데이터 등급으로 거를 때만 public|internal|confidential"
             }
           },
           "title": "ListApprovedModelsIn",
@@ -2441,6 +2443,361 @@
           "system"
         ],
         "x-backend": "GET /inventory"
+      },
+      {
+        "name": "get_employee_assets",
+        "description": "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.",
+        "inputSchema": {
+          "properties": {
+            "employee_id": {
+              "title": "Employee Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employee_id"
+          ],
+          "title": "GetEmployeeAssetsIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "BillingType": {
+              "enum": [
+                "seat_flat",
+                "seat_plus_usage",
+                "api_usage"
+              ],
+              "title": "BillingType",
+              "type": "string"
+            },
+            "Contract": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "tool_id": {
+                  "title": "Tool Id",
+                  "type": "string"
+                },
+                "plan_name": {
+                  "title": "Plan Name",
+                  "type": "string"
+                },
+                "billing_type": {
+                  "$ref": "#/$defs/BillingType"
+                },
+                "seats_purchased": {
+                  "title": "Seats Purchased",
+                  "type": "integer"
+                },
+                "seat_price_krw": {
+                  "title": "Seat Price Krw",
+                  "type": "integer"
+                },
+                "term_start": {
+                  "format": "date-time",
+                  "title": "Term Start",
+                  "type": "string"
+                },
+                "term_end": {
+                  "format": "date-time",
+                  "title": "Term End",
+                  "type": "string"
+                },
+                "mid_term_reduction": {
+                  "default": false,
+                  "title": "Mid Term Reduction",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "tool_id",
+                "plan_name",
+                "billing_type",
+                "seats_purchased",
+                "seat_price_krw",
+                "term_start",
+                "term_end"
+              ],
+              "title": "Contract",
+              "type": "object"
+            },
+            "DataClass": {
+              "enum": [
+                "public",
+                "internal",
+                "confidential"
+              ],
+              "title": "DataClass",
+              "type": "string"
+            },
+            "Employee": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "email": {
+                  "title": "Email",
+                  "type": "string"
+                },
+                "dept_id": {
+                  "title": "Dept Id",
+                  "type": "string"
+                },
+                "dept_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Dept Name"
+                },
+                "role": {
+                  "$ref": "#/$defs/Role"
+                },
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/$defs/EmployeeStatus",
+                  "default": "active"
+                },
+                "hire_date": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Hire Date"
+                },
+                "slack_user_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Slack User Id"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "email",
+                "dept_id",
+                "role",
+                "job_title"
+              ],
+              "title": "Employee",
+              "type": "object"
+            },
+            "EmployeeStatus": {
+              "enum": [
+                "active",
+                "on_leave",
+                "resigned"
+              ],
+              "title": "EmployeeStatus",
+              "type": "string"
+            },
+            "RegisteredTask": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "employee_id": {
+                  "title": "Employee Id",
+                  "type": "string"
+                },
+                "title": {
+                  "title": "Title",
+                  "type": "string"
+                },
+                "description": {
+                  "title": "Description",
+                  "type": "string"
+                },
+                "frequency": {
+                  "description": "예: daily, weekly, monthly, adhoc",
+                  "title": "Frequency",
+                  "type": "string"
+                },
+                "tools_used": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Tools Used",
+                  "type": "array"
+                },
+                "source": {
+                  "$ref": "#/$defs/TaskSource",
+                  "default": "manual"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "title": "Updated At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "employee_id",
+                "title",
+                "description",
+                "frequency",
+                "updated_at"
+              ],
+              "title": "RegisteredTask",
+              "type": "object"
+            },
+            "Role": {
+              "description": "v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절).",
+              "enum": [
+                "employee",
+                "admin",
+                "system"
+              ],
+              "title": "Role",
+              "type": "string"
+            },
+            "TaskSource": {
+              "enum": [
+                "manual",
+                "bot"
+              ],
+              "title": "TaskSource",
+              "type": "string"
+            },
+            "ToolApprovalStatus": {
+              "enum": [
+                "approved",
+                "under_review",
+                "denied"
+              ],
+              "title": "ToolApprovalStatus",
+              "type": "string"
+            },
+            "ToolWithPlan": {
+              "description": "list_approved_tools 출력: 도구 + 현재 계약 플랜 요약.",
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "vendor": {
+                  "title": "Vendor",
+                  "type": "string"
+                },
+                "product": {
+                  "title": "Product",
+                  "type": "string"
+                },
+                "category": {
+                  "title": "Category",
+                  "type": "string"
+                },
+                "approval_status": {
+                  "$ref": "#/$defs/ToolApprovalStatus"
+                },
+                "allowed_data_class": {
+                  "$ref": "#/$defs/DataClass"
+                },
+                "policy_note": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Policy Note"
+                },
+                "contract": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Contract"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "id",
+                "vendor",
+                "product",
+                "category",
+                "approval_status",
+                "allowed_data_class"
+              ],
+              "title": "ToolWithPlan",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "employee": {
+              "$ref": "#/$defs/Employee"
+            },
+            "tasks": {
+              "items": {
+                "$ref": "#/$defs/RegisteredTask"
+              },
+              "title": "Tasks",
+              "type": "array"
+            },
+            "available_tools": {
+              "items": {
+                "$ref": "#/$defs/ToolWithPlan"
+              },
+              "title": "Available Tools",
+              "type": "array"
+            }
+          },
+          "required": [
+            "employee",
+            "tasks",
+            "available_tools"
+          ],
+          "title": "MyProfileOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "admin",
+          "system"
+        ],
+        "x-backend": "GET /employees/{id}/assets"
       },
       {
         "name": "record_unmet_need",
