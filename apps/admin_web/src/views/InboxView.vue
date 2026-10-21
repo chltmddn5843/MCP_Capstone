@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getPlans, approvePlan, rejectPlan } from '../api.js'
-import { RISK, PLAN_STATUS } from '../labels.js'
+import { RISK, PLAN_STATUS, onTabKeys } from '../labels.js'
 import TaskApprovals from '../components/TaskApprovals.vue'
 
 const route = useRoute()
@@ -11,6 +11,9 @@ const plans = ref([])
 const tab = ref('pending')
 const notice = ref('')
 const busy = ref(false)
+const rejecting = ref(false) // 반려는 사유를 받은 뒤에만 보낸다
+const reason = ref('')
+const reasonEl = ref(null)
 
 const load = async () => { plans.value = await getPlans() }
 onMounted(load)
@@ -18,6 +21,8 @@ onMounted(load)
 const list = computed(() => plans.value.filter((p) => (tab.value === 'pending') === (p.status === 'pending_approval')))
 const selected = computed(() => list.value.find((p) => p.id === route.query.id) ?? list.value[0])
 watch(tab, () => router.replace({ query: {} }))
+watch(() => selected.value?.id, () => { rejecting.value = false; reason.value = '' })
+async function startReject() { rejecting.value = true; await nextTick(); reasonEl.value?.focus() }
 
 const select = (id) => router.replace({ query: { id } })
 
@@ -25,8 +30,8 @@ async function decide(fn, verb) {
   busy.value = true
   const p = selected.value
   let status
-  try { status = await fn(p.id) } catch (e) { notice.value = `${p.id} ${verb} 실패: ${e.message}`; busy.value = false; return }
-  notice.value = `${p.id} ${verb}: ${PLAN_STATUS[status ?? 'rejected']}`
+  try { status = await fn(p.id) } catch (e) { notice.value = `${p.title} ${verb} 실패: ${e.message}`; busy.value = false; return }
+  notice.value = `${p.title} · ${p.subtitle} ${verb}: ${PLAN_STATUS[status ?? 'rejected']}`
   await load()
   router.replace({ query: {} })
   busy.value = false
@@ -36,9 +41,9 @@ async function decide(fn, verb) {
 <template>
   <header class="page-head">
     <div><span class="small muted">운영 · 처리 요청</span><h1>승인 대기</h1></div>
-    <div role="tablist" aria-label="보기" class="segment">
-      <button type="button" role="tab" :aria-selected="tab === 'pending'" @click="tab = 'pending'">승인 대기 {{ plans.filter((p) => p.status === 'pending_approval').length }}</button>
-      <button type="button" role="tab" :aria-selected="tab === 'history'" @click="tab = 'history'">처리 이력</button>
+    <div role="tablist" aria-label="보기" class="segment" @keydown="onTabKeys">
+      <button type="button" role="tab" :aria-selected="tab === 'pending'" :tabindex="tab === 'pending' ? 0 : -1" @click="tab = 'pending'">승인 대기 {{ plans.filter((p) => p.status === 'pending_approval').length }}</button>
+      <button type="button" role="tab" :aria-selected="tab === 'history'" :tabindex="tab === 'history' ? 0 : -1" @click="tab = 'history'">처리 이력</button>
     </div>
   </header>
 
@@ -95,11 +100,18 @@ async function decide(fn, verb) {
         </div>
       </div>
 
-      <div v-if="selected.status === 'pending_approval'" class="foot">
+      <form v-if="selected.status === 'pending_approval' && rejecting" class="foot reject" @submit.prevent="decide((id) => rejectPlan(id, reason.trim()), '반려')">
+        <label class="reason">반려 사유 <span class="xs muted">처리 이력에 남습니다</span>
+          <textarea ref="reasonEl" v-model="reason" rows="2" required placeholder="예: 다음 분기 예산 확정 후 다시 요청해 주세요" @keydown.esc="rejecting = false" />
+        </label>
+        <button type="button" class="btn" style="min-height: 48px" @click="rejecting = false">취소</button>
+        <button type="submit" class="btn btn-dark" style="min-height: 48px" :disabled="busy || !reason.trim()">반려 확정</button>
+      </form>
+      <div v-else-if="selected.status === 'pending_approval'" class="foot">
         <span class="xs muted" style="flex: 1 1 240px">
           {{ selected.risk === 'high' ? '책임자 결정은 기록만 남기고, 구매·운영 변경은 시스템 밖에서 진행합니다.' : '승인하면 실행 직전 서버가 상태를 다시 확인합니다.' }}
         </span>
-        <button type="button" class="btn" style="min-height: 48px" :disabled="busy" @click="decide(rejectPlan, '반려')">반려</button>
+        <button type="button" class="btn" style="min-height: 48px" :disabled="busy" @click="startReject">반려</button>
         <button type="button" class="btn btn-dark" style="min-height: 48px; padding: 0 24px" :disabled="busy" @click="decide(approvePlan, '승인')">
           {{ selected.risk === 'high' ? '결정 기록' : '승인하고 실행' }}
         </button>
@@ -133,5 +145,7 @@ async function decide(fn, verb) {
 .kv div { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .kv div:last-child { border-bottom: 0; }
 .kv dd { margin: 0; }
+.reason { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.reason textarea { font: inherit; font-weight: 400; font-size: 14px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-strong); resize: vertical; }
 .foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 20px; border-top: 1px solid var(--line); }
 </style>

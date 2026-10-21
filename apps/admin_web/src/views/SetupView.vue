@@ -1,0 +1,339 @@
+<script setup>
+// 초기 설정 마법사 (가입 직후) 겸 설정 화면 (설정을 마친 뒤). 단계: 부서·직원 → 구독 제품(사내 자산) → AI 모델·API 프로젝트 → 연간 예산 → 확인.
+// 각 단계는 저장 즉시 서버에 반영된다(감사 기록 남음). 단계 이동은 저장과 무관해 언제든 앞뒤로 갈 수 있다.
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  getSetupStatus, completeSetup, getDepartments, createDepartment, createEmployees, getEmployees, getContracts, createContract,
+  getModelCatalog, approveModels, getProjects, createProject, getBudgets, setBudgets,
+} from '../api.js'
+import { BILLING, won, onTabKeys } from '../labels.js'
+import { errorLabel } from '../request.js'
+import ProductLogo from '../components/ProductLogo.vue'
+
+const route = useRoute()
+const router = useRouter()
+const STEPS = [
+  { id: 'org', label: '부서·직원' },
+  { id: 'assets', label: '구독 제품' },
+  { id: 'models', label: 'AI 모델·프로젝트' },
+  { id: 'budget', label: '연간 예산' },
+  { id: 'done', label: '확인' },
+]
+const step = computed(() => STEPS.findIndex((s) => s.id === route.query.step) >= 0 ? route.query.step : 'org')
+const go = (id) => router.replace({ query: { step: id } })
+const idx = computed(() => STEPS.findIndex((s) => s.id === step.value))
+const headEl = ref(null)
+watch(step, async () => { msg.value = ''; await nextTick(); headEl.value?.focus() })
+
+const status = ref(null)
+const depts = ref([])
+const people = ref([])
+const contracts = ref([])
+const catalog = ref([])
+const projects = ref([])
+const budget = ref(null)
+const msg = ref('')
+const busy = ref(false)
+
+async function load() {
+  ;[status.value, depts.value, people.value, contracts.value, catalog.value, projects.value, budget.value] = await Promise.all([
+    getSetupStatus(), getDepartments(), getEmployees(), getContracts(), getModelCatalog(), getProjects().catch(() => []), getBudgets(),
+  ])
+  bf.value = { seat: budget.value.seat_annual_krw, api: budget.value.api_annual_krw }
+  picked.value = catalog.value.filter((m) => m.approved).map((m) => m.id)
+}
+onMounted(load)
+
+// 저장 공통: 성공 문구 또는 오류를 한 곳(role=status/alert)에 보인다
+const ok = ref(true)
+async function save(fn, done) {
+  busy.value = true; msg.value = ''
+  try { await fn(); await load(); ok.value = true; msg.value = done }
+  catch (e) { ok.value = false; msg.value = e.message ? `${e.message}` : errorLabel(e) }
+  finally { busy.value = false }
+}
+
+// ── 1. 부서·직원 ──
+const newDept = ref('')
+const csv = ref('')
+const parsed = computed(() => csv.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l, i) => {
+  const [name, email, dept, title] = l.split(/\t|,/).map((x) => (x ?? '').trim())
+  const d = depts.value.find((x) => x.name === dept)
+  const err = !name ? '이름 없음' : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email ?? '') ? '이메일 형식 아님' : !d ? `부서 '${dept ?? ''}' 없음 · 위에서 먼저 추가` : !title ? '직함 없음' : ''
+  return { line: i + 1, name, email, dept, title, deptId: d?.id, err }
+}))
+const csvErrors = computed(() => parsed.value.filter((r) => r.err))
+const addDept = () => save(async () => { await createDepartment(newDept.value.trim()); newDept.value = '' }, '부서를 추가했습니다.')
+const addPeople = () => save(async () => {
+  await createEmployees(parsed.value.map((r) => ({ name: r.name, email: r.email, dept_id: r.deptId, job_title: r.title })))
+  csv.value = ''
+}, `직원 ${parsed.value.length}명을 추가했습니다.`)
+const headcount = computed(() => Object.fromEntries(depts.value.map((d) => [d.id, people.value.filter((p) => p.dept_id === d.id).length])))
+
+// ── 2. 구독 제품 ──
+const year = new Date().getFullYear()
+const blank = () => ({ vendor: '', product: '', category: 'chat_assistant', kind: 'ai', plan_name: '', billing_type: 'seat_flat', seats_purchased: 10, seat_price_krw: 0, term_start: `${year}-01-01`, term_end: `${year}-12-31` })
+const cf = ref(blank())
+const PRESETS = [
+  { vendor: 'OpenAI', product: 'ChatGPT Enterprise', category: 'chat_assistant', plan_name: 'Enterprise', billing_type: 'seat_plus_usage' },
+  { vendor: 'Anthropic', product: 'Claude API', category: 'llm_api', plan_name: 'API pay-as-you-go', billing_type: 'api_usage' },
+  { vendor: 'Canva', product: 'Canva Enterprise', category: 'design_collaboration', plan_name: 'Enterprise', billing_type: 'seat_flat' },
+  { vendor: 'Adobe', product: 'Acrobat Pro', category: 'pdf_editor', kind: 'software', plan_name: 'Acrobat Pro Teams', billing_type: 'seat_flat' },
+]
+const isApi = computed(() => cf.value.billing_type === 'api_usage')
+const cfError = computed(() => !cf.value.vendor.trim() || !cf.value.product.trim() || !cf.value.plan_name.trim() ? '공급사·제품·플랜 이름을 모두 입력하세요'
+  : cf.value.term_end <= cf.value.term_start ? '종료일은 시작일보다 뒤여야 합니다'
+  : !isApi.value && cf.value.seats_purchased < 1 ? '좌석 과금 제품은 좌석 수가 1 이상이어야 합니다' : '')
+const addContract = () => save(async () => { await createContract({ ...cf.value, seats_purchased: isApi.value ? 0 : Number(cf.value.seats_purchased), seat_price_krw: Number(cf.value.seat_price_krw) }); cf.value = blank() }, '구독 제품을 등록했습니다.')
+const seatMonthly = (c) => c.billing_type === 'api_usage' ? null : c.seats_purchased * c.seat_price_krw
+
+// ── 3. AI 모델·프로젝트 ──
+const picked = ref([])
+const apiVendors = computed(() => new Set(contracts.value.filter((c) => c.billing_type === 'api_usage').map((c) => c.vendor.toLowerCase())))
+const saveModels = () => save(() => approveModels(picked.value), `모델 ${picked.value.length}개를 승인 목록으로 저장했습니다.`)
+const approved = computed(() => catalog.value.filter((m) => m.approved))
+const pf = ref({ name: '', dept_id: '', owner_id: '', purpose: '', model_id: '', environment: 'test', monthly_budget_krw: 0 })
+const owners = computed(() => people.value.filter((p) => p.dept_id === pf.value.dept_id && p.status === 'active'))
+const pfError = computed(() => !pf.value.name.trim() || !pf.value.purpose.trim() ? '프로젝트 이름과 목적을 입력하세요'
+  : !pf.value.dept_id || !pf.value.owner_id ? '부서와 담당자를 고르세요' : !pf.value.model_id ? '승인한 모델 중 하나를 고르세요' : '')
+const addProject = () => save(async () => { await createProject({ ...pf.value, monthly_budget_krw: Number(pf.value.monthly_budget_krw) }); pf.value = { ...pf.value, name: '', purpose: '', monthly_budget_krw: 0 } }, 'API 프로젝트를 등록했습니다.')
+
+// ── 4. 예산 ──
+const bf = ref({ seat: 0, api: 0 })
+const saveBudget = () => save(() => setBudgets({ fiscal_year: budget.value.fiscal_year, seat_annual_krw: Number(bf.value.seat), api_annual_krw: Number(bf.value.api) }), '연간 예산을 저장했습니다.')
+const seatOver = computed(() => budget.value && budget.value.seat_monthly_cost_krw > Math.floor(bf.value.seat / 12))
+const apiOver = computed(() => budget.value && budget.value.project_budget_sum_krw > Math.floor(bf.value.api / 12))
+
+// ── 5. 확인 ──
+const finish = () => save(async () => { await completeSetup(); router.push('/') }, '설정을 마쳤습니다.')
+const CHECK = computed(() => status.value && [
+  { label: '부서', n: status.value.steps.departments, unit: '개', need: 1, step: 'org' },
+  { label: '직원', n: status.value.steps.employees, unit: '명', need: 1, step: 'org' },
+  { label: '구독 제품', n: status.value.steps.contracts, unit: '개', need: 1, step: 'assets', required: true },
+  { label: '승인한 AI 모델', n: status.value.steps.models, unit: '개', need: 0, step: 'models' },
+  { label: 'API 프로젝트', n: status.value.steps.projects, unit: '개', need: 0, step: 'models' },
+  { label: `${budget.value?.fiscal_year}년 예산 (좌석·API)`, n: status.value.steps.budgets, unit: '개 항목', need: 2, step: 'budget', required: true },
+])
+const canFinish = computed(() => CHECK.value?.filter((c) => c.required).every((c) => c.n >= c.need))
+</script>
+
+<template>
+  <header class="page-head">
+    <div>
+      <span class="small muted">{{ status?.company_name }} · {{ status?.setup_completed ? '설정' : '초기 설정' }}</span>
+      <h1>{{ status?.setup_completed ? '회사 설정' : '처음 설정하기' }}</h1>
+    </div>
+  </header>
+
+  <ol class="stepper" role="tablist" aria-label="설정 단계" @keydown="onTabKeys">
+    <li v-for="(s, i) in STEPS" :key="s.id" role="presentation">
+      <button type="button" role="tab" :aria-selected="s.id === step" :tabindex="s.id === step ? 0 : -1" :class="{ past: i < idx }" @click="go(s.id)">
+        <span class="n" aria-hidden="true">{{ i + 1 }}</span>{{ s.label }}
+      </button>
+    </li>
+  </ol>
+
+  <p v-if="msg" :class="ok ? 'status' : 'status err'" :role="ok ? 'status' : 'alert'">{{ msg }}</p>
+
+  <section v-if="status" class="card body" role="tabpanel">
+    <h2 ref="headEl" tabindex="-1">{{ idx + 1 }}. {{ STEPS[idx].label }}</h2>
+
+    <!-- 1. 부서·직원 -->
+    <template v-if="step === 'org'">
+      <p class="small muted">좌석 배치도·팀 활용 현황은 이 부서·직원 기준으로 만듭니다. 직원 계정은 비밀번호 없이 만들어지고, 로그인은 각자 설정한 뒤에 할 수 있습니다.</p>
+      <div class="split">
+        <div class="stack" style="gap: 10px">
+          <strong class="small">부서 {{ depts.length }}개</strong>
+          <ul class="list">
+            <li v-for="d in depts" :key="d.id"><span>{{ d.name }}</span><span class="small muted">{{ headcount[d.id] }}명</span></li>
+          </ul>
+          <form class="inline" @submit.prevent="addDept">
+            <label class="field grow">새 부서 이름<input v-model="newDept" placeholder="예: 마케팅" /></label>
+            <button type="submit" class="btn" :disabled="busy || !newDept.trim()">부서 추가</button>
+          </form>
+        </div>
+        <form class="stack" style="gap: 10px" @submit.prevent="addPeople">
+          <label class="field" for="csv">직원 붙여넣기 <span class="xs muted">한 줄에 한 명 · 이름, 이메일, 부서, 직함 (쉼표 또는 탭, 엑셀에서 복사 가능)</span>
+            <textarea id="csv" v-model="csv" rows="6" placeholder="김민서, minseo@company.co.kr, 마케팅, 콘텐츠 마케터" aria-describedby="csv-help" />
+          </label>
+          <span id="csv-help" class="xs muted">현재 직원 {{ people.length }}명</span>
+          <ul v-if="csvErrors.length" class="errs" role="alert">
+            <li v-for="r in csvErrors" :key="r.line">{{ r.line }}행 · {{ r.err }}</li>
+          </ul>
+          <p v-else-if="parsed.length" class="small" style="margin: 0">{{ parsed.length }}명 추가 준비됨</p>
+          <button type="submit" class="btn btn-dark" :disabled="busy || !parsed.length || !!csvErrors.length">직원 {{ parsed.length || '' }}명 추가</button>
+        </form>
+      </div>
+    </template>
+
+    <!-- 2. 구독 제품 -->
+    <template v-else-if="step === 'assets'">
+      <p class="small muted">회사가 계약한 AI·소프트웨어(사내 자산)입니다. 좌석형은 구매 좌석 수와 단가, API형은 사용량 과금이라 좌석이 없습니다.</p>
+      <div v-if="contracts.length" class="table-wrap">
+        <table class="table" style="min-width: 640px">
+          <thead><tr><th scope="col">제품</th><th scope="col">과금 방식</th><th scope="col" class="num">좌석</th><th scope="col" class="num">월 좌석료</th><th scope="col">계약 기간</th></tr></thead>
+          <tbody>
+            <tr v-for="c in contracts" :key="c.id">
+              <td><div class="prod"><ProductLogo :tool-id="c.toolId" :name="c.product" /><div class="cell-2"><span>{{ c.product }}</span><span>{{ c.vendor }} · {{ c.plan_name }}</span></div></div></td>
+              <td>{{ BILLING[c.billing_type] }}</td>
+              <td class="num">{{ c.billing_type === 'api_usage' ? '-' : `${c.seats_purchased}석` }}</td>
+              <td class="num">{{ seatMonthly(c) == null ? '사용량 과금' : won(seatMonthly(c)) }}</td>
+              <td class="nowrap">{{ c.term_start.slice(0, 10) }} ~ {{ c.term_end.slice(0, 10) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else class="inset small" style="margin: 0">아직 등록한 제품이 없습니다. 아래에서 첫 제품을 등록하세요.</p>
+
+      <form class="stack form" @submit.prevent="addContract">
+        <div class="tags" role="group" aria-label="자주 쓰는 제품으로 채우기">
+          <span class="small muted" style="align-self: center">빠르게 채우기</span>
+          <button v-for="p in PRESETS" :key="p.product" type="button" class="chip chip-lg tool-chip" @click="cf = { ...blank(), ...p }">
+            <ProductLogo tool-id="" :name="p.product" :size="22" />{{ p.product }}
+          </button>
+        </div>
+        <div class="grid">
+          <label class="field">공급사<input v-model="cf.vendor" placeholder="예: OpenAI" /></label>
+          <label class="field">제품<input v-model="cf.product" placeholder="예: ChatGPT Enterprise" /></label>
+          <label class="field">플랜<input v-model="cf.plan_name" placeholder="예: Enterprise" /></label>
+          <label class="field">과금 방식
+            <select v-model="cf.billing_type"><option v-for="(l, k) in BILLING" :key="k" :value="k">{{ l }}</option></select>
+          </label>
+          <label v-if="!isApi" class="field">구매 좌석 수<input v-model.number="cf.seats_purchased" type="number" min="1" inputmode="numeric" /></label>
+          <label v-if="!isApi" class="field">좌석 단가(월, 원)<input v-model.number="cf.seat_price_krw" type="number" min="0" step="1000" inputmode="numeric" /></label>
+          <label class="field">계약 시작<input v-model="cf.term_start" type="date" /></label>
+          <label class="field">계약 종료<input v-model="cf.term_end" type="date" /></label>
+        </div>
+        <p v-if="!isApi && cf.seats_purchased && cf.seat_price_krw" class="small" style="margin: 0">월 좌석료 {{ won(cf.seats_purchased * cf.seat_price_krw) }} · 연 {{ won(cf.seats_purchased * cf.seat_price_krw * 12) }}</p>
+        <p v-if="cfError" class="xs muted" style="margin: 0">{{ cfError }}</p>
+        <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy || !!cfError">제품 등록</button>
+      </form>
+    </template>
+
+    <!-- 3. AI 모델·프로젝트 -->
+    <template v-else-if="step === 'models'">
+      <p class="small muted">직원과 API 프로젝트가 쓸 수 있는 모델을 고릅니다. 단가는 공급사 공식 가격(100만 토큰당 달러)입니다. API 계약이 있는 공급사의 모델만 실제로 호출할 수 있습니다.</p>
+      <form class="stack" style="gap: 10px" @submit.prevent="saveModels">
+        <fieldset class="models">
+          <legend class="sr-only">승인할 모델</legend>
+          <label v-for="m in catalog" :key="m.id" class="model" :class="{ on: picked.includes(m.id) }">
+            <input v-model="picked" type="checkbox" :value="m.id" />
+            <span class="cell-2" style="flex: 1; min-width: 0">
+              <span>{{ m.name }} <span class="xs muted">{{ m.vendor }}</span></span>
+              <span>{{ m.capabilities }}</span>
+            </span>
+            <span class="price small">입력 ${{ m.input_usd_per_mtok }} · 출력 ${{ m.output_usd_per_mtok }}</span>
+            <span v-if="!apiVendors.has(m.vendor.toLowerCase())" class="pill pill-neutral">API 계약 없음</span>
+          </label>
+        </fieldset>
+        <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy">승인 목록 저장 ({{ picked.length }}개)</button>
+      </form>
+
+      <hr />
+      <strong class="small">API 프로젝트 {{ projects.length }}개 <span class="muted">· 프로젝트별 월 예산이 비용 급증 알림과 홈 도넛의 기준이 됩니다</span></strong>
+      <ul v-if="projects.length" class="list">
+        <li v-for="p in projects" :key="p.id"><span>{{ p.name }} <span class="xs muted">{{ p.dept }} · {{ p.model }} · {{ p.env }}</span></span><span class="small">월 {{ won(p.budget) }}</span></li>
+      </ul>
+      <form class="stack form" @submit.prevent="addProject">
+        <div class="grid">
+          <label class="field">프로젝트 이름<input v-model="pf.name" placeholder="예: 고객 문의 분류" /></label>
+          <label class="field">부서
+            <select v-model="pf.dept_id" @change="pf.owner_id = ''"><option value="" disabled>고르세요</option><option v-for="d in depts" :key="d.id" :value="d.id">{{ d.name }}</option></select>
+          </label>
+          <label class="field">담당자
+            <select v-model="pf.owner_id" :disabled="!pf.dept_id"><option value="" disabled>{{ pf.dept_id ? (owners.length ? '고르세요' : '이 부서에 직원 없음') : '부서 먼저' }}</option><option v-for="p in owners" :key="p.id" :value="p.id">{{ p.name }} · {{ p.job_title }}</option></select>
+          </label>
+          <label class="field">모델
+            <select v-model="pf.model_id"><option value="" disabled>{{ approved.length ? '고르세요' : '먼저 위에서 승인' }}</option><option v-for="m in approved" :key="m.id" :value="m.id">{{ m.name }}</option></select>
+          </label>
+          <label class="field">환경
+            <select v-model="pf.environment"><option value="test">테스트</option><option value="prod">운영</option></select>
+          </label>
+          <label class="field">월 예산(원)<input v-model.number="pf.monthly_budget_krw" type="number" min="0" step="10000" inputmode="numeric" /></label>
+        </div>
+        <label class="field">목적<input v-model="pf.purpose" placeholder="예: 하루 1,000건 문의를 10개 유형으로 분류" /></label>
+        <p v-if="pfError" class="xs muted" style="margin: 0">{{ pfError }}</p>
+        <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy || !!pfError">프로젝트 등록</button>
+      </form>
+    </template>
+
+    <!-- 4. 예산 -->
+    <form v-else-if="step === 'budget' && budget" class="stack form" @submit.prevent="saveBudget">
+      <p class="small muted" style="margin: 0">{{ budget.fiscal_year }}년 AI·소프트웨어 연간 예산입니다. 월 예산은 12로 나눠 홈 화면의 예산 대비 비교에 씁니다.</p>
+      <div class="grid two-col">
+        <div class="bcard">
+          <label class="field">좌석 구독 연간 예산(원)<input v-model.number="bf.seat" type="number" min="0" step="100000" inputmode="numeric" aria-describedby="seat-help" /></label>
+          <span id="seat-help" class="small">월 {{ won(Math.floor(bf.seat / 12)) }} · 지금 좌석료 월 {{ won(budget.seat_monthly_cost_krw) }}</span>
+          <span v-if="seatOver" class="pill pill-alert" style="align-self: flex-start">지금 좌석료가 월 예산을 넘습니다</span>
+          <button type="button" class="btn btn-sm" style="align-self: flex-start" @click="bf.seat = budget.seat_monthly_cost_krw * 12">지금 좌석료 × 12로 채우기</button>
+        </div>
+        <div class="bcard">
+          <label class="field">API 사용량 연간 예산(원)<input v-model.number="bf.api" type="number" min="0" step="100000" inputmode="numeric" aria-describedby="api-help" /></label>
+          <span id="api-help" class="small">월 {{ won(Math.floor(bf.api / 12)) }} · 프로젝트 월 예산 합 {{ won(budget.project_budget_sum_krw) }}</span>
+          <span v-if="apiOver" class="pill pill-alert" style="align-self: flex-start">프로젝트 예산 합이 월 예산을 넘습니다</span>
+          <button type="button" class="btn btn-sm" style="align-self: flex-start" @click="bf.api = budget.project_budget_sum_krw * 12">프로젝트 예산 합 × 12로 채우기</button>
+        </div>
+      </div>
+      <p class="small" style="margin: 0"><strong>연간 합계 {{ won(Number(bf.seat) + Number(bf.api)) }}</strong> · 월 {{ won(Math.floor((Number(bf.seat) + Number(bf.api)) / 12)) }}</p>
+      <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy">예산 저장</button>
+    </form>
+
+    <!-- 5. 확인 -->
+    <template v-else-if="step === 'done'">
+      <ul class="list">
+        <li v-for="c in CHECK" :key="c.label">
+          <span>{{ c.label }} <span v-if="c.required" class="xs muted">필수</span></span>
+          <span class="tags" style="align-items: center">
+            <span class="pill" :class="c.n >= c.need && c.n ? 'pill-ok' : c.required ? 'pill-alert' : 'pill-neutral'">{{ c.n ? `${c.n}${c.unit}` : '없음' }}</span>
+            <button type="button" class="btn btn-sm" @click="go(c.step)">고치기</button>
+          </span>
+        </li>
+      </ul>
+      <button v-if="!status.setup_completed" type="button" class="btn btn-primary" style="align-self: flex-start; min-height: 48px" :disabled="busy || !canFinish" @click="finish">
+        {{ canFinish ? '설정 마치고 홈으로' : '필수 항목(구독 제품·올해 예산)을 먼저 채우세요' }}
+      </button>
+      <p v-else class="small muted" style="margin: 0">설정을 마친 회사입니다. 바꾼 내용은 저장할 때마다 바로 반영됩니다.</p>
+    </template>
+
+    <div class="nav">
+      <button v-if="idx > 0" type="button" class="btn" @click="go(STEPS[idx - 1].id)">이전</button>
+      <button v-if="idx < STEPS.length - 1" type="button" class="btn btn-dark" @click="go(STEPS[idx + 1].id)">다음: {{ STEPS[idx + 1].label }}</button>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.stepper { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.stepper button { min-height: 44px; padding: 0 14px 0 8px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--white); display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.stepper .n { width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; background: var(--paper); font-weight: 700; font-size: 13px; }
+.stepper button.past .n { background: var(--lime); }
+.stepper button[aria-selected='true'] { background: var(--ink); color: var(--white); border-color: var(--ink); font-weight: 600; }
+.stepper button[aria-selected='true'] .n { background: var(--lime); color: var(--ink); }
+.status.err { background: var(--ink); color: var(--lime); }
+.body { gap: 18px; }
+.body h2:focus { outline: none; }
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 24px; align-items: start; }
+.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-top: 1px solid var(--line); font-size: 14px; }
+.inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.grow { flex: 1 1 200px; }
+.form { gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.field input, .field select, .field textarea { min-height: 44px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--white); padding: 0 12px; font-size: 15px; font-weight: 400; width: 100%; }
+.field textarea { padding: 10px 12px; font-family: inherit; resize: vertical; }
+.errs { margin: 0; padding: 10px 12px 10px 28px; border-radius: 10px; background: var(--ink); color: var(--lime); font-size: 13px; }
+.prod { display: flex; align-items: center; gap: 12px; }
+.tool-chip { display: inline-flex; align-items: center; gap: 8px; padding-left: 8px; }
+.models { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; }
+.model { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-strong); cursor: pointer; }
+.model.on { border: 2px solid var(--ink); padding: 11px 13px; }
+.model input { width: 20px; height: 20px; accent-color: var(--ink); margin: 0; }
+.price { font-variant-numeric: tabular-nums; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.two-col { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+.bcard { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 12px; background: var(--paper); }
+.nav { display: flex; justify-content: space-between; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+.nav .btn-dark { margin-left: auto; }
+</style>

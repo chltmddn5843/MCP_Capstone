@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAnomalies, getProjects, createPlanFromAnomaly } from '../api.js'
 import { won, pct } from '../labels.js'
@@ -14,6 +14,7 @@ const busy = ref(false)
 const CHART_H = 180
 const investigating = ref(null)
 const err = ref('')
+const selId = ref('') // 알림이 여럿이면 고른 것, 기본은 첫 번째(열린 알림 우선)
 async function investigate() {
   try { const c = await createTask(`알림 ${a.value.id}의 원인을 조사하고 처리 방법을 제안해줘`, { promptName: 'investigate_anomaly', promptArgs: { anomaly_id: a.value.id } }); investigating.value = c.task_id; err.value = '' }
   catch (e) { err.value = errorLabel(e) }
@@ -21,11 +22,13 @@ async function investigate() {
 function onDone(ev) { a.value.investigation.causes = [{ title: 'AI 조사 결과', body: ev.result.answer }]; a.value.investigation.doneAt = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) }
 
 onMounted(async () => {
-  ;[anomalies.value, projects.value] = await Promise.all([getAnomalies(), getProjects()])
-  action.value = anomalies.value[0]?.investigation.actions[0]?.id ?? ''
+  const [as, ps] = await Promise.all([getAnomalies(), getProjects()])
+  anomalies.value = as.sort((x, y) => (x.status === 'open') === (y.status === 'open') ? 0 : x.status === 'open' ? -1 : 1)
+  projects.value = ps
 })
 
-const a = computed(() => anomalies.value[0])
+const a = computed(() => anomalies.value.find((x) => x.id === selId.value) ?? anomalies.value[0])
+watch(() => a.value?.id, () => { action.value = a.value?.investigation.actions[0]?.id ?? ''; investigating.value = null; err.value = '' })
 const max = computed(() => Math.max(...a.value.daily, a.value.baseline))
 const bars = computed(() => a.value.daily.map((v) => ({ v, h: (v / max.value) * CHART_H, over: v > a.value.baseline * 2 })))
 const baselineY = computed(() => (a.value.baseline / max.value) * CHART_H)
@@ -41,15 +44,13 @@ async function submit() {
 <template>
   <header class="page-head">
     <div><span class="small muted">운영 · F3 · 30분마다 수집</span><h1>비용·사용량</h1></div>
-    <div class="tags" style="gap: 8px">
-      <label class="field">기간
-        <select><option>최근 14일</option><option>이번 달</option></select>
-      </label>
-      <label class="field">제품
-        <select><option>AI-B API</option><option>전체 제품</option></select>
-      </label>
-    </div>
   </header>
+
+  <div v-if="anomalies.length > 1" role="group" aria-label="비용 급증 알림 선택" class="tags" style="gap: 8px">
+    <button v-for="x in anomalies" :key="x.id" type="button" class="chip chip-lg" :aria-pressed="x.id === a?.id" @click="selId = x.id">
+      {{ x.scopeName }} · {{ x.ratio }}배 · {{ STATUS[x.status].label }}
+    </button>
+  </div>
 
   <template v-if="a">
     <section class="card-dark alert" aria-label="비용 급증 알림">
@@ -59,7 +60,7 @@ async function submit() {
           <span class="small muted">{{ a.detectedAt }} 감지</span>
         </div>
         <strong class="alert-title">{{ a.scopeName }} 프로젝트의 하루 비용이 기준의 {{ a.ratio }}배입니다</strong>
-        <span class="small muted">기준(최근 14일 평균) {{ won(a.baseline) }} → 오늘 {{ won(a.observed) }} · 이대로면 이번 달 {{ won(a.projected) }}으로 예산 {{ won(a.budget) }}을 넘습니다</span>
+        <span class="small muted">기준(직전 14일 중앙값) {{ won(a.baseline) }} → 감지일 {{ won(a.observed) }} · 이대로면 이번 달 {{ won(a.projected) }}으로 예산 {{ won(a.budget) }}을 넘습니다</span>
       </div>
       <div class="alert-nums">
         <div><span class="xs muted">이번 달 누적</span><strong>{{ won(a.monthToDate) }}</strong></div>
@@ -83,7 +84,7 @@ async function submit() {
               <span v-if="b.over" class="xs dlabel">{{ b.v.toLocaleString('ko-KR') }}</span>
             </div>
           </div>
-          <div class="xs muted" style="display: flex; justify-content: space-between"><span>{{ a.dailyStart }}</span><span style="color: var(--ink); font-weight: 600">오늘</span></div>
+          <div class="xs muted" style="display: flex; justify-content: space-between"><span>{{ a.dailyStart }}</span><span style="color: var(--ink); font-weight: 600">감지일</span></div>
         </section>
 
         <section class="card" aria-labelledby="proj-h">
@@ -152,8 +153,6 @@ async function submit() {
 </template>
 
 <style scoped>
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-.field select { min-height: 44px; padding: 0 12px; border: 1px solid rgba(17, 17, 19, 0.16); border-radius: 10px; background: var(--white); color: var(--ink); font-size: 14px; }
 .alert { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 24px; }
 .alert-main { flex: 1 1 360px; display: flex; flex-direction: column; gap: 8px; }
 .alert-title { font-size: 20px; }

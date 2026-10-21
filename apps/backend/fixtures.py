@@ -22,13 +22,16 @@ DEPARTMENTS = {d.id: d for d in [
     Department(id="dept_sales", name="영업"),
     Department(id="dept_cs", name="고객지원"),
     Department(id="dept_prod", name="생산관리"),
+    Department(id="dept_md", name="상품기획·MD"),
 ]}
 
 EMPLOYEES = {e.id: e for e in [
     Employee(id="emp_hrd_01", name="김하나", email="hana.kim@hanbit.example", dept_id="dept_hrd", dept_name="HRD", role=Role.employee, job_title="교육기획", slack_user_id="U_HRD01"),
-    Employee(id="emp_mkt_01", name="박서준", email="seojun.park@hanbit.example", dept_id="dept_mkt", dept_name="마케팅", role=Role.employee, job_title="콘텐츠 마케터", slack_user_id="U_MKT01"),
+    Employee(id="emp_md_01", name="정서진", email="seojin.jung@hanbit.example", dept_id="dept_md", dept_name="상품기획·MD", role=Role.employee, job_title="상품기획·MD 과장", slack_user_id="U_MD01"),
+    Employee(id="emp_mkt_01", name="박지후", email="jihoo.park@hanbit.example", dept_id="dept_mkt", dept_name="마케팅", role=Role.employee, job_title="브랜드 마케팅 대리", slack_user_id="U_MKT01"),
     Employee(id="emp_cs_01", name="이지우", email="jiwoo.lee@hanbit.example", dept_id="dept_cs", dept_name="고객지원", role=Role.employee, job_title="CS 운영", slack_user_id="U_CS01"),
-    Employee(id="emp_asset_01", name="최민준", email="minjun.choi@hanbit.example", dept_id="dept_mgmt", dept_name="경영지원", role=Role.admin, job_title="IT 자산·보안 관리자", slack_user_id="U_ADM01"),
+    Employee(id="emp_mgmt_01", name="윤서연", email="seoyeon.yoon@hanbit.example", dept_id="dept_mgmt", dept_name="경영지원", role=Role.admin, job_title="경영지원팀장", slack_user_id="U_MGMT01"),
+    Employee(id="emp_asset_01", name="최광철", email="gwangcheol.choi@hanbit.example", dept_id="dept_mgmt", dept_name="경영지원", role=Role.admin, job_title="자산관리 담당", slack_user_id="U_ADM01"),
     Employee(id="emp_sales_02", name="한도윤", email="doyun.han@hanbit.example", dept_id="dept_sales", dept_name="영업", role=Role.employee, job_title="영업 담당", status=EmployeeStatus.on_leave),
     Employee(id="sys", name="system", email="system@hanbit.example", dept_id="dept_mgmt", role=Role.system, job_title="batch"),
 ]}
