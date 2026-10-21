@@ -5,12 +5,94 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DevLoginResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/dev-login": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Dev Login",
+        "description": "개발·시연용. APP_ENV=prod에서는 막힌다.",
         "operationId": "dev_login_auth_dev_login_post",
         "requestBody": {
           "content": {
@@ -5028,6 +5110,26 @@
         ],
         "title": "LicenseFlag",
         "description": "저사용 후보 분류. 기록 없음은 '미사용'이 아니라 '확인 필요'다."
+      },
+      "LoginRequest": {
+        "properties": {
+          "login_id": {
+            "type": "string",
+            "title": "Login Id",
+            "description": "사번(예: emp_mkt_01) 또는 회사 이메일"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "login_id",
+          "password"
+        ],
+        "title": "LoginRequest"
       },
       "LowUsageCandidate": {
         "properties": {

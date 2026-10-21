@@ -54,6 +54,11 @@ class DevLoginRequest(BaseModel):
     employee_id: str
 
 
+class LoginRequest(BaseModel):
+    login_id: str = Field(description="사번(예: emp_mkt_01) 또는 회사 이메일")
+    password: str = Field(min_length=1)
+
+
 class DevLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -267,7 +272,8 @@ class JobRunResponse(BaseModel):
 
 # ---------- 경로 표 (문서용, 백엔드 라우터와 일치해야 함) ----------
 ROUTES: list[tuple[str, str, str, list[Role]]] = [
-    ("POST", "/auth/dev-login", "시드 직원으로 토큰 발급", []),
+    ("POST", "/auth/login", "사번·비밀번호로 로그인, JWT 발급", []),
+    ("POST", "/auth/dev-login", "시드 직원으로 토큰 발급 (APP_ENV=dev 전용)", []),
     ("GET", "/me", "본인 프로필·업무·이용 가능 도구", [Role.employee, Role.admin, Role.system]),
     ("GET", "/me/tasks", "본인 등록 업무", [Role.employee]),
     ("POST", "/me/tasks", "업무 등록", [Role.employee]),

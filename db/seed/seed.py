@@ -13,6 +13,8 @@ from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
+import bcrypt
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 저장소 루트 (apps.backend.fixtures)
 from apps.backend import fixtures as fx  # noqa: E402
 
@@ -77,7 +79,11 @@ for i in range(1, 55):  # AI-A 60석 중 58석 배정 (fixtures와 같은 수치
                      "email": f"user{i:03d}@hanbit.example", "dept_id": dept, "role": "employee",
                      "job_title": TITLES[dept], "status": "on_leave" if i in (7, 23) else "active",
                      "hire_date": (NOW - timedelta(days=20 if i in (52, 53, 54) else 400 + i * 9)).date()})
-insert("employees", dump(fx.EMPLOYEES.values(), drop=("dept_name",)) + gen_emps)
+# 시연용 로그인 비밀번호. 모든 사람 계정 공통(시스템 계정 sys는 비밀번호 없음 = 로그인 불가)
+DEMO_PASSWORD = "demo1234"
+pw = bcrypt.hashpw(DEMO_PASSWORD.encode(), bcrypt.gensalt(rounds=10)).decode()
+emps = dump(fx.EMPLOYEES.values(), drop=("dept_name",)) + gen_emps
+insert("employees", [{**e, "password_hash": None if e["id"] == "sys" else pw} for e in emps])
 humans = [e for e in list(fx.EMPLOYEES) + [g["id"] for g in gen_emps] if e != "sys"]
 
 # ── 제품·계약·모델 ──

@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import Depends, FastAPI, Header, Query
 
 from apps.backend import db
-from apps.backend.auth import current_user, get_employee, issue_token, require
+from apps.backend.auth import APP_ENV, authenticate, current_user, get_employee, issue_token, require
 from apps.backend.errors import ApiError, install_error_handlers, ok
 from schemas.common import (
     RISK_BY_PLAN_TYPE,
@@ -60,6 +60,7 @@ from schemas.rest import (
     ContractInventory,
     DevLoginRequest,
     DevLoginResponse,
+    LoginRequest,
     FeedbackCreate,
     JobRunResponse,
     LowUsageCandidate,
@@ -98,12 +99,21 @@ def _now() -> datetime:
 
 
 # ---------- auth / me ----------
+@app.post("/auth/login", response_model=Envelope[DevLoginResponse], tags=["auth"])
+def login(body: LoginRequest):
+    emp = authenticate(body.login_id, body.password)
+    return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
+
+
 @app.post("/auth/dev-login", response_model=Envelope[DevLoginResponse], tags=["auth"])
 def dev_login(body: DevLoginRequest):
+    """개발·시연용. APP_ENV=prod에서는 막힌다."""
+    if APP_ENV == "prod":
+        raise ApiError(ErrorCode.not_found, "운영 환경에서는 쓸 수 없습니다")
     emp = get_employee(body.employee_id)
     if not emp:
         raise ApiError(ErrorCode.not_found, f"직원 {body.employee_id} 없음")
-    return ok(DevLoginResponse(access_token=issue_token(emp.id), employee=emp))
+    return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
 
 
 TASK_COLS = "id, employee_id, title, description, frequency, tools_used, source, updated_at"
