@@ -133,3 +133,84 @@ def test_identity_falls_back_to_user_map(monkeypatch):
 def test_create_app_registers_listeners_without_network():
     app = bot.create_app(verify_token=False)
     assert len(app._listeners) >= 10  # 이벤트 2 + 버튼 8
+
+
+# ---------- 발신 워커 (확인 요청 DM · 발송함 · F1 체인) ----------
+def _fake_backend(calls, outbox_delivered):
+    emp = {"id": "emp_gen_052", "name": "이새봄", "dept_id": "dept_mkt", "slack_user_id": "U_FAKE"}
+    def backend(method, path, token, **kw):
+        calls.append((method, path))
+        if path == "/confirmations":
+            return [{"id": "cfm_9", "plan_id": "plan_9", "employee_id": "emp_gen_052", "question": "계속 쓰시나요?", "answer": None, "due_at": "2026-10-28T00:00:00Z", "answered_at": None}]
+        if path == "/inventory":
+            return [{"contract": {"id": "ctr_ai_a_2026"}, "tool_name": "ChatGPT Enterprise", "low_usage_candidates": [{"employee_id": "emp_gen_052", "last_activity_at": None}]}]
+        if path == "/plans/plan_9":
+            return {"id": "plan_9", "type": "seat_reclaim", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_ai_a_2026"}]}
+        if path.startswith("/employees/"):
+            return {"employee": emp, "tasks": [{"id": "task_1", "title": "캠페인 카피 초안"}], "products": []}
+        if path == "/notify-outbox":
+            return [{"id": "out_1", "suggestion_id": "sug_1", "channel": "slack", "target": "U_FAKE", "text": "새 기능을 카피 작성에 쓸 수 있어요", "delivered_at": None},
+                    {"id": "out_0", "suggestion_id": "sug_0", "channel": "slack", "target": "C_X", "text": "이미 보냄", "delivered_at": "2026-10-20T00:00:00Z"}]
+        if path == "/suggestions":
+            return {"items": [{"id": "sug_1", "update_id": "upd_1", "target_type": "employee", "target_id": "emp_gen_052", "task_id": "task_1", "body": "b", "status": "sent"}]}
+        if path == "/updates/upd_1":
+            return {"id": "upd_1", "vendor": "OpenAI", "url": "https://v.example/rn", "affected_plans": ["Enterprise"], "title": "t", "summary": "s"}
+        if path == "/notify-outbox/out_1/delivered":
+            outbox_delivered.append(path)
+            return {"id": "out_1", "delivered_at": "now"}
+        if path == "/updates":
+            return {"items": [{"id": "upd_1"}, {"id": "upd_new"}]}
+        if path.startswith("/internal/jobs/"):
+            return {"result": {"stub": True}}
+        raise AssertionError(f"예상 못 한 호출 {method} {path}")
+    return backend
+
+
+def test_worker_sends_confirmation_dm_once_and_delivers_outbox(monkeypatch, tmp_path):
+    from apps.slack_bot import worker
+    calls, delivered = [], []
+    monkeypatch.setattr(api, "backend", _fake_backend(calls, delivered))
+    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0001": "emp_gen_052"})  # 시드의 U_FAKE 대신 매핑표로 찾는다
+    monkeypatch.setattr(worker, "STATE_PATH", tmp_path / "state.json")
+    worker._emp_cache.clear()
+    slack = FakeSlack()
+    state = worker.load_state()
+    assert worker.deliver_confirmations(slack, state) == ["cfm_9"]
+    assert slack.opened == ["U0REAL0001"] and slack.posted[-1]["channel"] == "D_U0REAL0001"
+    assert [e["action_id"] for e in slack.posted[-1]["blocks"][-1]["elements"]] == ["cf_still_needed", "cf_return_seat", "cf_on_leave"]
+    assert "ChatGPT Enterprise" in slack.posted[-1]["blocks"][0]["text"]["text"]
+    assert worker.deliver_confirmations(slack, worker.load_state()) == []  # 재시작해도 두 번 보내지 않는다
+    assert worker.deliver_outbox(slack) == ["out_1"] and delivered == ["/notify-outbox/out_1/delivered"]
+    sug = slack.posted[-1]
+    assert "캠페인 카피 초안" in sug["blocks"][0]["text"]["text"] and "원문 보기" in sug["blocks"][2]["elements"][0]["text"]
+    assert [e["action_id"] for e in sug["blocks"][-1]["elements"]] == ["fb_useful", "fb_irrelevant", "fb_question"]
+
+
+def test_worker_skips_unmapped_employee(monkeypatch, tmp_path):
+    from apps.slack_bot import worker
+    monkeypatch.setattr(api, "backend", _fake_backend([], []))
+    monkeypatch.setattr(identity, "_user_map", lambda: {})
+    monkeypatch.setattr(worker, "STATE_PATH", tmp_path / "state.json")
+    worker._emp_cache.clear()
+    slack = FakeSlack()
+    assert worker.deliver_confirmations(slack, worker.load_state()) == [] and slack.posted == []  # U_FAKE는 가짜 ID라 보내지 않음
+    assert worker.deliver_outbox(slack) == []
+
+
+def test_run_f1_reviews_only_unreviewed_updates_then_sends(monkeypatch, tmp_path):
+    from apps.slack_bot import worker
+    calls, delivered = [], []
+    monkeypatch.setattr(api, "backend", _fake_backend(calls, delivered))
+    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0001": "emp_gen_052"})
+    created = []
+    def agent(method, path, token, **kw):
+        if method == "POST":
+            created.append(kw["json"])
+            return {"task_id": "task_r1", "thread_id": "th", "status": "queued"}
+        return {"task_id": "task_r1", "status": "done"}
+    monkeypatch.setattr(api, "agent", agent)
+    worker._emp_cache.clear()
+    out = worker.run_f1(FakeSlack(), wait=5)
+    assert [c["prompt_args"]["update_id"] for c in created] == ["upd_new"] and created[0]["prompt_name"] == "review_update" and created[0]["channel"] == "system"
+    assert out["reviews"] == [{"update_id": "upd_new", "task_id": "task_r1", "status": "done"}] and out["delivered"] == ["out_1"]
+    assert ("POST", "/internal/jobs/collect_release_notes/run") in calls and ("POST", "/internal/jobs/send_suggestions/run") in calls

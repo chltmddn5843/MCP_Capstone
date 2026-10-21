@@ -71,6 +71,7 @@ TASKS = {t.id: t for t in [
 UPDATES = {u.id: u for u in [
     VendorUpdate(id="upd_ai_a_doc_compare", source_id="src_ai_a_rn", vendor="OpenAI", published_at=NOW - timedelta(days=1), title="ChatGPT Enterprise 문서 비교 기능", summary="여러 파일을 함께 올리고 차이점과 공통점을 표로 정리할 수 있다. Enterprise 플랜부터 제공.", url="https://openai.com/business/chatgpt-pricing/", affected_plans=["Enterprise"], fetched_at=NOW),
     VendorUpdate(id="upd_ai_b_price", source_id="src_ai_b_rn", vendor="Anthropic", published_at=NOW - timedelta(days=5), title="Claude API 가격·모델 업데이트", summary="Claude Opus 5.5(입력 $4·출력 $20/MTok), Sonnet 5.5($2·$10), Haiku 5.5($0.10·$0.50) 가격표. 분류처럼 짧은 작업은 하위 모델로 비용을 줄일 수 있다.", url="https://platform.claude.com/docs/en/about-claude/pricing", affected_plans=["API"], fetched_at=NOW),
+    VendorUpdate(id="upd_ai_a_data_analysis", source_id="src_ai_a_rn", vendor="OpenAI", published_at=NOW - timedelta(hours=6), title="ChatGPT Enterprise 데이터 분석 강화: 파일을 올리면 표·차트로 정리", summary="CSV·엑셀·텍스트 파일을 올리면 항목별 집계와 차트를 바로 만들고, 리뷰·설문처럼 자유 서술 데이터는 주제별로 묶어 요약한다. Enterprise 플랜에서 사용 가능.", url="https://help.openai.com/en/articles/8437071-data-analysis-with-chatgpt", affected_plans=["Enterprise"], fetched_at=NOW),
 ]}
 
 SUGGESTIONS = {s.id: s for s in [

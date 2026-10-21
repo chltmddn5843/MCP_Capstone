@@ -5,14 +5,16 @@
 버튼: 제안 반응(도움 됨·관련 없음·질문) → 백엔드 /suggestions/{id}/feedback
       사용 의사(계속 필요·반납·휴직) → 백엔드 /confirmations/{id}/answer
       처리 확인(확인·거절) → 에이전트 /ai/tasks/{id}/approval
-발신(제안·확인 요청·알림)은 백엔드 워커가 send.py의 함수로 보낸다. 이 프로세스는 수신만 한다.
+발신(사용 의사 확인 DM, 활용 제안)은 같은 프로세스의 워커 스레드(worker.py)가 백엔드 발송함·확인 요청을 읽어 보낸다.
 
-실행: uv run python -m apps.slack_bot        (.env: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_USER_MAP, SLACK_ADMIN_USER_IDS)
-점검: uv run python -m apps.slack_bot --check  (토큰·권한·채널 확인만 하고 종료)
+실행: uv run python -m apps.slack_bot          (.env: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_USER_MAP, SLACK_ADMIN_USER_IDS, F1_INTERVAL_MIN)
+점검: uv run python -m apps.slack_bot --check    (토큰·권한·채널 확인만 하고 종료)
+F1:   uv run python -m apps.slack_bot --run-f1   (수집 → 업데이트 검토 → 발송 정책 → Slack 전송 한 바퀴 돌고 종료)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -23,7 +25,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from apps.slack_bot import client as api
-from apps.slack_bot import identity
+from apps.slack_bot import identity, worker
 from apps.slack_bot.send import build_answer, build_approval_request
 
 load_dotenv()
@@ -261,7 +263,14 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     if "--check" in sys.argv:
         raise SystemExit(check())
+    if "--run-f1" in sys.argv:
+        from slack_sdk import WebClient
+
+        result = worker.run_f1(WebClient(token=os.environ["SLACK_BOT_TOKEN"]))
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        raise SystemExit(0)
     app = create_app()
     threading.Thread(target=poll_pending, args=(app.client,), daemon=True).start()  # 웹 승인 감지
+    worker.start(app.client)  # 확인 요청 DM·발송함 전송 (10초 주기)
     print("Slack 봇 시작 (Socket Mode). 받은 이벤트는 '수신 …' 로그로 찍힙니다. DM을 보냈는데 로그가 없으면 Event Subscriptions(message.im)와 Reinstall을 확인하세요. Ctrl+C로 종료")
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()

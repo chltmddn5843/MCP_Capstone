@@ -193,3 +193,21 @@ def test_plan_creation_triggers_review_with_opinion(client):
     assert p["ai_opinion"]["changes"][0][0] == "직원" and "plan_" not in p["ai_opinion"]["summary"]
     reviews = [x for x in client.get("/ai/tasks", params={"mine": False}, headers=ASSET).json()["data"] if x["requester_id"] == "sys"]
     assert reviews and reviews[0]["channel"] == "system"
+
+
+def test_review_update_prompt_saves_suggestion(client):
+    """F1: 시스템 계정 review_update 작업이 업데이트를 읽고 관련 업무에 제안을 저장한다 (워커가 자동으로 돌리는 단위)."""
+    from fastapi.testclient import TestClient as BackendClient
+    SYS = {"Authorization": "Bearer dev.sys"}
+    bc = BackendClient(backend_app)
+    done = {s["update_id"] for s in bc.get("/suggestions", headers=SYS).json()["data"]["items"]}
+    upd = next((u for u in bc.get("/updates", headers=SYS).json()["data"]["items"] if u["id"] not in done), None)
+    if upd is None:
+        pytest.skip("제안 없는 업데이트가 시드에 없음")
+    r = client.post("/ai/tasks", json={"input": f"업데이트 {upd['id']}를 검토해 관련 업무에 활용 제안을 만들어줘", "prompt_name": "review_update",
+                                       "prompt_args": {"update_id": upd["id"]}, "channel": "system"}, headers=SYS)
+    assert r.status_code == 202, r.text
+    t = wait_status(client, r.json()["data"]["task_id"], SYS, {"done", "failed"})
+    assert t["status"] == "done" and [c["name"] for c in t["tool_calls"]][:2] == ["get_vendor_update", "find_relevant_tasks"]
+    sugs = bc.get("/suggestions", params={"update_id": upd["id"]}, headers=SYS).json()["data"]["items"]
+    assert sugs and sugs[0]["relevance"]

@@ -46,6 +46,24 @@ class ScriptedModel(BaseChatModel):
             from apps.agent_runtime.harness.intents import classify_by_keywords
             text = last_human.split("요청:")[-1].split("코드:")[0]
             return ChatResult(generations=[ChatGeneration(message=AIMessage(content=classify_by_keywords(text)))])
+        if "활용 제안을 만들어줘" in last_human:  # review_update (시스템 계정, F1)
+            uid = re.search(r"upd_[A-Za-z0-9_]+", last_human).group(0)
+            if not tools_done:
+                msg = AIMessage(content="", tool_calls=[{"name": "get_vendor_update", "args": {"update_id": uid}, "id": _cid()}])
+            elif names[-1] == "get_vendor_update":
+                msg = AIMessage(content="", tool_calls=[{"name": "find_relevant_tasks", "args": {"update_id": uid}, "id": _cid()}])
+            elif names[-1] == "find_relevant_tasks":
+                cands = _last_json().get("candidates") or []
+                if cands:
+                    c = cands[0]
+                    args = {"update_id": uid, "target_type": "employee", "target_id": c.get("employee_id"), "task_id": c.get("task_id"),
+                            "relevance": f"등록 업무 '{c.get('summary', '')[:30]}'에 바로 쓸 수 있는 기능", "body": "새 기능을 등록 업무에 이렇게 쓸 수 있어요: 반복 작업을 한 번에 처리합니다."}
+                else:
+                    args = {"update_id": uid, "target_type": "all", "status": "on_hold", "hold_reason": "관련 업무 근거 없음"}
+                msg = AIMessage(content="", tool_calls=[{"name": "save_suggestion", "args": args, "id": _cid()}])
+            else:
+                msg = AIMessage(content="업데이트 검토를 마치고 제안을 저장했습니다.")
+            return ChatResult(generations=[ChatGeneration(message=msg)])
         if "검토해 관리자용 의견" in last_human:  # review_plan (시스템 계정)
             import re as _re
             pid = _re.search(r"plan_[A-Za-z0-9]+", last_human).group(0)
