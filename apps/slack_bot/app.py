@@ -5,7 +5,7 @@
 버튼: 제안 반응(도움 됨·관련 없음·질문) → 백엔드 /suggestions/{id}/feedback
       사용 의사(계속 필요·반납·휴직) → 백엔드 /confirmations/{id}/answer
       처리 확인(확인·거절) → 에이전트 /ai/tasks/{id}/approval
-발신(사용 의사 확인 DM, 활용 제안)은 같은 프로세스의 워커 스레드(worker.py)가 백엔드 발송함·확인 요청을 읽어 보낸다.
+발신(사용 의사 확인 DM, 활용 제안, 처리 요청 결과 안내)은 같은 프로세스의 워커 스레드(worker.py)가 백엔드를 폴링해 보낸다.
 
 실행: uv run python -m apps.slack_bot          (.env: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_USER_MAP, SLACK_ADMIN_USER_IDS, F1_INTERVAL_MIN)
 점검: uv run python -m apps.slack_bot --check    (토큰·권한·채널 확인만 하고 종료)

@@ -214,3 +214,41 @@ def test_run_f1_reviews_only_unreviewed_updates_then_sends(monkeypatch, tmp_path
     assert [c["prompt_args"]["update_id"] for c in created] == ["upd_new"] and created[0]["prompt_name"] == "review_update" and created[0]["channel"] == "system"
     assert out["reviews"] == [{"update_id": "upd_new", "task_id": "task_r1", "status": "done"}] and out["delivered"] == ["out_1"]
     assert ("POST", "/internal/jobs/collect_release_notes/run") in calls and ("POST", "/internal/jobs/send_suggestions/run") in calls
+
+
+def test_worker_notifies_requester_after_web_decision(monkeypatch):
+    """직원이 낸 처리 요청이 웹에서 승인·실행/반려되면 요청자 DM. 봇 기동 전 건은 알리지 않고, 같은 건은 한 번만."""
+    from apps.slack_bot import worker
+    plans = [{"id": "plan_old", "type": "seat_assign", "status": "executed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]},
+             {"id": "plan_new", "type": "seat_assign", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]},
+             {"id": "plan_rej", "type": "api_access", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"tool_id": "tool_ai_b", "purpose": "x"}]}]
+    def backend(method, path, token, **kw):
+        if path == "/plans":
+            return {"items": [dict(p) for p in plans]}
+        if path == "/tools":
+            return [{"id": "tool_ai_a", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_ai_a_2026"}}, {"id": "tool_ai_b", "product": "Claude API", "contract": None}]
+        if path == "/employees/emp_md_01":
+            return {"employee": {"id": "emp_md_01", "name": "정서진", "role": "employee", "slack_user_id": "U_MD01"}, "tasks": [], "products": []}
+        raise AssertionError(path)
+    monkeypatch.setattr(api, "backend", backend)
+    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0002": "emp_md_01"})
+    worker._plan_status.clear(); worker._tool_cache.clear(); worker._emp_cache.clear()
+    slack = FakeSlack()
+    assert worker.notify_plan_outcomes(slack, baseline=True) == [] and slack.posted == []  # 기동 시점: 이미 끝난 plan_old는 알리지 않음
+    assert worker.notify_plan_outcomes(slack) == []  # 변화 없음
+    plans[1]["status"] = "executed"
+    plans[2]["status"], plans[2]["reject_reason"] = "rejected", "팀 프로젝트로 이미 쓸 수 있음"
+    assert worker.notify_plan_outcomes(slack) == ["plan_new", "plan_rej"]
+    texts = [m["text"] for m in slack.posted]
+    assert texts[0] == "요청하신 ChatGPT Enterprise 이용권이 배정됐어요. 지금부터 쓸 수 있어요." and all(c == "D_U0REAL0002" for c in [m["channel"] for m in slack.posted])
+    assert "Claude API 요청이 반려됐어요" in texts[1] and "팀 프로젝트로 이미 쓸 수 있음" in texts[1]
+    assert worker.notify_plan_outcomes(slack) == [] and len(slack.posted) == 2  # 두 번 보내지 않음
+
+
+def test_outcome_messages_cover_reclaim_holder_and_requester():
+    from apps.slack_bot import worker
+    names = {"ctr_ai_a_2026": "ChatGPT Enterprise"}
+    m = worker.outcome_messages({"type": "seat_reclaim", "status": "executed", "requested_by": "emp_asset_01", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_ai_a_2026"}]}, names)
+    assert "반납 처리됐어요" in m["emp_gen_052"] and "반납 처리가 끝났어요" in m["emp_asset_01"]
+    m = worker.outcome_messages({"type": "seat_assign", "status": "failed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]}, names)
+    assert "관리자가 다시 확인" in m["emp_md_01"]
