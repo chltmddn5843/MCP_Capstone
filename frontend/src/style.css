@@ -1,0 +1,13 @@
+body { margin: 0; font-family: -apple-system, "Pretendard", "Noto Sans KR", sans-serif; background: #f5f6f8; color: #1f2329; }
+.page { padding: 20px 24px; max-width: 1200px; }
+.page h2 { margin: 0 0 4px; font-size: 20px; }
+.hint { color: #6b7280; font-size: 13px; margin: 0 0 16px; }
+.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.metric { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; }
+.metric .k { color: #6b7280; font-size: 12px; }
+.metric .v { font-size: 22px; font-weight: 600; }
+.steps { font-size: 13px; color: #374151; line-height: 1.8; }
+.answer { white-space: pre-wrap; line-height: 1.6; }
+.muted { color: #9ca3af; font-size: 12px; }
