@@ -22,17 +22,17 @@ async def test_docs_tools_registered_with_schemas(monkeypatch):
 async def test_search_vendor_docs_with_source_url(monkeypatch):
     async with connect(mcp, monkeypatch, "employee") as c:
         hits = (await c.call_tool("search_vendor_docs", {"query": "여러 파일 비교"})).structured_content["hits"]
-    assert hits[0]["vendor"] == "AI-A" and "문서 비교" in hits[0]["title"]
+    assert hits[0]["vendor"] == "OpenAI" and "문서 비교" in hits[0]["title"]
     assert hits[0]["url"].startswith("https://") and 0 < hits[0]["score"] <= 1
 
 
 async def test_search_vendor_docs_filters(monkeypatch):
     async with connect(mcp, monkeypatch, "asset") as c:
         candidates = (await c.call_tool("search_vendor_docs", {"query": "계약서 비교", "candidates_only": True})).structured_content
-        approved = (await c.call_tool("search_vendor_docs", {"query": "단가", "vendor": "AI-B", "kind": "pricing"})).structured_content
+        approved = (await c.call_tool("search_vendor_docs", {"query": "단가", "vendor": "Anthropic", "kind": "pricing"})).structured_content
         nothing = (await c.call_tool("search_vendor_docs", {"query": "zzzzzz"})).structured_content
-    assert {h["vendor"] for h in candidates["hits"]} == {"Vendor-X"}
-    assert approved["hits"] and {h["vendor"] for h in approved["hits"]} == {"AI-B"}
+    assert {h["vendor"] for h in candidates["hits"]} == {"xAI"}
+    assert approved["hits"] and {h["vendor"] for h in approved["hits"]} == {"Anthropic"}
     assert nothing["hits"] == []
 
 

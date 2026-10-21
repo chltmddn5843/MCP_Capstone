@@ -66,7 +66,7 @@ def test_profile_question_runs_to_done_with_evidence(client):
 
 def test_employee_seat_request_is_executed_immediately(client):
     """직원 이용권 신청(낮은 위험)은 백엔드가 즉시 실행한다. 직원에게 실행 도구가 없어도 배정이 끝난다."""
-    task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요"}, headers=EMP).json()["data"]["task_id"]
+    task_id = client.post("/ai/tasks", json={"input": "ChatGPT Enterprise 이용권 신청하고 싶어요"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
     assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"

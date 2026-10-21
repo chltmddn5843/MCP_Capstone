@@ -12,8 +12,8 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 MCP_WORK_URL = os.getenv("MCP_WORK_URL", "")  # 비어 있으면 로컬 REST 모드
 MCP_DOCS_URL = os.getenv("MCP_DOCS_URL", "")
 
-LLM_MODEL = os.getenv("LLM_MODEL", "anthropic:claude-opus-5-5")  # "fake"면 스크립트 모델
-LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "")  # 예: anthropic:claude-sonnet-5-5
+LLM_MODEL = os.getenv("LLM_MODEL", "anthropic:claude-opus-4-7")  # openai:gpt-5.2, xai:grok-4.7, fake
+LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "")  # 예: openai:gpt-5.2
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 
 # Agent Loop 한도

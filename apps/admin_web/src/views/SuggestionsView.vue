@@ -6,12 +6,20 @@ import { SEND_RESULT } from '../labels.js'
 const updates = ref([])
 const stats = ref(null)
 const switches = ref([])
+const notice = ref('')
 
 onMounted(async () => {
   ;[updates.value, stats.value, switches.value] = await Promise.all([getUpdates(), getSuggestionStats(), getTeamSwitches()])
 })
 
-const toggle = (t) => setTeamSwitch(t.id, t.enabled)
+const toggle = async (t) => {
+  try {
+    await setTeamSwitch(t.id, t.enabled)
+  } catch (error) {
+    t.enabled = !t.enabled
+    notice.value = error.message
+  }
+}
 const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
 </script>
 
@@ -26,6 +34,7 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
     <div class="card kpi"><span class="small muted">보내지 않음</span><span class="value">{{ stats.held }}건</span></div>
     <div class="card kpi"><span class="small muted">도움 됨 반응</span><span class="value">{{ stats.helpfulRate }}%</span></div>
   </section>
+  <p v-if="notice" class="status" role="alert">{{ notice }}</p>
 
   <div class="row">
     <section class="col-3 stack" style="gap: 12px" aria-labelledby="upd-h">

@@ -73,7 +73,7 @@ SURNAMES = "김이박최정강조윤장임한오서신권황안송류홍"
 GIVEN = ["민서", "지호", "서연", "도현", "하은", "준우", "예린", "시우", "수아", "건우", "지안", "유준", "다은", "현우", "채원", "승민"]
 TITLES = {"dept_mgmt": "경영지원", "dept_hrd": "교육 운영", "dept_mkt": "마케터", "dept_sales": "영업 담당", "dept_cs": "CS 상담", "dept_prod": "생산 계획"}
 gen_emps = []
-for i in range(1, 55):  # AI-A 60석 중 58석 배정 (fixtures와 같은 수치)
+for i in range(1, 55):  # ChatGPT Enterprise 60석 중 58석 배정 (fixtures와 같은 수치)
     dept = list(TITLES)[i % 6]
     gen_emps.append({"id": f"emp_gen_{i:03d}", "name": random.choice(SURNAMES) + random.choice(GIVEN),
                      "email": f"user{i:03d}@hanbit.example", "dept_id": dept, "role": "employee",
@@ -93,15 +93,18 @@ insert("tools", dump(fx.TOOLS.values(), kind="ai") + [
 insert("contracts", dump(fx.CONTRACTS.values()) + [
     {"id": "ctr_adobe_2026", "tool_id": "tool_adobe", "plan_name": "Acrobat Pro Teams", "billing_type": "seat_flat",
      "seats_purchased": 60, "seat_price_krw": 32000, "term_start": date(2026, 1, 1), "term_end": date(2026, 12, 31)}])
-insert("models", dump(fx.MODELS.values(), tool_id="tool_ai_b"))
+insert("models", [
+    {**m, "tool_id": {"mdl_b_large": "tool_ai_b", "mdl_b_mid": "tool_ai_a", "mdl_b_small": "tool_cand_x"}[m["id"]]}
+    for m in dump(fx.MODELS.values())
+])
 insert("eval_results", dump(fx.EVAL_RESULTS))
 insert("registered_tasks", dump(fx.TASKS.values()))
 
 # ── F1 ──
 insert("vendor_sources", [
-    {"id": "src_ai_a_rn", "vendor": "AI-A", "url": "https://vendor-a.example/release-notes", "kind": "release_notes"},
-    {"id": "src_ai_b_rn", "vendor": "AI-B", "url": "https://vendor-b.example/release-notes", "kind": "release_notes"},
-    {"id": "src_x_docs", "vendor": "Vendor-X", "url": "https://vendor-x.example/docs", "kind": "docs", "is_candidate": True}])
+    {"id": "src_ai_a_rn", "vendor": "OpenAI", "url": "https://openai.com/business/chatgpt-pricing/", "kind": "release_notes"},
+    {"id": "src_ai_b_rn", "vendor": "Anthropic", "url": "https://platform.claude.com/docs/en/about-claude/pricing", "kind": "pricing"},
+    {"id": "src_x_docs", "vendor": "xAI", "url": "https://docs.x.ai/developers/models", "kind": "docs", "is_candidate": True}])
 insert("vendor_updates", dump(fx.UPDATES.values()))
 sugs = []
 for s in dump(fx.SUGGESTIONS.values()):
@@ -157,7 +160,7 @@ for a in anm:
     a["projected_monthly_krw"], a["projected_monthly_usd"] = (cost["krw"], cost["usd"]) if cost else (None, None)
 insert("anomalies", anm)
 
-# ── F4 ── AI-A 60석 중 배정 58석(emp_mkt_01은 신청 대기), Adobe 60석 중 20석
+# ── F4 ── ChatGPT Enterprise 60석 중 배정 58석(emp_mkt_01은 신청 대기), Adobe 60석 중 20석
 seats = []
 for i, e in enumerate(x for x in humans if x != "emp_mkt_01"):
     flag, last = None, NOW - timedelta(days=random.randint(0, 6))

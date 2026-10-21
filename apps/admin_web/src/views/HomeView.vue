@@ -21,7 +21,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
 <template>
   <header class="page-head">
     <div>
-      <span class="small muted">{{ today }} · 시연용 가상 데이터</span>
+      <span class="small muted">{{ today }} · 백엔드 연결됨</span>
       <h1>안녕하세요, 광철 님</h1>
     </div>
     <label class="search">

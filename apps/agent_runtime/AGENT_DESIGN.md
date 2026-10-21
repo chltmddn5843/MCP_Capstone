@@ -87,7 +87,7 @@ API는 `schemas/agent.py` 머리말과 같다. SSE는 `?after=<seq>`로 이어 �
 
 | 설정 | 뜻 |
 | --- | --- |
-| `LLM_MODEL=anthropic:claude-opus-5-5` | 기본. `openai:gpt-…`로 바꿀 수 있다 |
+| `LLM_MODEL=anthropic:claude-opus-4-7` | 기본. `openai:gpt-5.2` 또는 `xai:grok-4.7`로 바꿀 수 있다 |
 | `LLM_MODEL=fake` | 키 없이 그래프를 돌리는 스크립트 모델 (테스트·배선 확인용) |
 | `MCP_WORK_URL` 비어 있음 | 로컬 모드: 백엔드 REST 직접 호출. 도구 이름·입출력은 MCP와 같다 |
 | `MCP_WORK_URL=http://localhost:8010/mcp` | MCP 모드: tools/list를 받아 쓴다 (최종 목표) |

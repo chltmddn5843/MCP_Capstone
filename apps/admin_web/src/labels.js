@@ -1,4 +1,4 @@
-// 화면 용어. apps/admin_ui/labels.py와 같은 말을 쓴다 (설계 문서 0절).
+// 화면 용어는 설계 문서 0절과 맞춘다.
 // tone: alert(다크 배지) · ok(라임 배지) · neutral(외곽선 배지)
 export const FLAG = {
   unused: { label: '장기 미사용', tone: 'alert' },

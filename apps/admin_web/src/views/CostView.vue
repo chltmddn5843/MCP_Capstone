@@ -18,7 +18,7 @@ onMounted(async () => {
 
 const a = computed(() => anomalies.value[0])
 const max = computed(() => Math.max(...a.value.daily, a.value.baseline))
-const bars = computed(() => a.value.daily.map((v) => ({ v, h: (v / max.value) * CHART_H, over: v > a.value.baseline * 2 })))
+const bars = computed(() => a.value.daily.mlap((v) => ({ v, h: (v / max.value) * CHART_H, over: v > a.value.baseline * 2 })))
 const baselineY = computed(() => (a.value.baseline / max.value) * CHART_H)
 const STATUS = { open: { label: '확인 전', tone: 'alert' }, investigating: { label: '처리 요청 보냄', tone: 'ok' }, resolved: { label: '처리 완료', tone: 'neutral' } }
 
@@ -37,7 +37,7 @@ async function submit() {
         <select><option>최근 14일</option><option>이번 달</option></select>
       </label>
       <label class="field">제품
-        <select><option>AI-B API</option><option>전체 제품</option></select>
+        <select><option>Claude API</option><option>전체 제품</option></select>
       </label>
     </div>
   </header>
