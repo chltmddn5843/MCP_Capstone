@@ -93,12 +93,27 @@ insert("tools", dump(fx.TOOLS.values(), kind="ai") + [
 insert("contracts", dump(fx.CONTRACTS.values()) + [
     {"id": "ctr_adobe_2026", "tool_id": "tool_adobe", "plan_name": "Acrobat Pro Teams", "billing_type": "seat_flat",
      "seats_purchased": 60, "seat_price_krw": 32000, "term_start": date(2026, 1, 1), "term_end": date(2026, 12, 31)}])
-insert("models", [
-    {**m, "tool_id": {"mdl_b_large": "tool_ai_b", "mdl_b_mid": "tool_ai_a", "mdl_b_small": "tool_cand_x"}[m["id"]]}
-    for m in dump(fx.MODELS.values())
-])
+# 모델 id = "공급사:API 모델명". 에이전트 LLM_MODEL·projects·usage_records·eval_results가 같은 키로 이어진다
+insert("models", [{**m, "tool_id": {"anthropic": "tool_ai_b", "xai": "tool_cand_x"}[m["id"].split(":")[0]]}
+                  for m in dump(fx.MODELS.values())])
 insert("eval_results", dump(fx.EVAL_RESULTS))
-insert("registered_tasks", dump(fx.TASKS.values()))
+# 팀별 대표 업무 (F1 관련성 판단 근거). tools_used는 그 사람이 실제로 쓸 수 있는 도구만: ChatGPT 좌석 보유자 tool_ai_a,
+# Claude API는 그 팀 프로젝트가 있을 때(고객지원·영업·경영지원)
+TEAM_TASKS = {
+    "dept_mgmt": [("월간 비용 보고서 요약", "부서별 SW 비용을 정리해 경영진 보고용 한 장으로 요약", "monthly", ["tool_ai_a", "tool_ai_b"])],
+    "dept_hrd": [("신입 교육 자료 초안", "직무별 온보딩 교안 초안과 퀴즈 작성", "monthly", ["tool_ai_a"])],
+    "dept_mkt": [("경쟁사 보도자료 비교", "경쟁사 보도자료 여러 건을 비교해 메시지 차이 정리", "weekly", ["tool_ai_a"])],
+    "dept_sales": [("견적서 요약 검토", "고객 견적서 PDF 요약 결과를 검토해 영업 메모 작성", "daily", ["tool_ai_a", "tool_ai_b"])],
+    "dept_cs": [("응대 매뉴얼 갱신", "자주 묻는 문의를 모아 응대 매뉴얼 문구 개정", "weekly", ["tool_ai_a", "tool_ai_b"])],
+    "dept_prod": [("생산 일정 변경 공지", "라인별 일정 변경 사항을 공지문으로 정리", "weekly", ["tool_ai_a"])],
+}
+gen_tasks = []
+for dept, tasks in TEAM_TASKS.items():
+    for k, g in enumerate([g for g in gen_emps if g["dept_id"] == dept and g["status"] == "active"][:2]):
+        title, desc, freq, tools = tasks[0]
+        gen_tasks.append({"id": f"task_{g['id']}", "employee_id": g["id"], "title": title, "description": desc, "frequency": freq,
+                          "tools_used": tools, "source": "bot" if k else "manual", "updated_at": NOW - timedelta(days=5 + k * 7)})
+insert("registered_tasks", dump(fx.TASKS.values()) + gen_tasks)
 
 # ── F1 ──
 insert("vendor_sources", [
@@ -133,7 +148,7 @@ insert("projects", dump(fx.PROJECTS.values()))
 insert("api_keys", [{"id": f"key_{p}", "project_id": p, "label": f"{p} 운영 키", "vendor_key_ref": f"vk_{p}", "created_at": DAY0}
                     for p in fx.PROJECTS])
 usage = []
-base_reqs = {"prj_cs_classify": 1000, "prj_quote_summary": 2100, "prj_faq": 60}
+base_reqs = {"prj_cs_classify": 1000, "prj_quote_summary": 300, "prj_faq": 60}  # 월 비용이 예산의 60~80%가 되게
 TOKENS = {"0-2k": 1200, "2k-8k": 4500, "8k+": 12000}  # 구간별 요청당 입력 토큰
 MIX = {"prj_cs_classify": {"0-2k": 0.95, "2k-8k": 0.05}, "prj_faq": {"0-2k": 0.7, "2k-8k": 0.3},
        "prj_quote_summary": {"2k-8k": 0.7, "8k+": 0.3}}
@@ -143,8 +158,8 @@ for d in range(60):
     for pid, reqs in base_reqs.items():
         p = fx.PROJECTS[pid]
         m = fx.MODELS[p.model_id]
-        spike = pid == "prj_quote_summary" and d >= 57  # 마지막 3일 비용 급증 (anm_001, 약 3배)
-        total = int(reqs * random.uniform(0.9, 1.1) * (2 if spike else 1))
+        spike = pid == "prj_quote_summary" and d >= 57  # 마지막 3일 비용 급증 (anm_001)
+        total = int(reqs * random.uniform(0.9, 1.1) * (2.5 if spike else 1))
         for bucket, share in (SPIKE_MIX if spike else MIX[pid]).items():
             r = int(total * share)
             tin, tout = r * TOKENS[bucket], r * 300
@@ -154,40 +169,63 @@ for d in range(60):
                           "requests": r, "input_tokens": tin, "output_tokens": tout, "cost_usd": usd, "fx_rate": fx.FX,
                           "cost_krw": round(usd * fx.FX)})
 insert("usage_records", usage)
-anm = dump(fx.ANOMALIES.values(), drop=("scope_name",))
+# 경보 수치는 위 사용량에서 계산한다 (check_thresholds 규칙과 같음: 마지막 날 ÷ 직전 14일 중앙값)
+anm = dump(fx.ANOMALIES.values(), drop=("scope_name", "projected_monthly_cost"))
 for a in anm:
-    cost = a.pop("projected_monthly_cost")
-    a["projected_monthly_krw"], a["projected_monthly_usd"] = (cost["krw"], cost["usd"]) if cost else (None, None)
+    daily: dict = {}
+    for u in usage:
+        if u["project_id"] == a["scope_id"]:
+            k = u["period_start"].date()
+            daily[k] = (daily.get(k, (0, 0))[0] + u["cost_krw"], daily.get(k, (0, 0))[1] + u["cost_usd"])
+    days = sorted(daily)
+    last, prior = daily[days[-1]], sorted(daily[k][0] for k in days[-15:-1])
+    base = prior[len(prior) // 2]
+    a.update(baseline=base, observed=last[0], ratio=round(last[0] / base, 2), projected_monthly_krw=last[0] * 30,
+             projected_monthly_usd=round(last[1] * 30, 4), created_at=datetime.combine(days[-1], datetime.min.time(), NOW.tzinfo) + timedelta(hours=23))
 insert("anomalies", anm)
 
 # ── F4 ── ChatGPT Enterprise 60석 중 배정 58석(emp_mkt_01은 신청 대기), Adobe 60석 중 20석
 seats = []
 for i, e in enumerate(x for x in humans if x != "emp_mkt_01"):
-    flag, last = None, NOW - timedelta(days=random.randint(0, 6))
-    if e in ("emp_sales_02", "emp_gen_007", "emp_gen_023"):
+    flag, last, since = None, NOW - timedelta(days=random.randint(0, 6)), DAY0
+    if e in ("emp_gen_052", "emp_gen_053", "emp_gen_054"):  # 입사일(20일 전)에 배정 = plan_000 등
+        flag, since = "recent_hire", NOW - timedelta(days=20)
+    elif e in ("emp_sales_02", "emp_gen_007", "emp_gen_023"):
         flag, last = "on_leave", NOW - timedelta(days=50)
     elif i % 9 == 0:
         flag, last = "unused", NOW - timedelta(days=45)
     elif i % 13 == 0:
         flag, last = "no_record", None  # 기록 없음 = 확인 필요
-    elif e in ("emp_gen_052", "emp_gen_053", "emp_gen_054"):
-        flag = "recent_hire"
     seats.append({"id": f"seat_a_{i:03d}", "contract_id": "ctr_ai_a_2026", "employee_id": e, "status": "assigned",
-                  "assigned_at": DAY0, "last_activity_at": last, "flag": flag})
+                  "assigned_at": since, "last_activity_at": last, "flag": flag})
+on_leave = {e["id"] for e in emps if e["status"] == "on_leave"}
 for i, e in enumerate(humans[:20]):
-    seats.append({"id": f"seat_ad_{i:03d}", "contract_id": "ctr_adobe_2026", "employee_id": e, "status": "assigned",
-                  "assigned_at": DAY0, "last_activity_at": NOW - timedelta(days=random.randint(0, 30))})
+    seats.append({"id": f"seat_ad_{i:03d}", "contract_id": "ctr_adobe_2026", "employee_id": e, "status": "assigned", "assigned_at": DAY0,
+                  "last_activity_at": NOW - timedelta(days=50 if e in on_leave else random.randint(0, 30)), "flag": "on_leave" if e in on_leave else None})
 insert("seat_assignments", seats)
-insert("unmet_needs", dump(fx.UNMET_NEEDS))
+# 미지원 요청: 요청자 부서 = 직원 부서. contract_compare 3건이 모이면 F5 구매 검토 후보가 된다
+emp_dept = {e["id"]: e["dept_id"] for e in emps}
+more_needs = [("emp_gen_004", "공급사 계약서 개정본 조항 비교", "contract_compare", 4),
+              ("emp_gen_011", "회의 녹음 한국어 자막·요약", "meeting_transcribe", 9),
+              ("emp_gen_017", "회의 녹음 요약해서 회의록 만들기", "meeting_transcribe", 3),
+              ("emp_gen_020", "도면 PDF에서 부품 목록 추출", "drawing_extract", 12)]
+insert("unmet_needs", dump(fx.UNMET_NEEDS) + [
+    {"id": f"need_{k:03d}", "employee_id": e, "dept_id": emp_dept[e], "summary": t, "capability_tag": tag,
+     "created_at": NOW - timedelta(days=d)} for k, (e, t, tag, d) in enumerate(more_needs, start=3)])
 
 # ── 처리 요청 · 절감 · 감사 ──
-plans = dump(fx.PLANS.values())
+# plan_000: 지난달 신규 입사자 좌석 배정(실행 완료). 절감 기록 sav_001은 실행된 조치안에만 붙는다
+plans = [{"id": "plan_000", "type": "seat_assign", "risk_level": "low", "status": "executed",
+          "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_ai_a_2026"}], "rationale": "신규 입사자 배정 (미배정 좌석 사용)",
+          "evidence": [{"source": "inventory", "ref": "ctr_ai_a_2026", "value": {"unassigned": 3}}], "requested_by": "emp_asset_01",
+          "approver_id": None, "execution_key": "auto_plan_000", "executed_at": NOW - timedelta(days=20),
+          "result": {"vendor": "mock", "ok": True}, "created_at": NOW - timedelta(days=20)}] + dump(fx.PLANS.values())
 for p in plans:
     if p["id"] == "plan_002":
         p["ai_opinion"] = "휴직자 좌석 재배정 권장. 대상자 사용 의사 확인 응답 후 실행"
 insert("action_plans", plans)
 insert("confirmations", dump(fx.CONFIRMATIONS.values()))
-insert("savings_ledger", dump(fx.SAVINGS))
+insert("savings_ledger", [{**s, "plan_id": "plan_000", "basis": "신규 입사자에게 미배정 좌석 배정, 추가 구매 회피 (월 45,000원 × 남은 2개월)"} for s in dump(fx.SAVINGS)])
 insert("audit_log", dump(fx.AUDIT))
 
 # ── 운영 ── 재시도 시연용

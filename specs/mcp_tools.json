@@ -667,6 +667,11 @@
                   "title": "Name",
                   "type": "string"
                 },
+                "capabilities": {
+                  "default": "",
+                  "title": "Capabilities",
+                  "type": "string"
+                },
                 "input_usd_per_mtok": {
                   "title": "Input Usd Per Mtok",
                   "type": "number"
@@ -1342,6 +1347,11 @@
                 },
                 "name": {
                   "title": "Name",
+                  "type": "string"
+                },
+                "capabilities": {
+                  "default": "",
+                  "title": "Capabilities",
                   "type": "string"
                 },
                 "input_usd_per_mtok": {

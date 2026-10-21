@@ -174,10 +174,11 @@ Table contracts {
 }
 
 Table models {
-  id varchar [pk, note: 'mdl_b_mid']
+  id varchar [pk, note: '"공급사:API 모델명" 예: anthropic:claude-sonnet-5-5 = 에이전트 LLM_MODEL 값. projects·usage_records·eval_results가 이 키로 연결']
   tool_id varchar [ref: >? tools.id, note: '신규 제안: 어느 API 제품의 모델인지 (entities에는 vendor 문자열만)']
   vendor varchar [not null]
   name varchar [not null]
+  capabilities text [not null, default: '', note: '잘하는 일 요약']
   input_usd_per_mtok numeric(10,4) [not null]
   output_usd_per_mtok numeric(10,4) [not null]
   approved boolean [not null, default: true]

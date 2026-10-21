@@ -23,8 +23,8 @@ uv run pytest                 # 계약 테스트 + 에이전트 테스트 (키 �
 uv run python specs/export.py # specs/*.json 갱신
 ```
 
-에이전트는 `.env`의 `LLM_MODEL`로 모델을 고른다. Anthropic은 `anthropic:claude-opus-4-7`,
-OpenAI는 `openai:gpt-5.2`, xAI는 `xai:grok-4.7` 형식을 사용하며 각각의 API 키가 필요하다.
+에이전트는 `.env`의 `LLM_MODEL`로 모델을 고른다. 값은 DB `models.id`와 같은 `공급사:API 모델명` 키다
+(예: `anthropic:claude-sonnet-5-5`, `anthropic:claude-opus-5-5`, `xai:grok-4.7`). 공급사별 API 키가 필요하다.
 키가 없으면 `LLM_MODEL=fake`로 배선만 확인할 수 있다. `MCP_WORK_URL`이 비어 있으면 백엔드 REST를
 직접 부르는 로컬 모드다. 설계는 `apps/agent_runtime/AGENT_DESIGN.md`.
 

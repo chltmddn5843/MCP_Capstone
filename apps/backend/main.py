@@ -139,10 +139,26 @@ def _tools_with_plan(approved_only: bool = False) -> list[ToolWithPlan]:
     return out
 
 
+def _assets(emp: Employee) -> MeResponse:
+    """실제로 쓸 수 있는 도구만: 좌석 계약은 본인 배정 좌석이 있을 때, API 계약은 소속 팀 프로젝트가 그 제품 모델을 쓸 때."""
+    usable = {r["tool_id"] for r in db.rows(
+        "SELECT c.tool_id FROM seat_assignments s JOIN contracts c ON c.id = s.contract_id WHERE s.employee_id = :e AND s.status = 'assigned'"
+        " UNION SELECT m.tool_id FROM projects p JOIN models m ON m.id = p.model_id WHERE p.dept_id = :d", e=emp.id, d=emp.dept_id)}
+    tasks = [RegisteredTask(**r) for r in db.rows(f"SELECT {TASK_COLS} FROM registered_tasks WHERE employee_id = :e ORDER BY updated_at DESC", e=emp.id)]
+    return MeResponse(employee=emp, tasks=tasks, available_tools=[t for t in _tools_with_plan(True) if t.contract and t.id in usable])
+
+
 @app.get("/me", response_model=Envelope[MeResponse], tags=["me"])
 def me(user: Employee = Depends(current_user)):
-    tasks = [RegisteredTask(**r) for r in db.rows(f"SELECT {TASK_COLS} FROM registered_tasks WHERE employee_id = :e ORDER BY updated_at DESC", e=user.id)]
-    return ok(MeResponse(employee=user, tasks=tasks, available_tools=[t for t in _tools_with_plan(True) if t.contract]))
+    return ok(_assets(user))
+
+
+@app.get("/employees/{employee_id}/assets", response_model=Envelope[MeResponse], tags=["F4"])
+def employee_assets(employee_id: str, user: Employee = Depends(require(Role.admin, Role.system))):
+    emp = get_employee(employee_id)
+    if not emp:
+        raise ApiError(ErrorCode.not_found, "직원 없음")
+    return ok(_assets(emp))
 
 
 @app.get("/me/tasks", response_model=Envelope[list[RegisteredTask]], tags=["me"])
@@ -535,6 +551,33 @@ SEAT_SQL = {
 }
 
 
+def _seat_blocker(p: ActionPlan) -> str | None:
+    """좌석 조치안 실행 직전 재검증. 막을 이유가 없으면 None.
+    ponytail: 검사와 반영 사이 잠금이 없어 동시 배정 2건이 마지막 1석을 함께 통과할 수 있다. 필요하면 contracts 행을 FOR UPDATE로 잠근다."""
+    if p.type not in SEAT_SQL:
+        return None
+    for cid in {i["contract_id"] for i in p.items}:
+        c = db.one("SELECT c.seats_purchased, count(s.id) AS used FROM contracts c LEFT JOIN seat_assignments s ON s.contract_id = c.id AND s.status = 'assigned'"
+                   " WHERE c.id = :c GROUP BY c.id", c=cid)
+        if not c:
+            return f"계약 없음: {cid}"
+        adding = sum(1 for i in p.items if i["contract_id"] == cid) if p.type == PlanType.seat_assign else 0
+        if c["used"] + adding > c["seats_purchased"]:
+            return f"{cid} 남은 좌석 {c['seats_purchased'] - c['used']}석, 요청 {adding}석"
+    for i in p.items:
+        e = db.one("SELECT status FROM employees WHERE id = :e", e=i["employee_id"])
+        has = db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = :c AND employee_id = :e AND status = 'assigned'", c=i["contract_id"], e=i["employee_id"])
+        if not e:
+            return f"직원 없음: {i['employee_id']}"
+        if p.type == PlanType.seat_assign and e["status"] != "active":
+            return f"{i['employee_id']}는 {e['status']} 상태라 배정할 수 없습니다"
+        if p.type == PlanType.seat_assign and has:
+            return f"{i['employee_id']}는 이미 {i['contract_id']} 좌석이 있습니다"
+        if p.type == PlanType.seat_reclaim and not has:
+            return f"{i['employee_id']}에게 회수할 {i['contract_id']} 좌석이 없습니다"
+    return None
+
+
 def _exec_response(p: ActionPlan) -> PlanExecuteResponse:
     sv = db.rows("SELECT id, plan_id, kind, amount_krw, basis FROM savings_ledger WHERE plan_id = :id ORDER BY id", id=p.id)
     return PlanExecuteResponse(plan=p, result=p.result, verified={"items": p.items, "state": "applied"}, savings=sv)
@@ -550,8 +593,13 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
         raise ApiError(ErrorCode.forbidden, f"승인 상태가 아님: {p.status.value}")
     if p.risk_level == RiskLevel.high:
         raise ApiError(ErrorCode.forbidden, "높은 위험도 조치는 MVP에서 실행하지 않습니다 (요청만 생성)")
-    if any(i.get("_stale") for i in p.items):  # 스텁: 재검증 실패 흉내
-        raise ApiError(ErrorCode.stale, "승인 뒤 대상 상태가 바뀌어 실행을 멈췄습니다", {"plan_id": p.id})
+    why = "승인 뒤 대상 상태가 바뀌었습니다" if any(i.get("_stale") for i in p.items) else _seat_blocker(p)
+    if why:  # 재검증 실패: 조치안을 failed로 남기고 멈춘다 (좌석·절감 기록은 건드리지 않음)
+        with db.tx() as c:
+            c.execute(db.text("UPDATE action_plans SET status = 'failed', result = CAST(:r AS jsonb) WHERE id = :id AND status = 'approved'"),
+                      dict(r=db.js({"ok": False, "reason": why}), id=p.id))
+            _audit(c, user, "plan.fail", p.id, {"status": "approved"}, {"status": "failed", "reason": why})
+        raise ApiError(ErrorCode.stale, f"실행 전 재검증 실패: {why}", {"plan_id": p.id})
     result = {"vendor": "mock", "ok": True, "items": p.items}
     with db.tx() as c:
         n = c.execute(db.text("UPDATE action_plans SET status = 'executed', executed_at = now(), execution_key = :k, result = CAST(:r AS jsonb)"

@@ -274,7 +274,7 @@ class JobRunResponse(BaseModel):
 ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("POST", "/auth/login", "사번·비밀번호로 로그인, JWT 발급", []),
     ("POST", "/auth/dev-login", "시드 직원으로 토큰 발급 (APP_ENV=dev 전용)", []),
-    ("GET", "/me", "본인 프로필·업무·이용 가능 도구", [Role.employee, Role.admin, Role.system]),
+    ("GET", "/me", "본인 프로필·업무·실제로 쓸 수 있는 도구", [Role.employee, Role.admin, Role.system]),
     ("GET", "/me/tasks", "본인 등록 업무", [Role.employee]),
     ("POST", "/me/tasks", "업무 등록", [Role.employee]),
     ("PATCH", "/me/tasks/{task_id}", "업무 수정", [Role.employee]),
@@ -292,6 +292,7 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/unmet-needs", "미충족 수요 집계", [Role.admin]),
     ("POST", "/unmet-needs", "미충족 수요 기록", [Role.employee, Role.admin, Role.system]),
     ("GET", "/inventory", "이용권 현황", [Role.admin, Role.system]),
+    ("GET", "/employees/{employee_id}/assets", "직원이 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)", [Role.admin, Role.system]),
     ("GET", "/usage", "사용량", [Role.employee, Role.admin, Role.system]),
     ("GET", "/anomalies", "경보 목록", [Role.admin, Role.system]),
     ("GET", "/anomalies/{anomaly_id}", "경보 상세", [Role.admin, Role.system]),

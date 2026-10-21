@@ -69,7 +69,7 @@ def test_anomaly_detail_has_project_purpose():
 
 
 def test_estimate_formula():
-    body = {"model_id": "mdl_b_mid", "requests_per_day": 1000, "avg_input_tokens": 600, "avg_output_tokens": 20}
+    body = {"model_id": "anthropic:claude-sonnet-5-5", "requests_per_day": 1000, "avg_input_tokens": 600, "avg_output_tokens": 20}
     d = client.post("/estimates/task-cost", json=body, headers=EMP).json()["data"]
     assert d["monthly"]["krw"] > 0 and "formula" in d
 
@@ -124,7 +124,7 @@ def test_plan_items_validated_per_type():
     bad = {"type": "model_change", "items": [{"project_id": "prj_faq"}], "rationale": "x", "evidence": []}
     r = client.post("/plans", json=bad, headers=ASSET)
     assert r.status_code == 422 and r.json()["error"]["code"] == "invalid"
-    good = {"type": "model_change", "items": [{"project_id": "prj_faq", "from_model_id": "mdl_b_large", "to_model_id": "mdl_b_mid", "environment": "prod"}], "rationale": "x", "evidence": []}
+    good = {"type": "model_change", "items": [{"project_id": "prj_faq", "from_model_id": "anthropic:claude-opus-5-5", "to_model_id": "anthropic:claude-sonnet-5-5", "environment": "prod"}], "rationale": "x", "evidence": []}
     assert client.post("/plans", json=good, headers=ASSET).json()["data"]["risk_level"] == "high"
 
 
@@ -139,7 +139,7 @@ def test_confirmation_create_and_answer():
 
 def test_employee_model_change_only_own_project_test_env():
     CS = login("emp_cs_01")  # prj_cs_classify 오너
-    ok_body = {"type": "model_change", "items": [{"project_id": "prj_cs_classify", "from_model_id": "mdl_b_large", "to_model_id": "mdl_b_mid", "environment": "test"}], "rationale": "평가 통과 후보 중 저비용", "evidence": []}
+    ok_body = {"type": "model_change", "items": [{"project_id": "prj_cs_classify", "from_model_id": "anthropic:claude-opus-5-5", "to_model_id": "anthropic:claude-sonnet-5-5", "environment": "test"}], "rationale": "평가 통과 후보 중 저비용", "evidence": []}
     r = client.post("/plans", json=ok_body, headers=CS)
     assert r.status_code == 201 and r.json()["data"]["risk_level"] == "medium" and r.json()["data"]["status"] == "pending_approval"
     prod = {**ok_body, "items": [{**ok_body["items"][0], "environment": "prod"}]}
