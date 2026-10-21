@@ -13,7 +13,8 @@ from datetime import UTC, datetime, timedelta
 from fastapi import Depends, FastAPI, Header, Query
 
 from apps.backend import db
-from apps.backend.auth import APP_ENV, authenticate, current_user, get_employee, issue_token, require
+from apps.backend.auth import APP_ENV, authenticate, current_user, get_employee, hash_password, issue_token, require
+from apps.backend.fixtures import MODELS as MODEL_CATALOG  # 공식 단가표. 시드와 같은 값을 모델 고르기 목록으로 쓴다
 from apps.backend.errors import ApiError, install_error_handlers, ok
 from schemas.common import (
     RISK_BY_PLAN_TYPE,
@@ -35,6 +36,7 @@ from schemas.common import (
 from schemas.entities import (
     ActionPlan,
     Contract,
+    Department,
     Project,
     Anomaly,
     AuditEntry,
@@ -55,6 +57,15 @@ from pydantic import ValidationError
 from schemas.plan_items import validate_items
 from schemas.rest import (
     AnomalyDetail,
+    BudgetSet,
+    BudgetView,
+    ContractCreate,
+    DepartmentCreate,
+    EmployeeCreate,
+    ModelApproval,
+    ProjectCreate,
+    SetupStatus,
+    SignupRequest,
     ConfirmationAnswerRequest,
     ConfirmationCreate,
     ContractInventory,
@@ -64,6 +75,8 @@ from schemas.rest import (
     FeedbackCreate,
     JobRunResponse,
     LowUsageCandidate,
+    MemberTool,
+    OrgMember,
     MeResponse,
     PlanCreate,
     PlanDecision,
@@ -114,6 +127,196 @@ def dev_login(body: DevLoginRequest):
     if not emp:
         raise ApiError(ErrorCode.not_found, f"직원 {body.employee_id} 없음")
     return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
+
+
+# ---------- 초기 설정 (회원가입 → 마법사) ----------
+# 회사는 한 곳(company 테이블 한 행). 설정 변경은 처리 요청 없이 관리자가 바로 하고 모두 audit_log에 남긴다.
+EMP_COLS = "e.id, e.name, e.email, e.dept_id, d.name AS dept_name, e.role, e.job_title, e.status, e.hire_date, e.slack_user_id"
+
+
+def _this_year() -> int:
+    return (_now() + timedelta(hours=9)).year
+
+
+def _setup_status() -> SetupStatus:
+    c = db.one("SELECT name, setup_completed_at FROM company")
+    n = db.one("SELECT (SELECT count(*) FROM departments) AS departments, (SELECT count(*) FROM employees WHERE role <> 'system') AS employees,"
+               " (SELECT count(*) FROM contracts) AS contracts, (SELECT count(*) FROM models WHERE approved) AS models,"
+               " (SELECT count(*) FROM projects) AS projects, (SELECT count(*) FROM budgets WHERE fiscal_year = :y) AS budgets,"
+               " (SELECT count(*) FROM employees WHERE role = 'admin' AND password_hash IS NOT NULL) AS admins", y=_this_year())
+    return SetupStatus(company_name=c and c["name"], has_admin=n.pop("admins") > 0, setup_completed=bool(c and c["setup_completed_at"]), steps=n)
+
+
+@app.get("/setup/status", response_model=Envelope[SetupStatus], tags=["setup"])
+def setup_status():
+    return ok(_setup_status())
+
+
+@app.post("/setup/signup", response_model=Envelope[DevLoginResponse], status_code=201, tags=["setup"])
+def setup_signup(body: SignupRequest):
+    """첫 관리자 가입. 회사 행을 먼저 잡아(ON CONFLICT) 두 사람이 동시에 가입해도 한 명만 성공한다."""
+    with db.tx() as c:
+        if not c.execute(db.text("INSERT INTO company (name) VALUES (:n) ON CONFLICT DO NOTHING RETURNING id"), dict(n=body.company_name.strip())).first():
+            raise ApiError(ErrorCode.conflict, "이미 가입한 회사가 있습니다. 관리자 계정으로 로그인하세요")
+        if db.one("SELECT 1 AS x FROM employees WHERE lower(email) = lower(:e)", c, e=body.email):
+            raise ApiError(ErrorCode.conflict, "이미 쓰는 이메일입니다")
+        dept = _new_id("dept")
+        emp = _new_id("emp")
+        c.execute(db.text("INSERT INTO departments (id, name) VALUES (:id, :n)"), dict(id=dept, n=body.dept_name.strip()))
+        c.execute(db.text("INSERT INTO employees (id, name, email, dept_id, role, job_title, status, hire_date, password_hash)"
+                          " VALUES (:id, :n, :e, :d, 'admin', :t, 'active', current_date, :pw)"),
+                  dict(id=emp, n=body.admin_name.strip(), e=body.email.strip().lower(), d=dept, t=body.job_title.strip(), pw=hash_password(body.password)))
+    admin = get_employee(emp)
+    with db.tx() as c:
+        _audit(c, admin, "setup.signup", "company", None, {"company": body.company_name, "admin": emp, "dept": dept})
+    return ok(DevLoginResponse(access_token=issue_token(admin), employee=admin))
+
+
+@app.post("/setup/complete", response_model=Envelope[SetupStatus], tags=["setup"])
+def setup_complete(user: Employee = Depends(require(Role.admin))):
+    st = _setup_status()
+    missing = {k: label for k, label in (("contracts", "구독 제품"), ("budgets", "올해 예산")) if not st.steps[k]}
+    if missing:
+        raise ApiError(ErrorCode.invalid, f"아직 입력하지 않은 단계가 있습니다: {', '.join(missing.values())}", {"missing": list(missing)})
+    with db.tx() as c:
+        c.execute(db.text("UPDATE company SET setup_completed_at = coalesce(setup_completed_at, now())"))
+        _audit(c, user, "setup.complete", "company", None, st.steps)
+    return ok(_setup_status())
+
+
+@app.get("/setup/model-catalog", response_model=Envelope[list[Model]], tags=["setup"])
+def model_catalog(user: Employee = Depends(require(Role.admin))):
+    approved = {r["id"] for r in db.rows("SELECT id FROM models WHERE approved")}
+    return ok([m.model_copy(update={"approved": m.id in approved}) for m in MODEL_CATALOG.values()])
+
+
+@app.get("/departments", response_model=Envelope[list[Department]], tags=["setup"])
+def departments(user: Employee = Depends(require(Role.admin, Role.system))):
+    return ok([Department(**r) for r in db.rows("SELECT id, name, parent_id FROM departments ORDER BY name")])
+
+
+@app.post("/departments", response_model=Envelope[Department], status_code=201, tags=["setup"])
+def create_department(body: DepartmentCreate, user: Employee = Depends(require(Role.admin))):
+    if db.one("SELECT 1 AS x FROM departments WHERE name = :n", n=body.name.strip()):
+        raise ApiError(ErrorCode.conflict, f"같은 이름의 부서가 있습니다: {body.name}")
+    d = Department(id=_new_id("dept"), name=body.name.strip())
+    with db.tx() as c:
+        c.execute(db.text("INSERT INTO departments (id, name) VALUES (:id, :n)"), dict(id=d.id, n=d.name))
+        _audit(c, user, "setup.department", d.id, None, d.model_dump())
+    return ok(d)
+
+
+@app.post("/employees", response_model=Envelope[list[Employee]], status_code=201, tags=["setup"])
+def create_employees(body: list[EmployeeCreate], user: Employee = Depends(require(Role.admin))):
+    """여러 명을 한 번에. 하나라도 틀리면 아무도 넣지 않는다. 비밀번호는 없음(로그인은 본인 설정 후)."""
+    if not body or len(body) > 500:
+        raise ApiError(ErrorCode.invalid, "직원은 한 번에 1~500명까지 넣을 수 있습니다")
+    if any(e.role == Role.system for e in body):
+        raise ApiError(ErrorCode.invalid, "system 역할은 만들 수 없습니다")
+    emails = [e.email.strip().lower() for e in body]
+    dup = {e for e in emails if emails.count(e) > 1} | {r["email"] for r in db.rows("SELECT email FROM employees WHERE lower(email) = ANY(:e)", e=emails)}
+    if dup:
+        raise ApiError(ErrorCode.conflict, f"이미 있거나 겹치는 이메일: {', '.join(sorted(dup))}")
+    depts = {r["id"] for r in db.rows("SELECT id FROM departments")}
+    if bad := sorted({e.dept_id for e in body} - depts):
+        raise ApiError(ErrorCode.invalid, f"없는 부서: {', '.join(bad)}")
+    ids = [_new_id("emp") for _ in body]
+    with db.tx() as c:
+        for i, e in zip(ids, body):
+            c.execute(db.text("INSERT INTO employees (id, name, email, dept_id, role, job_title, status, hire_date) VALUES (:id, :n, :e, :d, :r, :t, 'active', :h)"),
+                      dict(id=i, n=e.name.strip(), e=e.email.strip().lower(), d=e.dept_id, r=e.role.value, t=e.job_title.strip(), h=e.hire_date))
+        _audit(c, user, "setup.employees", "employees", None, {"added": ids})
+    return ok([Employee(**r) for r in db.rows(f"SELECT {EMP_COLS} FROM employees e JOIN departments d ON d.id = e.dept_id WHERE e.id = ANY(:ids) ORDER BY e.name", ids=ids)])
+
+
+@app.post("/contracts", response_model=Envelope[Contract], status_code=201, tags=["setup"])
+def create_contract(body: ContractCreate, user: Employee = Depends(require(Role.admin))):
+    if body.term_end <= body.term_start:
+        raise ApiError(ErrorCode.invalid, "계약 종료일은 시작일보다 뒤여야 합니다")
+    if body.billing_type != "api_usage" and body.seats_purchased == 0:
+        raise ApiError(ErrorCode.invalid, "좌석 과금 제품은 구매 좌석 수가 1 이상이어야 합니다")
+    with db.tx() as c:
+        tool = body.tool_id
+        if tool and not db.one("SELECT 1 AS x FROM tools WHERE id = :t", c, t=tool):
+            raise ApiError(ErrorCode.not_found, f"제품 없음: {tool}")
+        if not tool:
+            tool = _new_id("tool")
+            c.execute(db.text("INSERT INTO tools (id, kind, vendor, product, category, approval_status, allowed_data_class)"
+                              " VALUES (:id, CAST(:k AS tool_kind), :v, :p, :c, 'approved', CAST(:dc AS data_class))"),
+                      dict(id=tool, k=body.kind, v=body.vendor.strip(), p=body.product.strip(), c=body.category, dc=body.allowed_data_class.value))
+        ctr = Contract(id=_new_id("ctr"), tool_id=tool, plan_name=body.plan_name.strip(), billing_type=body.billing_type,
+                       seats_purchased=0 if body.billing_type == "api_usage" else body.seats_purchased, seat_price_krw=body.seat_price_krw,
+                       term_start=datetime.combine(body.term_start, datetime.min.time(), UTC), term_end=datetime.combine(body.term_end, datetime.min.time(), UTC))
+        c.execute(db.text("INSERT INTO contracts (id, tool_id, plan_name, billing_type, seats_purchased, seat_price_krw, term_start, term_end)"
+                          " VALUES (:id, :t, :p, CAST(:b AS billing_type), :n, :pr, :s, :e)"),
+                  dict(id=ctr.id, t=tool, p=ctr.plan_name, b=ctr.billing_type.value, n=ctr.seats_purchased, pr=ctr.seat_price_krw, s=body.term_start, e=body.term_end))
+        _audit(c, user, "setup.contract", ctr.id, None, ctr.model_dump(mode="json"))
+    return ok(ctr)
+
+
+@app.put("/models/approved", response_model=Envelope[list[Model]], tags=["setup"])
+def approve_models(body: ModelApproval, user: Employee = Depends(require(Role.admin))):
+    """목록에서 고른 모델만 승인. 처음 고른 모델은 models에 넣고, 같은 공급사의 API 계약 제품에 묶는다."""
+    if bad := sorted(set(body.model_ids) - set(MODEL_CATALOG)):
+        raise ApiError(ErrorCode.invalid, f"목록에 없는 모델: {', '.join(bad)}")
+    before = [r["id"] for r in db.rows("SELECT id FROM models WHERE approved ORDER BY id")]
+    with db.tx() as c:
+        for mid in body.model_ids:
+            m = MODEL_CATALOG[mid]
+            tool = db.one("SELECT t.id FROM tools t JOIN contracts k ON k.tool_id = t.id WHERE lower(t.vendor) = lower(:v) AND k.billing_type = 'api_usage' LIMIT 1", c, v=m.vendor)
+            c.execute(db.text("INSERT INTO models (id, tool_id, vendor, name, capabilities, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class)"
+                              " VALUES (:id, :t, :v, :n, :cap, :i, :o, true, CAST(:dc AS data_class)) ON CONFLICT (id) DO NOTHING"),
+                      dict(id=m.id, t=tool and tool["id"], v=m.vendor, n=m.name, cap=m.capabilities, i=m.input_usd_per_mtok, o=m.output_usd_per_mtok, dc=m.allowed_data_class.value))
+        c.execute(db.text("UPDATE models SET approved = (id = ANY(:ids))"), dict(ids=body.model_ids))
+        _audit(c, user, "setup.models", "models", {"approved": before}, {"approved": sorted(body.model_ids)})
+    return ok([Model(**r) for r in db.rows("SELECT id, vendor, name, capabilities, input_usd_per_mtok::float AS input_usd_per_mtok,"
+                                           " output_usd_per_mtok::float AS output_usd_per_mtok, approved, allowed_data_class FROM models ORDER BY id")])
+
+
+@app.post("/projects", response_model=Envelope[Project], status_code=201, tags=["setup"])
+def create_project(body: ProjectCreate, user: Employee = Depends(require(Role.admin))):
+    if not db.one("SELECT 1 AS x FROM models WHERE id = :m AND approved", m=body.model_id):
+        raise ApiError(ErrorCode.invalid, f"승인된 모델이 아닙니다: {body.model_id}")
+    owner = db.one("SELECT dept_id FROM employees WHERE id = :e AND status = 'active'", e=body.owner_id)
+    if not owner:
+        raise ApiError(ErrorCode.invalid, f"재직 중인 담당자가 아닙니다: {body.owner_id}")
+    if not db.one("SELECT 1 AS x FROM departments WHERE id = :d", d=body.dept_id):
+        raise ApiError(ErrorCode.invalid, f"없는 부서: {body.dept_id}")
+    prj = Project(id=_new_id("prj"), **body.model_dump())
+    with db.tx() as c:
+        c.execute(db.text("INSERT INTO projects (id, name, dept_id, owner_id, purpose, model_id, environment, monthly_budget_krw)"
+                          " VALUES (:id, :name, :dept_id, :owner_id, :purpose, :model_id, CAST(:environment AS environment), :monthly_budget_krw)"),
+                  prj.model_dump(mode="json"))
+        c.execute(db.text("INSERT INTO api_keys (id, project_id, label, vendor_key_ref, created_at) VALUES (:id, :p, :l, :r, now())"),
+                  dict(id=f"key_{prj.id}", p=prj.id, l=f"{prj.name} 키", r=f"vk_{prj.id}"))
+        _audit(c, user, "setup.project", prj.id, None, prj.model_dump(mode="json"))
+    return ok(prj)
+
+
+def _budget_view(year: int) -> BudgetView:
+    b = {r["category"]: r["annual_krw"] for r in db.rows("SELECT category, annual_krw FROM budgets WHERE fiscal_year = :y", y=year)}
+    # 좌석료는 배정 여부와 상관없이 구매한 좌석 수만큼 낸다
+    seat_cost = db.one("SELECT coalesce(sum(seats_purchased * seat_price_krw), 0)::bigint AS v FROM contracts WHERE billing_type <> 'api_usage'")["v"]
+    prj = db.one("SELECT coalesce(sum(monthly_budget_krw), 0)::bigint AS v FROM projects")["v"]
+    seat, api = b.get("seat", 0), b.get("api", 0)
+    return BudgetView(fiscal_year=year, seat_annual_krw=seat, api_annual_krw=api, seat_monthly_krw=seat // 12, api_monthly_krw=api // 12,
+                      seat_monthly_cost_krw=seat_cost, project_budget_sum_krw=prj)
+
+
+@app.get("/budgets", response_model=Envelope[BudgetView], tags=["setup"])
+def get_budgets(fiscal_year: int | None = None, user: Employee = Depends(require(Role.admin, Role.system))):
+    return ok(_budget_view(fiscal_year or _this_year()))
+
+
+@app.put("/budgets", response_model=Envelope[BudgetView], tags=["setup"])
+def set_budgets(body: BudgetSet, user: Employee = Depends(require(Role.admin))):
+    before = _budget_view(body.fiscal_year)
+    with db.tx() as c:
+        for cat, v in (("seat", body.seat_annual_krw), ("api", body.api_annual_krw)):
+            c.execute(db.text("INSERT INTO budgets (fiscal_year, category, annual_krw) VALUES (:y, :c, :v)"
+                              " ON CONFLICT (fiscal_year, category) DO UPDATE SET annual_krw = EXCLUDED.annual_krw"), dict(y=body.fiscal_year, c=cat, v=v))
+        _audit(c, user, "setup.budgets", f"budgets:{body.fiscal_year}", before.model_dump(), body.model_dump())
+    return ok(_budget_view(body.fiscal_year))
 
 
 TASK_COLS = "id, employee_id, title, description, frequency, tools_used, source, updated_at"
@@ -401,6 +604,35 @@ ANM_COLS = ("a.id, a.scope_type, a.scope_id, p.name AS scope_name, a.rule, a.bas
 def _anomaly(r: dict) -> Anomaly:
     krw, usd = r.pop("projected_monthly_krw"), r.pop("projected_monthly_usd")
     return Anomaly(**r, projected_monthly_cost=Money(krw=krw, usd=usd) if krw is not None else None)
+
+
+@app.get("/projects", response_model=Envelope[list[Project]], tags=["F3"])
+def projects(user: Employee = Depends(require(Role.admin, Role.system))):
+    return ok([Project(**r) for r in db.rows("SELECT id, name, dept_id, owner_id, purpose, model_id, environment, monthly_budget_krw FROM projects ORDER BY id")])
+
+
+@app.get("/org/members", response_model=Envelope[list[OrgMember]], tags=["F4"])
+def org_members(user: Employee = Depends(require(Role.admin, Role.system))):
+    """좌석 배치도용. 도구 판정은 _assets와 같다: 배정 좌석 + 소속 팀 프로젝트가 쓰는 API 모델."""
+    tools: dict[str, list[MemberTool]] = {}
+    db_has_usage = {r["tool_id"]: True for r in db.rows("SELECT DISTINCT c.tool_id FROM usage_records u JOIN contracts c ON c.id = u.contract_id WHERE u.employee_id IS NOT NULL")}
+    # 최근 30일 사용: 사용 기록(usage_records.employee_id)을 주는 좌석 제품만 숫자가 있고, 나머지(기록 미제공)는 None
+    for r in db.rows("SELECT s.employee_id, c.tool_id, t.product, c.plan_name AS detail, s.flag, s.last_activity_at, u.days AS active_days_30, u.reqs AS requests_30"
+                     " FROM seat_assignments s JOIN contracts c ON c.id = s.contract_id JOIN tools t ON t.id = c.tool_id"
+                     " LEFT JOIN (SELECT contract_id, employee_id, count(DISTINCT date_trunc('day', period_start))::int AS days, sum(requests)::int AS reqs"
+                     "            FROM usage_records WHERE employee_id IS NOT NULL AND period_start > now() - interval '30 days' GROUP BY 1, 2) u"
+                     "   ON u.contract_id = s.contract_id AND u.employee_id = s.employee_id"
+                     " WHERE s.status = 'assigned' ORDER BY t.product"):
+        if r["active_days_30"] is None and db_has_usage.get(r["tool_id"]):
+            r["active_days_30"], r["requests_30"] = 0, 0  # 기록을 주는 제품인데 30일간 0건
+        tools.setdefault(r.pop("employee_id"), []).append(MemberTool(via="seat", **r))
+    by_dept: dict[str, list[MemberTool]] = {}
+    for r in db.rows("SELECT p.dept_id, m.tool_id, t.product, p.name || ' · ' || m.name AS detail FROM projects p"
+                     " JOIN models m ON m.id = p.model_id JOIN tools t ON t.id = m.tool_id ORDER BY p.id"):
+        by_dept.setdefault(r.pop("dept_id"), []).append(MemberTool(via="project", **r))
+    emps = db.rows("SELECT e.id, e.name, e.email, e.dept_id, d.name AS dept_name, e.role, e.job_title, e.status, e.hire_date, e.slack_user_id"
+                   " FROM employees e JOIN departments d ON d.id = e.dept_id WHERE e.role <> 'system' ORDER BY e.dept_id, e.id")
+    return ok([OrgMember(employee=Employee(**e), tools=tools.get(e["id"], []) + by_dept.get(e["dept_id"], [])) for e in emps])
 
 
 @app.get("/anomalies", response_model=Envelope[list[Anomaly]], tags=["F3"])

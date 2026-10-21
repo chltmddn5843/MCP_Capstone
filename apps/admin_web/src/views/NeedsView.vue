@@ -57,7 +57,7 @@ const lowTeams = computed(() => adoption.value.filter((t) => t.rate < LOW))
       <li v-for="t in adoption" :key="t.team">
         <span style="font-weight: 600">{{ t.team }}</span>
         <div class="bar" style="height: 10px"><div :class="{ low: t.rate < LOW }" :style="{ width: `${t.rate}%` }" /></div>
-        <span class="num">{{ t.rate }}% · 이용권 {{ t.seats }}<template v-if="t.rate < LOW"> · 낮음</template></span>
+        <span class="num">{{ t.rate }}% · 이용권 {{ t.seats }}<strong v-if="t.rate < LOW" class="low-tag">낮음</strong></span>
       </li>
     </ul>
     <div v-if="lowTeams.length" class="inset hint">
@@ -71,6 +71,7 @@ const lowTeams = computed(() => adoption.value.filter((t) => t.rate < LOW))
 .adopt { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; }
 .adopt li { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) 150px; align-items: center; gap: 16px; font-size: 14px; }
 .adopt .num { text-align: right; }
+.low-tag { margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--ink); color: var(--lime); font-size: 12px; }
 .bar > div.low { background: var(--lime); outline: 1px solid rgba(17, 17, 19, 0.32); }
 .hint { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; }
 @media (max-width: 600px) {

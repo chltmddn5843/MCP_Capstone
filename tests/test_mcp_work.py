@@ -100,7 +100,7 @@ async def test_f1_admin_sees_team_level_only(monkeypatch):
         found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_ai_a_doc_compare"})).structured_content
         adoption = (await c.call_tool("get_team_adoption", {"period": PERIOD})).structured_content
     assert all(cand["employee_id"] is None for cand in found["candidates"])
-    assert {t["team_id"] for t in adoption["teams"]} == {"dept_mkt", "dept_cs"}
+    assert {t["team_id"] for t in adoption["teams"]} == {"dept_mkt", "dept_cs", "dept_md"}  # 제안 반응이 있는 팀만
 
 
 async def test_profile_and_task_upsert(monkeypatch):

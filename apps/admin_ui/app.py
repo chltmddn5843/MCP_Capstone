@@ -16,8 +16,8 @@ from apps.admin_ui import labels as L  # noqa: E402
 from apps.admin_ui.common import AGENT, BACKEND, api, approval_inbox, assistant_panel, dev_login, login, logout, render_stream, start_task, task_history  # noqa: E402
 
 load_dotenv()
-SEED_USERS = {"emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이지우 · 고객지원 직원", "emp_hrd_01": "김하나 · HRD 직원",
-              "emp_asset_01": "최민준 · 관리자"}
+SEED_USERS = {"emp_md_01": "정서진 · 상품기획·MD 과장", "emp_mkt_01": "박지후 · 브랜드 마케팅 대리",
+              "emp_mgmt_01": "윤서연 · 경영지원팀장(관리자)", "emp_asset_01": "최광철 · 자산관리 담당(관리자)"}
 
 st.set_page_config(page_title="한빛제조 AI 활용·운영", layout="wide")
 

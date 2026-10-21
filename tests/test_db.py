@@ -72,12 +72,13 @@ def test_two_irrelevant_holds_team():
     assert any(x["dept_id"] == "dept_cs" and "보류" in x["reason"] for x in held)
 
 
-def test_threshold_job_finds_quote_summary_spike():
+def test_threshold_job_finds_seeded_spikes():
     with db.tx() as c:  # 시드 경보를 지우고 배치가 다시 찾는지 본다
         c.execute(db.text("DELETE FROM anomalies"))
     made = run("check_thresholds", "2026-10-20T00:00:00Z")["new_anomalies"]
     rows = client.get("/anomalies", headers=ADMIN).json()["data"]
-    assert len(made) == 1 and rows[0]["scope_id"] == "prj_quote_summary" and rows[0]["ratio"] > 3
+    # 시드의 급증 두 건: 견적서 요약(긴 PDF)·캠페인 카피(요청 4배, 페르소나 서연 시나리오)
+    assert len(made) == 2 and {r["scope_id"] for r in rows} == {"prj_quote_summary", "prj_mkt_copy"} and all(r["ratio"] > 3 for r in rows)
     assert run("check_thresholds", "2026-10-20T00:00:00Z")["new_anomalies"] == []   # 같은 날 중복 경보 없음
 
 
@@ -93,7 +94,7 @@ def assign(emp: str):
 def test_grant_and_revoke_change_usable_tools():
     """부여하면 그 직원의 실제 사용 가능 도구에 생기고, 회수하면 사라진다. API 도구는 팀 프로젝트가 있을 때만."""
     assert "tool_ai_a" not in tools_of("emp_mkt_01")
-    assert "tool_ai_b" in tools_of("emp_cs_01") and "tool_ai_b" not in tools_of("emp_mkt_01")  # 고객지원팀만 Claude API 프로젝트 보유
+    assert "tool_ai_b" in tools_of("emp_cs_01") and "tool_ai_b" not in tools_of("emp_hrd_01")  # HRD팀은 Claude API 프로젝트가 없다
     assert assign("emp_mkt_01").json()["data"]["status"] == "executed"
     assert "tool_ai_a" in tools_of("emp_mkt_01")
     plan = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}],

@@ -19,7 +19,7 @@ def test_login_by_id_or_email_and_use_token():
     r = login("emp_asset_01", "demo1234")
     assert r.status_code == 200
     token = r.json()["data"]["access_token"]
-    assert login("minjun.choi@hanbit.example", "demo1234").status_code == 200
+    assert login("gwangcheol.choi@hanbit.example", "demo1234").status_code == 200
     me = client.get("/me", headers={"Authorization": f"Bearer {token}"}).json()["data"]["employee"]
     assert me["id"] == "emp_asset_01" and me["role"] == "admin"
 

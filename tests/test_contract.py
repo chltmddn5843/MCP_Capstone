@@ -5,6 +5,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from apps.backend import fixtures as fx
 from apps.backend.main import app
 from schemas.common import Role
 from schemas.mcp_tools import TOOLS, tools_for_role
@@ -66,6 +67,61 @@ def test_low_risk_plan_executes_immediately():
 def test_anomaly_detail_has_project_purpose():
     d = client.get("/anomalies/anm_001", headers=ASSET).json()["data"]
     assert d["project"]["purpose"] and d["series"] and d["breakdown_by_input_length"]
+
+
+def test_projects_list_has_budgets():
+    data = client.get("/projects", headers=ASSET).json()["data"]
+    got = {p["id"]: p["monthly_budget_krw"] for p in data}
+    assert {k: v.monthly_budget_krw for k, v in fx.PROJECTS.items()}.items() <= got.items()  # 시드가 프로젝트를 더 넣는다
+    assert client.get("/projects", headers=EMP).status_code == 403
+
+
+def test_org_members_tools_match_assets():
+    """좌석 배치도 도구 = 직원별 assets 판정과 같아야 한다 (같은 규칙을 두 곳에서 쓰므로)."""
+    data = client.get("/org/members", headers=ASSET).json()["data"]
+    assert data and all(m["employee"]["role"] != "system" for m in data)
+    for m in data[:5] + [x for x in data if x["employee"]["id"] in ("emp_cs_01", "emp_mkt_01")]:
+        assets = client.get(f"/employees/{m['employee']['id']}/assets", headers=ASSET).json()["data"]["available_tools"]
+        assert {t["tool_id"] for t in m["tools"]} == {t["id"] for t in assets}, m["employee"]["id"]
+
+
+def test_setup_status_and_signup_once():
+    st = client.get("/setup/status").json()["data"]
+    assert st["company_name"] and st["has_admin"] and st["setup_completed"]
+    r = client.post("/setup/signup", json={"company_name": "다른 회사", "admin_name": "a", "email": "new@x.co", "password": "12345678"})
+    assert r.status_code == 409  # 회사는 한 곳
+    assert client.post("/departments", json={"name": "새 부서"}, headers=EMP).status_code == 403
+
+
+def test_budgets_roundtrip_and_monthly_split():
+    before = client.get("/budgets", headers=ASSET).json()["data"]
+    try:
+        b = client.put("/budgets", json={"fiscal_year": before["fiscal_year"], "seat_annual_krw": 12_000_000, "api_annual_krw": 1_200_000}, headers=ASSET).json()["data"]
+        assert (b["seat_monthly_krw"], b["api_monthly_krw"]) == (1_000_000, 100_000)
+    finally:
+        client.put("/budgets", json={k: before[k] for k in ("fiscal_year", "seat_annual_krw", "api_annual_krw")}, headers=ASSET)
+
+
+def test_setup_inputs_validated():
+    bad_term = {"vendor": "V", "product": "P", "plan_name": "x", "billing_type": "seat_flat", "seats_purchased": 5, "seat_price_krw": 1000,
+                "term_start": "2026-12-31", "term_end": "2026-01-01"}
+    assert client.post("/contracts", json=bad_term, headers=ASSET).status_code == 422
+    assert client.put("/models/approved", json={"model_ids": ["openai:not-a-model"]}, headers=ASSET).status_code == 422
+    owner = "emp_cs_01"
+    r = client.post("/projects", json={"name": "x", "dept_id": "dept_cs", "owner_id": owner, "purpose": "x", "model_id": "xai:grok-4.3", "monthly_budget_krw": 1}, headers=ASSET)
+    assert r.status_code == 422  # 승인 안 된 모델
+    dup = client.post("/employees", json=[{"name": "a", "email": "dup@x.co", "dept_id": "dept_cs", "job_title": "t"}] * 2, headers=ASSET)
+    assert dup.status_code == 409
+
+
+def test_org_members_usage_matches_flags():
+    """'기록 없음' 좌석은 30일 사용 0일, 사용 기록을 안 주는 제품(Acrobat)은 None."""
+    for m in client.get("/org/members", headers=ASSET).json()["data"]:
+        for t in m["tools"]:
+            if t["flag"] == "no_record":
+                assert t["active_days_30"] == 0
+            if t["tool_id"] == "tool_adobe":
+                assert t["active_days_30"] is None
 
 
 def test_estimate_formula():

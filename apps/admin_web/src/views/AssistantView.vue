@@ -34,10 +34,12 @@ onMounted(() => {
     <div class="tags" style="gap: 8px">
       <button v-for="q in QUICK" :key="q" type="button" class="chip" @click="ask(q)">{{ q }}</button>
     </div>
-    <form class="tags" style="gap: 8px; align-items: center" @submit.prevent="ask()">
-      <input v-model="text" class="ask-input" placeholder="업무를 설명하거나 요청을 적어 주세요" />
-      <label class="small" style="display: flex; align-items: center; gap: 6px"><input v-model="newThread" type="checkbox" />새 대화</label>
-      <button type="submit" class="btn btn-dark">보내기</button>
+    <form class="tags" style="gap: 8px; align-items: flex-end" @submit.prevent="ask()">
+      <label class="ask-field" for="ask-input">요청 내용
+        <input id="ask-input" v-model="text" class="ask-input" placeholder="예: 견적서 요약 프로젝트 비용이 왜 늘었는지 조사해줘" />
+      </label>
+      <label class="small new-thread"><input v-model="newThread" type="checkbox" />새 대화로 시작</label>
+      <button type="submit" class="btn btn-dark" :disabled="!text.trim()">보내기</button>
     </form>
     <span class="xs muted">대화: {{ threadId ?? '새 대화' }} · 대화 내용은 저장하지 않고 주제와 요약만 남깁니다.</span>
     <p v-if="notice" class="status" role="status">{{ notice }}</p>
@@ -55,6 +57,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.ask-input { flex: 1 1 320px; min-height: 44px; padding: 0 12px; border: 1px solid rgba(17, 17, 19, 0.16); border-radius: 10px; background: var(--white); font-size: 14px; }
+.ask-field { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.new-thread { display: flex; align-items: center; gap: 6px; min-height: 44px; }
+.ask-input { width: 100%; font-weight: 400; min-height: 44px; padding: 0 12px; border: 1px solid rgba(17, 17, 19, 0.16); border-radius: 10px; background: var(--white); font-size: 14px; }
 summary { cursor: pointer; min-height: 36px; display: flex; align-items: center; }
 </style>

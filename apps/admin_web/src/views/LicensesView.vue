@@ -1,13 +1,15 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getProducts, getSeatRequests, requestConfirmation } from '../api.js'
-import { FLAG, won, pct } from '../labels.js'
+import { FLAG, won, pct, onTabKeys } from '../labels.js'
+import ProductLogo from '../components/ProductLogo.vue'
 
 const products = ref([])
 const requests = ref([])
 const activeId = ref('')
 const flagFilter = ref('all')
 const notice = ref('')
+const asking = ref('') // 확인 요청 보내는 중인 직원 id (중복 클릭 방지)
 
 async function load() {
   ;[products.value, requests.value] = await Promise.all([getProducts(), getSeatRequests()])
@@ -26,8 +28,10 @@ const filters = computed(() => [
 
 function selectProduct(id) { activeId.value = id; flagFilter.value = 'all' }
 async function ask(seat) {
+  asking.value = seat.id
   try { await requestConfirmation(seat.id); notice.value = `${seat.name} 님에게 사용 의사 확인을 보냈습니다.` }
   catch (e) { notice.value = `확인 요청 실패: ${e.message}` }
+  finally { asking.value = '' }
   await load()
 }
 </script>
@@ -37,9 +41,9 @@ async function ask(seat) {
     <div><span class="small muted">운영 · F4</span><h1>구독·이용권</h1></div>
   </header>
 
-  <div role="tablist" aria-label="제품" class="tags" style="gap: 8px">
-    <button v-for="p in products" :key="p.id" type="button" role="tab" class="chip chip-lg" :aria-selected="p.id === activeId" @click="selectProduct(p.id)">
-      {{ p.name }} · {{ p.seatsPurchased ? `${p.seatsPurchased}석` : '좌석 없음' }}
+  <div role="tablist" aria-label="제품" class="tags" style="gap: 8px" @keydown="onTabKeys">
+    <button v-for="p in products" :key="p.id" type="button" role="tab" class="chip chip-lg prod-tab" :aria-selected="p.id === activeId" :tabindex="p.id === activeId ? 0 : -1" @click="selectProduct(p.id)">
+      <ProductLogo :tool-id="p.id" :name="p.name" :size="24" />{{ p.name }} · {{ p.seatsPurchased ? `${p.seatsPurchased}석` : '좌석 없음' }}
     </button>
   </div>
 
@@ -54,7 +58,7 @@ async function ask(seat) {
           <div><span class="small muted">본인 확인 필요</span><strong>{{ toCheck }}석</strong></div>
           <div><span class="small muted">좌석 단가</span><strong>{{ won(product.seatPrice) }}</strong></div>
         </template>
-        <div v-else><span class="small muted">이번 달 비용</span><strong>{{ won(product.monthCost) }}</strong></div>
+        <div v-else><span class="small muted">쓰는 프로젝트</span><strong>{{ product.projects }}개</strong></div>
       </div>
       <template v-if="product.seatsPurchased">
         <div class="stackbar" role="img" :aria-label="`${product.seatsPurchased}석 중 사용 중 ${product.seatsAssigned - toCheck}석, 본인 확인 필요 ${toCheck}석, 미배정 ${product.seatsPurchased - product.seatsAssigned}석`">
@@ -92,9 +96,7 @@ async function ask(seat) {
                 <td :class="{ muted: seat.lastUsed === '기록 없음' }">{{ seat.lastUsed }}</td>
                 <td>{{ seat.confirmation }}</td>
                 <td class="num">
-                  <RouterLink v-if="seat.action === 'plan'" to="/inbox" class="small strong nowrap">재배정 요청 보기</RouterLink>
-                  <button v-else-if="seat.action === 'ask'" type="button" class="btn btn-dark btn-sm" @click="ask(seat)">본인 확인 요청</button>
-                  <button v-else-if="seat.action === 'remind'" type="button" class="btn btn-sm" @click="ask(seat)">다시 묻기</button>
+                  <button v-if="seat.action === 'ask'" type="button" class="btn btn-dark btn-sm" :disabled="!!asking" @click="ask(seat)">{{ asking === seat.id ? '보내는 중…' : '본인 확인 요청' }}</button>
                   <span v-else class="small muted">처리 없음</span>
                 </td>
               </tr>
@@ -106,7 +108,7 @@ async function ask(seat) {
 
       <aside class="col-1 stack">
         <section class="card" aria-labelledby="req-h">
-          <div class="card-head"><h2 id="req-h">이용권 신청</h2><span class="small muted">이번 주 {{ requests.length }}건</span></div>
+          <div class="card-head"><h2 id="req-h">이용권 신청</h2><span class="small muted">최근 {{ requests.length }}건</span></div>
           <div v-for="r in requests" :key="r.id" class="inset" :class="{ outline: r.status === 'done' }">
             <div class="req-top">
               <strong class="small">{{ r.who }}</strong>
@@ -129,6 +131,7 @@ async function ask(seat) {
 </template>
 
 <style scoped>
+.prod-tab { display: inline-flex; align-items: center; gap: 8px; padding-left: 8px; }
 .facts { display: flex; flex-wrap: wrap; gap: 32px; }
 .facts div { display: flex; flex-direction: column; gap: 4px; }
 .facts strong { font-size: 24px; }
