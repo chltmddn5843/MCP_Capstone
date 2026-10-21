@@ -35,6 +35,9 @@ def api(method: str, path: str, base: str = BACKEND, quiet: bool = False, **kw):
         st.error(f"{method} {path}: 서버가 JSON이 아닌 응답을 보냈습니다 (HTTP {r.status_code}). {r.text[:300]}")
         return None
     if "error" in body:
+        if body["error"]["code"] == "unauthorized" and "token" in st.session_state:  # 만료·잘못된 토큰 → 로그인 화면으로
+            logout()
+            st.rerun()
         if not quiet:
             e = body["error"]
             st.error(f"{L.ERROR_CODE.get(e['code'], e['code'])}: {e['message']}")
@@ -42,9 +45,9 @@ def api(method: str, path: str, base: str = BACKEND, quiet: bool = False, **kw):
     return body["data"]
 
 
-def login(employee_id: str) -> bool:
+def _auth(path: str, body: dict) -> bool:
     try:
-        resp = requests.post(f"{BACKEND}/auth/dev-login", json={"employee_id": employee_id}, timeout=10)
+        resp = requests.post(f"{BACKEND}{path}", json=body, timeout=10)
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
         _down(BACKEND, exc)
         return False
@@ -54,11 +57,25 @@ def login(employee_id: str) -> bool:
         st.error(f"로그인 응답을 읽을 수 없습니다 (HTTP {resp.status_code}). {resp.text[:300]}")
         return False
     if "error" in r:
-        st.error(r["error"]["message"])
+        st.error(r["error"]["message"], icon=":material/lock:")
         return False
     st.session_state.token, st.session_state.me = r["data"]["access_token"], r["data"]["employee"]
     st.session_state.pop("thread_id", None)
     return True
+
+
+def login(login_id: str, password: str) -> bool:
+    return _auth("/auth/login", {"login_id": login_id, "password": password})
+
+
+def dev_login(employee_id: str) -> bool:
+    """시연용 빠른 로그인. 백엔드가 APP_ENV=prod면 거절한다."""
+    return _auth("/auth/dev-login", {"employee_id": employee_id})
+
+
+def logout() -> None:
+    for k in ("token", "me", "thread_id"):
+        st.session_state.pop(k, None)
 
 
 def start_task(text: str, prompt_name: str | None = None, prompt_args: dict | None = None, new_thread: bool = False) -> str | None:
