@@ -2,7 +2,8 @@
 
 1) 사용 의사 확인 요청(미응답) → 직원 DM (계속 필요·반납·휴직 버튼)               [F4]
 2) 발송함(notify_outbox, 미전달) → 직원 DM 또는 부서원 DM (활용 제안 + 반응 버튼)   [F1]
-3) F1 체인 한 바퀴: 수집 배치 → 검토 안 된 업데이트마다 에이전트 review_update(시스템 계정)
+3) 처리 요청 결과 → 요청자 DM: 봇이 뜬 뒤 상태가 executed·rejected·failed로 바뀐 건만 (과거 건은 재알림 없음)   [F4]
+4) F1 체인 한 바퀴: 수집 배치 → 검토 안 된 업데이트마다 에이전트 review_update(시스템 계정)
    → 발송 정책 배치(팀당 주 2건·업무 시간·보류) → 2)
    수동: uv run python -m apps.slack_bot --run-f1     자동: F1_INTERVAL_MIN>0 이면 그 주기로
 
@@ -187,15 +188,93 @@ def run_f1(client, wait: float = 180.0) -> dict:
     return {"collect": collect, "reviews": reviews, "send": send, "delivered": delivered}
 
 
+
+# ---------- 3) 처리 요청 결과 → 요청자 DM ----------
+FINAL = {"executed", "rejected", "failed"}
+_plan_status: dict[str, str] = {}  # plan_id → 마지막으로 본 상태. 봇이 뜰 때 기준선을 잡아 과거 건은 알리지 않는다
+_tool_cache: dict[str, str] = {}
+
+
+def _product_names() -> dict[str, str]:
+    """계약 id·제품 id → 제품 이름."""
+    if not _tool_cache:
+        for t in api.backend("GET", "/tools", SYSTEM_TOKEN):
+            _tool_cache[t["id"]] = t["product"]
+            if t.get("contract"):
+                _tool_cache[t["contract"]["id"]] = t["product"]
+    return _tool_cache
+
+
+def outcome_messages(plan: dict, names: dict[str, str]) -> dict[str, str]:
+    """처리 요청 결과를 받을 사람(직원 id) → 자연어 안내. 요청자와, 좌석이 바뀌는 당사자."""
+    item = (plan.get("items") or [{}])[0]
+    product = names.get(item.get("contract_id") or item.get("tool_id") or "", "요청하신 제품")
+    status, typ, req = plan["status"], plan["type"], plan["requested_by"]
+    out: dict[str, str] = {}
+    if status == "rejected":
+        why = plan.get("reject_reason")
+        out[req] = f"{product} 요청이 반려됐어요." + (f" 사유: {why}" if why else "") + " 궁금한 점은 저에게 물어봐 주세요."
+    elif status == "failed":
+        out[req] = f"{product} 요청을 처리하는 중 문제가 있어 관리자가 다시 확인할 예정이에요."
+    elif status == "executed":
+        holder = item.get("employee_id")
+        if typ == "seat_assign":
+            out[holder or req] = f"요청하신 {product} 이용권이 배정됐어요. 지금부터 쓸 수 있어요."
+            if holder and holder != req:
+                out[req] = f"{product} 이용권 배정이 끝났어요."
+        elif typ == "seat_reclaim":
+            if holder:
+                out[holder] = f"{product} 이용권이 반납 처리됐어요. 다시 필요해지면 저에게 말씀해 주세요."
+            if req != holder:
+                out[req] = f"{product} 이용권 반납 처리가 끝났어요."
+        elif typ == "api_access":
+            out[req] = f"요청하신 {product} 사용이 승인됐어요. 접근 정보는 담당자가 따로 안내할 거예요."
+        elif typ == "model_change":
+            out[req] = "요청하신 모델 변경이 반영됐어요."
+        else:
+            out[req] = "요청하신 처리가 끝났어요."
+    return out
+
+
+def notify_plan_outcomes(client, baseline: bool = False) -> list[str]:
+    """상태가 바뀐 처리 요청의 요청자에게 DM. 첫 호출(baseline=True)은 기준선만 잡고 보내지 않는다. 보낸 plan id를 돌려준다."""
+    plans = api.backend("GET", "/plans", SYSTEM_TOKEN)["items"]
+    baseline = baseline or not _plan_status  # 기준선이 아직 없으면(기동 때 백엔드가 없었던 경우) 이번 호출이 기준선
+    sent = []
+    for plan in plans:
+        before = _plan_status.get(plan["id"])
+        _plan_status[plan["id"]] = plan["status"]
+        if baseline or plan["status"] not in FINAL or before == plan["status"]:
+            continue  # 기준선 이후 바뀐 건만. 기준선 뒤 새로 생겨 바로 끝난 건(before None)도 알린다
+        try:
+            for emp_id, text in outcome_messages(plan, _product_names()).items():
+                emp = employee(emp_id)
+                if emp.get("role") != "employee":
+                    continue  # 관리자 본인 건은 웹에서 보고 있다
+                slack_id = slack_id_for(emp)
+                if not slack_id:
+                    continue
+                client.chat_postMessage(channel=_dm(client, slack_id), text=text)
+                log.info("처리 결과 DM: %s(%s) → %s", plan["id"], plan["status"], emp.get("name"))
+            sent.append(plan["id"])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("처리 결과 %s 알림 실패: %s", plan["id"], exc)
+    return sent
+
 # ---------- 루프 ----------
 def loop(client, interval: float = 10.0, once: bool = False) -> None:
     state = load_state()
     f1_every = float(os.getenv("F1_INTERVAL_MIN", "0") or 0) * 60
     last_f1 = 0.0
+    try:
+        notify_plan_outcomes(client, baseline=True)  # 봇이 뜬 시점의 상태를 기준선으로
+    except Exception as exc:  # noqa: BLE001
+        log.warning("처리 요청 기준선 실패(백엔드 미기동?): %s", exc)
     while True:
         try:
             deliver_confirmations(client, state)
             deliver_outbox(client)
+            notify_plan_outcomes(client)
             if f1_every > 0 and time.time() - last_f1 >= f1_every:
                 last_f1 = time.time()
                 log.info("F1 자동 실행: %s", run_f1(client))
