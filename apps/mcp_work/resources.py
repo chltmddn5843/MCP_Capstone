@@ -26,8 +26,9 @@ def _policy(doc_id: str) -> str:
 
 # 설계 문서 11절 승인 기준표의 조치 이름·승인자·MVP 처리. 위험도는 RISK_BY_PLAN_TYPE에서 읽는다.
 APPROVAL_ROWS: dict[PlanType, tuple[str, str, str]] = {  # v2: 관리자 한 명이 담당자 승인과 책임자 결정을 모두 한다
-    PlanType.seat_assign: ("승인 제품의 미배정 이용권 배정", "없음 (사후 기록)", "즉시 실행"),
-    PlanType.seat_reclaim: ("이용권 회수·재배정", "관리자 (본인 확인 응답 필수)", "승인 후 실행"),
+    PlanType.seat_assign: ("이용권 배정", "관리자", "승인 후 실행"),
+    PlanType.seat_reclaim: ("이용권 회수·재배정·반납", "관리자 (회수는 본인 확인 응답 필수)", "승인 후 실행"),
+    PlanType.api_access: ("API 제품 사용 신청", "관리자", "승인 후 프로젝트 생성"),
     PlanType.model_change: ("테스트 환경 모델 변경", "관리자", "승인 후 실행"),
     PlanType.budget_review: ("예산 증액 검토", "관리자 (사용 목적 확인 후)", "승인 후 실행"),
     PlanType.purchase_review: ("이용권 추가 구매·신규 제품 도입", "관리자 (책임자 결정)", "요청만 생성, 실행 안 함"),
@@ -37,7 +38,7 @@ RISK_KO = {RiskLevel.low: "바로 처리", RiskLevel.medium: "담당자 승인",
 
 def _approval_matrix() -> str:
     lines = ["# 승인 기준 (설계 문서 v2 11절)", "",
-             "되돌릴 수 있는 낮은 위험만 자동으로 처리한다. 되돌릴 수 없는 비용이 생기는 일은 MVP에서 실행하지 않고 요청만 만든다.", "",
+             "에이전트가 만드는 처리 요청은 전부 관리자 승인을 거친다. 되돌릴 수 없는 비용이 생기는 일은 승인돼도 실행하지 않고 요청만 남긴다.", "",
              "| 처리 요청 (type) | 단계 | 누가 | MVP 처리 |", "|---|---|---|---|",
              "| 개인 맞춤 활용 제안 발송 (save_suggestion, target_type=employee) | 낮음 | 알림 정책 | 자동 |"]
     for plan_type, risk in RISK_BY_PLAN_TYPE.items():

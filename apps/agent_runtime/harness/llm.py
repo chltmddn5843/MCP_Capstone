@@ -42,11 +42,33 @@ class ScriptedModel(BaseChatModel):
 
         import re
 
+        if "의도를 아래 다섯 가지" in last_human:  # classify_intent 호출
+            from apps.agent_runtime.harness.intents import classify_by_keywords
+            text = last_human.split("요청:")[-1].split("코드:")[0]
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=classify_by_keywords(text)))])
+        if "검토해 관리자용 의견" in last_human:  # review_plan (시스템 계정)
+            import re as _re
+            pid = _re.search(r"plan_[A-Za-z0-9]+", last_human).group(0)
+            if not tools_done:
+                msg = AIMessage(content="", tool_calls=[{"name": "get_plan_status", "args": {"plan_id": pid}, "id": _cid()}])
+            elif names[-1] == "get_plan_status":
+                op = {"recommendation": "approve", "summary": "미배정 좌석이 있어 바로 배정해도 됩니다.", "requester": {"name": "박서준", "dept": "마케팅", "job_title": "콘텐츠 마케터", "current_products": ["ChatGPT Enterprise"]},
+                      "asset": {"product": "ChatGPT Enterprise", "purchased": 60, "assigned": 59, "unassigned": 1, "seat_price_krw": 45000},
+                      "facts": ["ChatGPT Enterprise 60석 중 59석 배정, 1석 남음", "요청자는 마케팅 콘텐츠 마케터로 등록 업무에 이 제품을 씀"], "risks": ["남은 좌석이 1석"],
+                      "changes": [["직원", "박서준 (마케팅 · 콘텐츠 마케터)"], ["제품", "ChatGPT Enterprise (Enterprise 플랜)"]], "evidence_text": ["이용권 현황: ChatGPT Enterprise 60석 중 미배정 1석"]}
+                msg = AIMessage(content="", tool_calls=[{"name": "attach_plan_opinion", "args": {"plan_id": pid, "opinion": op}, "id": _cid()}])
+            else:
+                msg = AIMessage(content="미배정 좌석이 있어 바로 배정해도 됩니다.")
+            return ChatResult(generations=[ChatGeneration(message=msg)])
         if not tools_done:
-            if "회수" in last_human or "재배정" in last_human:
+            if "안써" in last_human.replace(" ", "") or "반납" in last_human:
+                call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "본인 반납 요청", "evidence": []}, "id": _cid()}
+            elif "api" in last_human.lower() and ("사용" in last_human or "써야" in last_human):
+                call = {"name": "create_action_plan", "args": {"type": "api_access", "items": [{"tool_id": "tool_ai_b", "purpose": "세일즈 데이터 자동 분석"}], "rationale": "API 제품 사용 신청", "evidence": []}, "id": _cid()}
+            elif "회수" in last_human or "재배정" in last_human:
                 call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026", "confirmation_id": "cfm_001", "reassign_to_employee_id": "emp_mkt_01"}], "rationale": "휴직 중, 본인 반납 응답 있음", "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]}, "id": _cid()}
-            elif "실행" in last_human and re.search(r"plan_\w+", last_human):
-                call = {"name": "execute_approved_plan", "args": {"plan_id": re.search(r"plan_\w+", last_human).group(0), "idempotency_key": f"idem_{uuid.uuid4().hex[:8]}"}, "id": _cid()}
+            elif "실행" in last_human and re.search(r"plan_[A-Za-z0-9]+", last_human):
+                call = {"name": "execute_approved_plan", "args": {"plan_id": re.search(r"plan_[A-Za-z0-9]+", last_human).group(0), "idempotency_key": f"idem_{uuid.uuid4().hex[:8]}"}, "id": _cid()}
             elif "이용권" in last_human or "좌석" in last_human:
                 call = {"name": "create_action_plan", "args": {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "미배정 이용권이 있어 신청자에게 배정", "evidence": [{"source": "inventory", "ref": "ctr_ai_a_2026", "value": {"unassigned": 2}}]}, "id": _cid()}
             else:
@@ -55,7 +77,7 @@ class ScriptedModel(BaseChatModel):
         else:
             last = tools_done[-1].content[:300]
             status = _last_json().get("status")
-            summary = {"executed": "조치가 즉시 실행됐습니다.", "pending_approval": "조치안을 만들었고 담당자 승인을 기다립니다.", "approved": "승인된 조치안입니다."}.get(status, "요청을 처리했습니다.")
+            summary = {"executed": "처리했습니다.", "pending_approval": "관리자에게 전달했어요. 결정되면 알려드릴게요.", "approved": "승인된 요청입니다."}.get(status, "요청을 처리했습니다.")
             msg = AIMessage(content=f"(스크립트 모델) {summary} 마지막 단계 {names[-1]} 결과 근거: {last}")
         return ChatResult(generations=[ChatGeneration(message=msg)])
 

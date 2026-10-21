@@ -24,7 +24,7 @@ export const won = (n) => (n == null ? '-' : `${Math.round(n).toLocaleString('ko
 export const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
 
 // 아래는 백엔드 값 → 화면 말 변환용 (api.js, AI 비서 스트림)
-export const PLAN_TYPE = { seat_assign: '이용권 배정', seat_reclaim: '이용권 회수·재배정', model_change: '모델 변경', budget_review: '예산 검토', purchase_review: '구매 검토' }
+export const PLAN_TYPE = { seat_assign: '이용권 배정', seat_reclaim: '이용권 회수·반납', api_access: 'API 사용 신청', model_change: '모델 변경', budget_review: '예산 검토', purchase_review: '구매 검토' }
 export const BILLING = { seat_flat: '정액 좌석제', seat_plus_usage: '좌석 + 사용량 과금', api_usage: 'API 사용량 과금' }
 export const TASK_STATUS = { queued: '대기', running: '처리 중', waiting_approval: '관리자 확인 대기', done: '완료', failed: '실패' }
 export const TOOL_LABEL = {

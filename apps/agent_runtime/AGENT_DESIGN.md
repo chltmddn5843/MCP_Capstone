@@ -92,6 +92,12 @@ API는 `schemas/agent.py` 머리말과 같다. SSE는 `?after=<seq>`로 이어 �
 | `MCP_WORK_URL` 비어 있음 | 로컬 모드: 백엔드 REST 직접 호출. 도구 이름·입출력은 MCP와 같다 |
 | `MCP_WORK_URL=http://localhost:8010/mcp` | MCP 모드: tools/list를 받아 쓴다 (최종 목표) |
 
-## 7. v2 변경 예정 (설계 확정, 구현 전)
+## 7. v2.1 반영: 의도 분류와 승인 원칙 (구현됨)
+
+- `prepare → classify_intent → call_model …`. `classify_intent`는 직원 요청을 사용 신청 / 반납·중단 / 제품·모델 추천 / 사용 가능 여부·정책 / 상태·기타로 나누고(모델 한 번 호출, 실패 시 키워드), 의도별 절차를 system 프롬프트에 덧붙이며 도구를 부분집합으로 묶는다 (`harness/intents.py`). 시스템 계정·prompt_name 작업은 분류하지 않는다.
+- 사용 신청 의도는 반드시 `create_action_plan`으로 끝나거나 제품 하나만 되묻는다. `finalize`가 "처리 요청 없이 전달·배정됐다고 말하는 답"을 잡아 교정한다 (`plan_created` 상태).
+- 에이전트가 만드는 모든 처리 요청은 승인 대기다(`RISK_BY_PLAN_TYPE` 전부 medium 이상). 관리자가 웹에서 결정한다.
+
+## 8. v2 변경 예정 (설계 확정, 구현 전)
 
 `docs/설계문서.md` 12절. 현재 그래프 앞에 `classify_intent` → (`collect_conditions` → `ask_user`) 분기를 붙이고, State에 `intent`, `conditions`를 더한다. 역할은 employee·admin·system. 배치가 조건 충족 시 시스템 계정으로 작업을 만드는 호출 경로를 추가한다. 기존 노드·Harness 매핑은 바뀌지 않는다.

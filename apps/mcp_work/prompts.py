@@ -36,6 +36,12 @@ TEMPLATES: dict[str, str] = {
         "원인을 단정하지 말고 후보마다 근거(구간별 비중, 기준 대비 배수)를 붙여 제시한다. "
         "담당자가 고를 수 있는 선택지(예산 증액 검토, 반복 요청 점검, 품질 평가 후 모델 검토, 부서에 사용 목적 확인)를 내고 "
         "필요하면 create_action_plan(budget_review 또는 model_change)으로 조치안을 만든다."),
+    "review_plan": (
+        "승인 대기 처리 요청 {plan_id}를 검토해 관리자용 의견을 붙여라. get_plan_status로 요청을 읽고, get_employee_profile로 요청자의 "
+        "이름·부서·직무·등록 업무·배정 제품을, 유형에 따라 get_license_inventory·list_approved_tools·list_approved_models·get_eval_results·"
+        "estimate_task_cost로 자산과 비용을 확인한 뒤 attach_plan_opinion으로 저장한다. recommendation(approve|reject|alternative), "
+        "한 줄 summary, requester, asset, facts(숫자·이름), risks, alternative, changes(사람이 읽는 쌍), evidence_text(문장)를 채운다. "
+        "id·컬럼명·도구 이름을 쓰지 않는다. 결정은 관리자가 한다. 실행하지 않는다."),
     "review_seat_request": (
         "이용권 조치안 {plan_id}를 검토하라. get_plan_status로 내용을 본다. 미배정 좌석 배정(seat_assign)은 서버가 만들 때 바로 "
         "실행하므로, 이미 executed면 다시 실행하지 말고 결과만 안내한다. 이어서 get_license_inventory로 미배정 좌석과 "

@@ -148,6 +148,17 @@ def _approvers(plan_type: PlanType, risk: RiskLevel) -> list[str]:
     return [Role.admin.value]  # v2: 담당자 승인·책임자 결정 모두 관리자 한 명
 
 
+@adapter("get_employee_profile")
+async def get_employee_profile(i: M.GetEmployeeProfileIn) -> dict:
+    return await call("GET", f"/employees/{i.employee_id}")
+
+
+@adapter("attach_plan_opinion")
+async def attach_plan_opinion(i: M.AttachPlanOpinionIn) -> dict:
+    p = await call("PATCH", f"/plans/{i.plan_id}/opinion", json_body=i.opinion.model_dump(mode="json"))
+    return {"plan_id": p["id"], "status": p["status"]}
+
+
 @adapter("create_action_plan")
 async def create_action_plan(i: M.CreateActionPlanIn) -> dict:
     plan = await call("POST", "/plans", json_body=i.model_dump(mode="json"))

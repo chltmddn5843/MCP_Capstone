@@ -11,7 +11,7 @@ ROLE_DESC = {
     "admin": "이용권, 비용 급증 알림, 승인 대기, 미지원 요청을 한곳에서 관리합니다. 보안 책임과 승인 권한을 함께 가집니다.",
     "system": "배치 계정입니다.",
 }
-PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "budget_review": "예산 검토", "purchase_review": "구매 검토"}
+PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·반납", "api_access": "API 사용 신청", "model_change": "모델 변경", "budget_review": "예산 검토", "purchase_review": "구매 검토"}
 PLAN_STATUS = {"draft": "작성 중", "pending_approval": "승인 대기", "approved": "승인됨 · 처리 전", "executed": "처리 완료", "failed": "처리 실패", "rejected": "반려"}
 RISK = {"low": "바로 처리", "medium": "담당자 승인", "high": "책임자 결정 · 요청만 기록"}
 FLAG = {"unused": "장기 미사용", "on_leave": "휴직 중", "no_record": "사용 기록 없음 → 본인 확인 필요", "recent_hire": "최근 입사 (정상)"}

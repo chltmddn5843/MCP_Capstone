@@ -110,6 +110,11 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
         case "get_plan_status":
             d = await _call(client, "GET", f"/plans/{a['plan_id']}")
             return d if "error" in d else {"plan": d}
+        case "get_employee_profile":
+            return await _call(client, "GET", f"/employees/{a['employee_id']}")
+        case "attach_plan_opinion":
+            d = await _call(client, "PATCH", f"/plans/{a['plan_id']}/opinion", json_body=a["opinion"])
+            return d if "error" in d else {"plan_id": d["id"], "status": d["status"]}
         case "execute_approved_plan":
             d = await _call(client, "POST", f"/plans/{a['plan_id']}/execute", headers={"Idempotency-Key": a["idempotency_key"]})
             return d if "error" in d else {"plan_id": a["plan_id"], "status": d["plan"]["status"], "result": d["result"], "verified": d["verified"]}

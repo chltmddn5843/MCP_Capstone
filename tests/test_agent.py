@@ -64,15 +64,39 @@ def test_profile_question_runs_to_done_with_evidence(client):
     assert t["turns"] == 2
 
 
-def test_employee_seat_request_is_executed_immediately(client):
-    """직원 이용권 신청(낮은 위험)은 백엔드가 즉시 실행한다. 직원에게 실행 도구가 없어도 배정이 끝난다."""
-    task_id = client.post("/ai/tasks", json={"input": "ChatGPT Enterprise 이용권 신청하고 싶어요"}, headers=EMP).json()["data"]["task_id"]
+def test_employee_seat_request_waits_for_admin(client):
+    """직원 사용 신청: 의도 분류 → create_action_plan → 승인 대기. 에이전트는 실행하지 않고 '전달했어요'라고 답한다."""
+    task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
     assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
-    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "pending_approval"
     t = wait_status(client, task_id, EMP, {"done"})
-    assert "즉시 실행" in t["result"]["answer"] and t["result"]["plan_id"].startswith("plan_")
+    assert "전달했어요" in t["result"]["answer"] and t["result"]["plan_id"].startswith("plan_")
+
+
+def test_release_and_api_access_intents_create_plans(client):
+    for text, plan_type in [("이제 안써요, 반납할게요", "seat_reclaim"), ("세일즈 분석용으로 B API 사용해야 해요", "api_access")]:
+        task_id = client.post("/ai/tasks", json={"input": text, "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
+        evs = events(client, task_id, EMP)
+        ends = [e for e in evs if e["type"] == "TOOL_END"]
+        assert ends and ends[0]["tool_call"]["name"] == "create_action_plan", text
+        assert ends[0]["tool_call"]["input"]["type"] == plan_type
+        assert json.loads(ends[0]["tool_call"]["output"])["status"] == "pending_approval"
+
+
+def test_claim_without_plan_is_corrected(client):
+    """사용 신청 의도인데 처리 요청을 만들지 않고 '전달했어요'라고 말하면 finalize가 교정한다."""
+    from apps.agent_runtime.graph import finalize
+    import asyncio
+    from langchain_core.messages import AIMessage
+    from apps.agent_runtime import graph as g
+    from apps.agent_runtime.graph import Runtime
+    g.RUNTIMES["t_claim"] = Runtime(trace_id="t", model=None, fallback=None, tools=[])
+    state = {"task_id": "t_claim", "messages": [AIMessage(content="관리자에게 전달했어요. 결정되면 알려드릴게요.")], "intent": "access_request", "plan_created": False, "requester_role": "employee", "channel": "slack"}
+    out = asyncio.run(finalize(state))
+    assert "아직 관리자에게 전달되지 않았어요" in out["answer"] and "전달했어요" not in out["answer"].split("아직")[0]
+    g.RUNTIMES.pop("t_claim", None)
 
 
 def test_reclaim_needs_approval_then_execute_interrupts_and_resumes(client):
@@ -140,3 +164,23 @@ def test_admin_web_answer_keeps_evidence_line(client):
     events(client, task_id, ASSET)
     t = wait_status(client, task_id, ASSET, {"done"})
     assert "get_my_profile" in t["result"]["answer"]  # 관리자 웹에서는 상세 유지 (스크립트 모델은 도구 이름을 답에 넣는다)
+
+
+def test_plan_creation_triggers_review_with_opinion(client):
+    """직원 요청으로 처리 요청이 생기면 시스템 계정 검토가 돌아 ai_opinion이 붙는다 (관리자 승인 전)."""
+    from apps.backend.main import app as backend_app
+    from fastapi.testclient import TestClient as BackendClient
+    task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
+    events(client, task_id, EMP)
+    t = wait_status(client, task_id, EMP, {"done"})
+    pid = t["result"]["plan_id"]
+    bc = BackendClient(backend_app)
+    for _ in range(80):
+        p = bc.get(f"/plans/{pid}", headers=ASSET).json()["data"]
+        if p.get("ai_opinion"):
+            break
+        time.sleep(0.1)
+    assert p["status"] == "pending_approval" and p["ai_opinion"]["recommendation"] == "approve"
+    assert p["ai_opinion"]["changes"][0][0] == "직원" and "plan_" not in p["ai_opinion"]["summary"]
+    reviews = [x for x in client.get("/ai/tasks", params={"mine": False}, headers=ASSET).json()["data"] if x["requester_id"] == "sys"]
+    assert reviews and reviews[0]["channel"] == "system"

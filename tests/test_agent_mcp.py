@@ -91,17 +91,17 @@ def test_execute_via_mcp_with_approval(client):
     assert exec_out["status"] == "executed" and evs2[1]["tool_call"]["error"] is None
 
 
-def test_seat_assign_via_mcp_executes_immediately(client):
-    task_id = client.post("/ai/tasks", json={"input": "박서준 님 ChatGPT Enterprise 이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
+def test_seat_assign_via_mcp_waits_for_admin(client):
+    task_id = client.post("/ai/tasks", json={"input": "박서준 님 AI-A 이용권 배정해줘"}, headers=ASSET).json()["data"]["task_id"]
     evs = events(client, task_id, ASSET)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
     assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
-    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "pending_approval"
 
 
 def test_employee_seat_request_through_mcp(client):
-    task_id = client.post("/ai/tasks", json={"input": "이용권 신청"}, headers=EMP).json()["data"]["task_id"]
+    task_id = client.post("/ai/tasks", json={"input": "이용권 신청", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
     assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
-    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "pending_approval"

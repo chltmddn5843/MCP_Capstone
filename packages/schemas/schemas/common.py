@@ -172,6 +172,7 @@ class AnomalyStatus(StrEnum):
 class PlanType(StrEnum):
     seat_assign = "seat_assign"
     seat_reclaim = "seat_reclaim"
+    api_access = "api_access"  # v2.1: 사용량 과금 제품(API)의 사용 신청 → 승인 뒤 프로젝트 생성
     model_change = "model_change"
     budget_review = "budget_review"
     purchase_review = "purchase_review"
@@ -193,9 +194,11 @@ class RiskLevel(StrEnum):
 
 
 # 11절 승인 기준. 백엔드가 create_action_plan 시 risk_level을 자동 산정할 때 쓴다.
+# v2.1: 에이전트가 만드는 처리 요청은 전부 관리자 승인을 거친다 (low는 제안 발송 같은 자동 알림에만 쓴다).
 RISK_BY_PLAN_TYPE: dict[PlanType, RiskLevel] = {
-    PlanType.seat_assign: RiskLevel.low,
+    PlanType.seat_assign: RiskLevel.medium,
     PlanType.seat_reclaim: RiskLevel.medium,
+    PlanType.api_access: RiskLevel.medium,
     PlanType.model_change: RiskLevel.medium,  # prod 환경이면 high (items.environment 기준)
     PlanType.budget_review: RiskLevel.medium,
     PlanType.purchase_review: RiskLevel.high,  # 요청만 생성, 실행 안 함

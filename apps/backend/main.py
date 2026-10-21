@@ -34,6 +34,8 @@ from schemas.common import (
 )
 from schemas.entities import (
     ActionPlan,
+    EmployeeProfile,
+    PlanOpinion,
     Contract,
     Project,
     Anomaly,
@@ -460,11 +462,11 @@ def list_plans(status: PlanStatus | None = None, type: PlanType | None = None, u
 
 @app.post("/plans", response_model=Envelope[ActionPlan], status_code=201, tags=["plans"])
 def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
-    allowed = {Role.employee: {PlanType.seat_assign, PlanType.model_change}}
+    allowed = {Role.employee: {PlanType.seat_assign, PlanType.seat_reclaim, PlanType.api_access, PlanType.model_change}}  # v2.1
     if user.role in allowed and body.type not in allowed[user.role]:
         raise ApiError(ErrorCode.forbidden, f"{user.role.value} 역할은 {body.type.value} 조치안을 만들 수 없습니다")
-    if user.role == Role.employee and body.type == PlanType.seat_assign and any(i.get("employee_id") != user.id for i in body.items):
-        raise ApiError(ErrorCode.forbidden, "직원은 본인 이용권만 신청할 수 있습니다")
+    if user.role == Role.employee and body.type in (PlanType.seat_assign, PlanType.seat_reclaim) and any(i.get("employee_id") != user.id for i in body.items):
+        raise ApiError(ErrorCode.forbidden, "직원은 본인 이용권만 신청·반납할 수 있습니다")
     if user.role == Role.employee and body.type == PlanType.model_change:  # 시나리오 B: 본인 프로젝트의 테스트 환경만
         for i in body.items:
             prj = db.one("SELECT owner_id FROM projects WHERE id = :id", id=i.get("project_id", ""))
@@ -499,6 +501,31 @@ def get_plan(plan_id: str, user: Employee = Depends(current_user)):
     if not p or (user.role == Role.employee and p.requested_by != user.id):
         raise ApiError(ErrorCode.not_found, "조치안 없음")
     return ok(p)
+
+
+@app.get("/employees/{employee_id}", response_model=Envelope[EmployeeProfile], tags=["plans"])
+def get_employee_profile(employee_id: str, user: Employee = Depends(require(Role.system, Role.admin))):
+    """검토용 직원 프로필. 비밀번호·개인 사용량은 주지 않는다."""
+    r = db.one("SELECT e.id, e.name, e.email, e.dept_id, d.name AS dept_name, e.role, e.job_title, e.status, e.hire_date, e.slack_user_id"
+               " FROM employees e LEFT JOIN departments d ON d.id = e.dept_id WHERE e.id = :id", id=employee_id)
+    if not r:
+        raise ApiError(ErrorCode.not_found, "직원 없음")
+    tasks = [RegisteredTask(**t) for t in db.rows(f"SELECT {TASK_COLS} FROM registered_tasks WHERE employee_id = :e ORDER BY updated_at DESC", e=employee_id)]
+    products = [p["product"] for p in db.rows("SELECT t.product FROM seat_assignments s JOIN contracts c ON c.id = s.contract_id JOIN tools t ON t.id = c.tool_id"
+                                               " WHERE s.employee_id = :e AND s.status = 'assigned'", e=employee_id)]
+    return ok(EmployeeProfile(employee=Employee(**r), tasks=tasks, products=products))
+
+
+@app.patch("/plans/{plan_id}/opinion", response_model=Envelope[ActionPlan], tags=["plans"])
+def attach_opinion(plan_id: str, body: PlanOpinion, user: Employee = Depends(require(Role.system, Role.admin))):
+    p = _plan(plan_id)
+    if not p:
+        raise ApiError(ErrorCode.not_found, "조치안 없음")
+    body.generated_at = _now()
+    with db.tx() as c:
+        c.execute(db.text("UPDATE action_plans SET ai_opinion = :o WHERE id = :id"), dict(o=body.model_dump_json(), id=plan_id))
+        _audit(c, user, "plan.opinion", plan_id, None, {"recommendation": body.recommendation})
+    return ok(_plan(plan_id))
 
 
 def _decide(plan_id: str, body: PlanDecision, user: Employee, approve: bool) -> ActionPlan:

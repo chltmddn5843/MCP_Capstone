@@ -28,6 +28,8 @@ from schemas.common import (
 )
 from schemas.entities import (
     ActionPlan,
+    EmployeeProfile,
+    PlanOpinion,
     Anomaly,
     BreakdownRow,
     Employee,
@@ -64,11 +66,11 @@ class UpsertMyTaskIn(BaseModel):
 
 
 class ListApprovedToolsIn(BaseModel):
-    category: str | None = None
+    category: str | None = Field(None, description="보통 비워 둔다(전체 조회). 'AI' 같은 말로 거르지 말 것. 코드값 예: chat_assistant, llm_api. AI/일반 SW 구분은 결과의 kind(ai|software)로 한다")
 
 
 class ListApprovedModelsIn(BaseModel):
-    data_class: DataClass | None = None
+    data_class: DataClass | None = Field(None, description="보통 비워 둔다(전체 조회). 허용 데이터 등급으로 거를 때만 public|internal|confidential")
 
 
 class FindRelevantTasksIn(BaseModel):
@@ -153,6 +155,20 @@ class CreateActionPlanIn(BaseModel):
 
 class GetPlanStatusIn(BaseModel):
     plan_id: str
+
+
+class GetEmployeeProfileIn(BaseModel):
+    employee_id: str
+
+
+class AttachPlanOpinionIn(BaseModel):
+    plan_id: str
+    opinion: PlanOpinion
+
+
+class AttachPlanOpinionOut(BaseModel):
+    plan_id: str
+    status: PlanStatus
 
 
 class ExecuteApprovedPlanIn(BaseModel):
@@ -317,8 +333,10 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("record_unmet_need", "승인 제품으로 할 수 없는 요청(미지원 요청)을 기록한다.", RecordUnmetNeedIn, RecordUnmetNeedOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /unmet-needs", features=["F5"]),
     ToolSpec("list_unmet_needs", "미지원 요청을 기능 태그별로 집계한다.", ListUnmetNeedsIn, ListUnmetNeedsOut, [Role.admin, Role.system], backend="GET /unmet-needs", features=["F5"]),
     ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.admin], read_only=False, backend="POST /confirmations", features=["F4"]),
-    ToolSpec("create_action_plan", "처리 요청을 만든다. 단계(바로 처리·담당자 승인·책임자 결정)는 서버가 정한다. 바로 처리는 즉시 실행되어 status=executed로 돌아온다. 직원은 seat_assign(본인)과 model_change(본인 소유 프로젝트, test 환경)만 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
+    ToolSpec("create_action_plan", "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어가고(status=pending_approval), 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
     ToolSpec("get_plan_status", "조치안 상태, 승인자, 결과.", GetPlanStatusIn, PlanStatusOut, ALL, backend="GET /plans/{id}", features=["common"]),
+    ToolSpec("get_employee_profile", "검토용 직원 프로필: 이름·부서·직무·재직 상태·등록 업무·배정된 제품. 사용량·비밀번호는 없다.", GetEmployeeProfileIn, EmployeeProfile, [Role.system, Role.admin], backend="GET /employees/{id}", features=["F4"]),
+    ToolSpec("attach_plan_opinion", "승인 대기 중인 처리 요청에 AI 검토 의견을 붙인다. 관리자가 읽으므로 전부 자연어·이름으로 쓴다.", AttachPlanOpinionIn, AttachPlanOpinionOut, [Role.system, Role.admin], read_only=False, backend="PATCH /plans/{id}/opinion", features=["F4"]),
     ToolSpec("execute_approved_plan", "승인된 조치안을 실행한다. 서버가 승인 상태와 대상 현재 상태를 재확인하고 다르면 stale로 멈춘다.", ExecuteApprovedPlanIn, ExecuteApprovedPlanOut, [Role.admin, Role.system], read_only=False, destructive=True, idempotent=True, backend="POST /plans/{id}/execute", features=["F2", "F4"]),
 ]
 
@@ -344,6 +362,7 @@ PROMPTS: dict[str, list[str]] = {
     "recommend_model": ["task_description"],
     "investigate_anomaly": ["anomaly_id"],
     "review_seat_request": ["plan_id"],
+    "review_plan": ["plan_id"],
     "compare_candidates": ["capability_tag"],
 }
 

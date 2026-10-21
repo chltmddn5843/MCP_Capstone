@@ -91,6 +91,7 @@ Enum anomaly_status {
 Enum plan_type {
   seat_assign
   seat_reclaim
+  api_access
   model_change
   budget_review
   purchase_review

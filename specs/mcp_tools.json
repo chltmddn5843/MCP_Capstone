@@ -667,6 +667,11 @@
                   "title": "Name",
                   "type": "string"
                 },
+                "capabilities": {
+                  "default": "",
+                  "title": "Capabilities",
+                  "type": "string"
+                },
                 "input_usd_per_mtok": {
                   "title": "Input Usd Per Mtok",
                   "type": "number"
@@ -1342,6 +1347,11 @@
                 },
                 "name": {
                   "title": "Name",
+                  "type": "string"
+                },
+                "capabilities": {
+                  "default": "",
+                  "title": "Capabilities",
                   "type": "string"
                 },
                 "input_usd_per_mtok": {
@@ -2643,7 +2653,7 @@
       },
       {
         "name": "create_action_plan",
-        "description": "처리 요청을 만든다. 단계(바로 처리·담당자 승인·책임자 결정)는 서버가 정한다. 바로 처리는 즉시 실행되어 status=executed로 돌아온다. 직원은 seat_assign(본인)과 model_change(본인 소유 프로젝트, test 환경)만 만들 수 있다.",
+        "description": "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어가고(status=pending_approval), 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.",
         "inputSchema": {
           "$defs": {
             "Evidence": {
@@ -2681,6 +2691,7 @@
               "enum": [
                 "seat_assign",
                 "seat_reclaim",
+                "api_access",
                 "model_change",
                 "budget_review",
                 "purchase_review"
@@ -2917,6 +2928,17 @@
                   "default": null,
                   "title": "Reject Reason"
                 },
+                "ai_opinion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlanOpinion"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
                 "created_at": {
                   "format": "date-time",
                   "title": "Created At",
@@ -2967,6 +2989,212 @@
               "title": "Evidence",
               "type": "object"
             },
+            "OpinionAsset": {
+              "properties": {
+                "product": {
+                  "title": "Product",
+                  "type": "string"
+                },
+                "purchased": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Purchased"
+                },
+                "assigned": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Assigned"
+                },
+                "unassigned": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Unassigned"
+                },
+                "seat_price_krw": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Seat Price Krw"
+                },
+                "note": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Note"
+                }
+              },
+              "required": [
+                "product"
+              ],
+              "title": "OpinionAsset",
+              "type": "object"
+            },
+            "OpinionRequester": {
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "dept": {
+                  "title": "Dept",
+                  "type": "string"
+                },
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "current_products": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Current Products",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "dept",
+                "job_title"
+              ],
+              "title": "OpinionRequester",
+              "type": "object"
+            },
+            "PlanOpinion": {
+              "description": "승인 대기 건에 붙는 AI 검토 의견. 관리자가 읽는 글이므로 전부 자연어·이름 기준(id·컬럼명 없음).",
+              "properties": {
+                "recommendation": {
+                  "description": "approve | reject | alternative",
+                  "title": "Recommendation",
+                  "type": "string"
+                },
+                "summary": {
+                  "description": "한 줄 권장 사유",
+                  "title": "Summary",
+                  "type": "string"
+                },
+                "requester": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/OpinionRequester"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "asset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/OpinionAsset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "facts": {
+                  "description": "확인한 사실. 예: '미배정 좌석 1석'",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Facts",
+                  "type": "array"
+                },
+                "risks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Risks",
+                  "type": "array"
+                },
+                "alternative": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Alternative"
+                },
+                "changes": {
+                  "description": "[['직원', '박서준 (마케팅 · 콘텐츠 마케터)'], ...]",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": "Changes",
+                  "type": "array"
+                },
+                "evidence_text": {
+                  "description": "참고한 데이터를 문장으로",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Evidence Text",
+                  "type": "array"
+                },
+                "generated_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Generated At"
+                }
+              },
+              "required": [
+                "recommendation",
+                "summary"
+              ],
+              "title": "PlanOpinion",
+              "type": "object"
+            },
             "PlanStatus": {
               "enum": [
                 "draft",
@@ -2983,6 +3211,7 @@
               "enum": [
                 "seat_assign",
                 "seat_reclaim",
+                "api_access",
                 "model_change",
                 "budget_review",
                 "purchase_review"
@@ -3022,6 +3251,491 @@
           "system"
         ],
         "x-backend": "GET /plans/{id}"
+      },
+      {
+        "name": "get_employee_profile",
+        "description": "검토용 직원 프로필: 이름·부서·직무·재직 상태·등록 업무·배정된 제품. 사용량·비밀번호는 없다.",
+        "inputSchema": {
+          "properties": {
+            "employee_id": {
+              "title": "Employee Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "employee_id"
+          ],
+          "title": "GetEmployeeProfileIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "Employee": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "email": {
+                  "title": "Email",
+                  "type": "string"
+                },
+                "dept_id": {
+                  "title": "Dept Id",
+                  "type": "string"
+                },
+                "dept_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Dept Name"
+                },
+                "role": {
+                  "$ref": "#/$defs/Role"
+                },
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/$defs/EmployeeStatus",
+                  "default": "active"
+                },
+                "hire_date": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Hire Date"
+                },
+                "slack_user_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Slack User Id"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "email",
+                "dept_id",
+                "role",
+                "job_title"
+              ],
+              "title": "Employee",
+              "type": "object"
+            },
+            "EmployeeStatus": {
+              "enum": [
+                "active",
+                "on_leave",
+                "resigned"
+              ],
+              "title": "EmployeeStatus",
+              "type": "string"
+            },
+            "RegisteredTask": {
+              "properties": {
+                "id": {
+                  "title": "Id",
+                  "type": "string"
+                },
+                "employee_id": {
+                  "title": "Employee Id",
+                  "type": "string"
+                },
+                "title": {
+                  "title": "Title",
+                  "type": "string"
+                },
+                "description": {
+                  "title": "Description",
+                  "type": "string"
+                },
+                "frequency": {
+                  "description": "예: daily, weekly, monthly, adhoc",
+                  "title": "Frequency",
+                  "type": "string"
+                },
+                "tools_used": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Tools Used",
+                  "type": "array"
+                },
+                "source": {
+                  "$ref": "#/$defs/TaskSource",
+                  "default": "manual"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "title": "Updated At",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "employee_id",
+                "title",
+                "description",
+                "frequency",
+                "updated_at"
+              ],
+              "title": "RegisteredTask",
+              "type": "object"
+            },
+            "Role": {
+              "description": "v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절).",
+              "enum": [
+                "employee",
+                "admin",
+                "system"
+              ],
+              "title": "Role",
+              "type": "string"
+            },
+            "TaskSource": {
+              "enum": [
+                "manual",
+                "bot"
+              ],
+              "title": "TaskSource",
+              "type": "string"
+            }
+          },
+          "description": "관리자·시스템이 보는 다른 직원의 프로필 (검토용). 비밀번호·사용량은 없다.",
+          "properties": {
+            "employee": {
+              "$ref": "#/$defs/Employee"
+            },
+            "tasks": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/RegisteredTask"
+              },
+              "title": "Tasks",
+              "type": "array"
+            },
+            "products": {
+              "description": "배정된 제품 이름",
+              "items": {
+                "type": "string"
+              },
+              "title": "Products",
+              "type": "array"
+            }
+          },
+          "required": [
+            "employee"
+          ],
+          "title": "EmployeeProfile",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "system",
+          "admin"
+        ],
+        "x-backend": "GET /employees/{id}"
+      },
+      {
+        "name": "attach_plan_opinion",
+        "description": "승인 대기 중인 처리 요청에 AI 검토 의견을 붙인다. 관리자가 읽으므로 전부 자연어·이름으로 쓴다.",
+        "inputSchema": {
+          "$defs": {
+            "OpinionAsset": {
+              "properties": {
+                "product": {
+                  "title": "Product",
+                  "type": "string"
+                },
+                "purchased": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Purchased"
+                },
+                "assigned": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Assigned"
+                },
+                "unassigned": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Unassigned"
+                },
+                "seat_price_krw": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Seat Price Krw"
+                },
+                "note": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Note"
+                }
+              },
+              "required": [
+                "product"
+              ],
+              "title": "OpinionAsset",
+              "type": "object"
+            },
+            "OpinionRequester": {
+              "properties": {
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "dept": {
+                  "title": "Dept",
+                  "type": "string"
+                },
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "current_products": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Current Products",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "dept",
+                "job_title"
+              ],
+              "title": "OpinionRequester",
+              "type": "object"
+            },
+            "PlanOpinion": {
+              "description": "승인 대기 건에 붙는 AI 검토 의견. 관리자가 읽는 글이므로 전부 자연어·이름 기준(id·컬럼명 없음).",
+              "properties": {
+                "recommendation": {
+                  "description": "approve | reject | alternative",
+                  "title": "Recommendation",
+                  "type": "string"
+                },
+                "summary": {
+                  "description": "한 줄 권장 사유",
+                  "title": "Summary",
+                  "type": "string"
+                },
+                "requester": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/OpinionRequester"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "asset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/OpinionAsset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "facts": {
+                  "description": "확인한 사실. 예: '미배정 좌석 1석'",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Facts",
+                  "type": "array"
+                },
+                "risks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Risks",
+                  "type": "array"
+                },
+                "alternative": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Alternative"
+                },
+                "changes": {
+                  "description": "[['직원', '박서준 (마케팅 · 콘텐츠 마케터)'], ...]",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": "Changes",
+                  "type": "array"
+                },
+                "evidence_text": {
+                  "description": "참고한 데이터를 문장으로",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Evidence Text",
+                  "type": "array"
+                },
+                "generated_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Generated At"
+                }
+              },
+              "required": [
+                "recommendation",
+                "summary"
+              ],
+              "title": "PlanOpinion",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "opinion": {
+              "$ref": "#/$defs/PlanOpinion"
+            }
+          },
+          "required": [
+            "plan_id",
+            "opinion"
+          ],
+          "title": "AttachPlanOpinionIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "PlanStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "approved",
+                "executed",
+                "failed",
+                "rejected"
+              ],
+              "title": "PlanStatus",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/PlanStatus"
+            }
+          },
+          "required": [
+            "plan_id",
+            "status"
+          ],
+          "title": "AttachPlanOpinionOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "system",
+          "admin"
+        ],
+        "x-backend": "PATCH /plans/{id}/opinion"
       },
       {
         "name": "execute_approved_plan",
@@ -3408,6 +4122,9 @@
       "anomaly_id"
     ],
     "review_seat_request": [
+      "plan_id"
+    ],
+    "review_plan": [
       "plan_id"
     ],
     "compare_candidates": [

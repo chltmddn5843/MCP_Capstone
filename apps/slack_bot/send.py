@@ -64,6 +64,8 @@ def build_approval_request(task: dict, web_url: str | None = None) -> list[dict]
     """관리자 알림. 상세와 결정은 웹 콘솔이 기본 창구이고, 버튼은 빠른 처리용이다."""
     card = task["approval"]
     link = f"\n<{web_url}|웹 콘솔에서 상세 보기·결정>" if web_url else ""
+    opinion = task.get("opinion_summary")
+    link = (f"\nAI 의견: {opinion}" if opinion else "") + link
     return [
         _section(f"*AI 비서 처리 확인 요청*\n{card['summary']}\n요청: {task['input']}\n요청자: `{task['requester_id']}`{link}"),
         _buttons([("확인하고 처리", "ap_yes", task["task_id"], "primary"), ("거절", "ap_no", task["task_id"], "danger")]),

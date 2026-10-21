@@ -21,6 +21,16 @@ class SeatReclaimItem(BaseModel):
     reassign_to_employee_id: str | None = None
 
 
+class ApiAccessItem(BaseModel):
+    """사용량 과금 제품(API)의 사용 신청. 승인되면 백엔드가 프로젝트를 만든다."""
+
+    tool_id: str
+    purpose: str = Field(description="업무 목적. 예: 세일즈 데이터 자동 분석")
+    model_id: str | None = None
+    expected_requests_per_day: int | None = None
+    environment: Environment = Environment.test
+
+
 class ModelChangeItem(BaseModel):
     project_id: str
     from_model_id: str
@@ -46,6 +56,7 @@ class PurchaseReviewItem(BaseModel):
 PLAN_ITEM_MODELS: dict[PlanType, type[BaseModel]] = {
     PlanType.seat_assign: SeatAssignItem,
     PlanType.seat_reclaim: SeatReclaimItem,
+    PlanType.api_access: ApiAccessItem,
     PlanType.model_change: ModelChangeItem,
     PlanType.budget_review: BudgetReviewItem,
     PlanType.purchase_review: PurchaseReviewItem,

@@ -22,7 +22,7 @@ CREATE TYPE environment AS ENUM ('test', 'prod');
 CREATE TYPE seat_status AS ENUM ('assigned', 'unassigned');
 CREATE TYPE license_flag AS ENUM ('unused', 'on_leave', 'no_record', 'recent_hire');
 CREATE TYPE anomaly_status AS ENUM ('open', 'investigating', 'resolved');
-CREATE TYPE plan_type AS ENUM ('seat_assign', 'seat_reclaim', 'model_change', 'budget_review', 'purchase_review');
+CREATE TYPE plan_type AS ENUM ('seat_assign', 'seat_reclaim', 'api_access', 'model_change', 'budget_review', 'purchase_review');
 CREATE TYPE plan_status AS ENUM ('draft', 'pending_approval', 'approved', 'executed', 'failed', 'rejected');
 CREATE TYPE risk_level AS ENUM ('low', 'medium', 'high');
 CREATE TYPE confirmation_answer AS ENUM ('still_needed', 'return_seat', 'on_leave');

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import Field
+import json
+
+from pydantic import Field, field_validator
 
 from schemas.common import (
     AnomalyStatus,
@@ -231,6 +233,37 @@ class Anomaly(Base):
     created_at: datetime
 
 
+class OpinionRequester(Base):
+    name: str
+    dept: str
+    job_title: str
+    current_products: list[str] = []
+
+
+class OpinionAsset(Base):
+    product: str
+    purchased: int | None = None
+    assigned: int | None = None
+    unassigned: int | None = None
+    seat_price_krw: int | None = None
+    note: str | None = None
+
+
+class PlanOpinion(Base):
+    """승인 대기 건에 붙는 AI 검토 의견. 관리자가 읽는 글이므로 전부 자연어·이름 기준(id·컬럼명 없음)."""
+
+    recommendation: str = Field(description="approve | reject | alternative")
+    summary: str = Field(description="한 줄 권장 사유")
+    requester: OpinionRequester | None = None
+    asset: OpinionAsset | None = None
+    facts: list[str] = Field(default_factory=list, description="확인한 사실. 예: '미배정 좌석 1석'")
+    risks: list[str] = Field(default_factory=list)
+    alternative: str | None = None
+    changes: list[list[str]] = Field(default_factory=list, description="[['직원', '박서준 (마케팅 · 콘텐츠 마케터)'], ...]")
+    evidence_text: list[str] = Field(default_factory=list, description="참고한 데이터를 문장으로")
+    generated_at: datetime | None = None
+
+
 class ActionPlan(Base):
     id: str
     type: PlanType
@@ -245,7 +278,29 @@ class ActionPlan(Base):
     executed_at: datetime | None = None
     result: dict | None = None
     reject_reason: str | None = None
+    ai_opinion: PlanOpinion | None = None
     created_at: datetime
+
+    @field_validator("ai_opinion", mode="before")
+    @classmethod
+    def _parse_opinion(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+            try:
+                return json.loads(v)
+            except ValueError:
+                return {"recommendation": "alternative", "summary": v}
+        return v
+
+
+class EmployeeProfile(Base):
+    """관리자·시스템이 보는 다른 직원의 프로필 (검토용). 비밀번호·사용량은 없다."""
+
+    employee: "Employee"
+    tasks: list["RegisteredTask"] = []
+    products: list[str] = Field(default_factory=list, description="배정된 제품 이름")
 
 
 class Confirmation(Base):

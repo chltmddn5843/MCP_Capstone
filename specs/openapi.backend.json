@@ -2703,6 +2703,213 @@
         }
       }
     },
+    "/employees/{employee_id}": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Get Employee Profile",
+        "description": "검토용 직원 프로필. 비밀번호·개인 사용량은 주지 않는다.",
+        "operationId": "get_employee_profile_employees__employee_id__get",
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Employee Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_EmployeeProfile_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/plans/{plan_id}/opinion": {
+      "patch": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Attach Opinion",
+        "operationId": "attach_opinion_plans__plan_id__opinion_patch",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanOpinion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ActionPlan_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/plans/{plan_id}/approve": {
       "post": {
         "tags": [
@@ -3825,6 +4032,16 @@
             ],
             "title": "Reject Reason"
           },
+          "ai_opinion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanOpinion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -4407,6 +4624,35 @@
         ],
         "title": "Employee"
       },
+      "EmployeeProfile": {
+        "properties": {
+          "employee": {
+            "$ref": "#/components/schemas/Employee"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/RegisteredTask"
+            },
+            "type": "array",
+            "title": "Tasks",
+            "default": []
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products",
+            "description": "배정된 제품 이름"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee"
+        ],
+        "title": "EmployeeProfile",
+        "description": "관리자·시스템이 보는 다른 직원의 프로필 (검토용). 비밀번호·사용량은 없다."
+      },
       "EmployeeStatus": {
         "type": "string",
         "enum": [
@@ -4479,6 +4725,22 @@
           "meta"
         ],
         "title": "Envelope[DevLoginResponse]"
+      },
+      "Envelope_EmployeeProfile_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EmployeeProfile"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[EmployeeProfile]"
       },
       "Envelope_JobRunResponse_": {
         "properties": {
@@ -5231,6 +5493,11 @@
             "type": "string",
             "title": "Name"
           },
+          "capabilities": {
+            "type": "string",
+            "title": "Capabilities",
+            "default": ""
+          },
           "input_usd_per_mtok": {
             "type": "number",
             "title": "Input Usd Per Mtok"
@@ -5278,6 +5545,105 @@
           "usd"
         ],
         "title": "Money"
+      },
+      "OpinionAsset": {
+        "properties": {
+          "product": {
+            "type": "string",
+            "title": "Product"
+          },
+          "purchased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchased"
+          },
+          "assigned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned"
+          },
+          "unassigned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unassigned"
+          },
+          "seat_price_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seat Price Krw"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product"
+        ],
+        "title": "OpinionAsset"
+      },
+      "OpinionRequester": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "dept": {
+            "type": "string",
+            "title": "Dept"
+          },
+          "job_title": {
+            "type": "string",
+            "title": "Job Title"
+          },
+          "current_products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Current Products",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "dept",
+          "job_title"
+        ],
+        "title": "OpinionRequester"
       },
       "Page_ActionPlan_": {
         "properties": {
@@ -5486,6 +5852,104 @@
         ],
         "title": "PlanExecuteResponse"
       },
+      "PlanOpinion": {
+        "properties": {
+          "recommendation": {
+            "type": "string",
+            "title": "Recommendation",
+            "description": "approve | reject | alternative"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "description": "한 줄 권장 사유"
+          },
+          "requester": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpinionRequester"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpinionAsset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "facts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Facts",
+            "description": "확인한 사실. 예: '미배정 좌석 1석'"
+          },
+          "risks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Risks"
+          },
+          "alternative": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alternative"
+          },
+          "changes": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "[['직원', '박서준 (마케팅 · 콘텐츠 마케터)'], ...]"
+          },
+          "evidence_text": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Text",
+            "description": "참고한 데이터를 문장으로"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recommendation",
+          "summary"
+        ],
+        "title": "PlanOpinion",
+        "description": "승인 대기 건에 붙는 AI 검토 의견. 관리자가 읽는 글이므로 전부 자연어·이름 기준(id·컬럼명 없음)."
+      },
       "PlanStatus": {
         "type": "string",
         "enum": [
@@ -5503,6 +5967,7 @@
         "enum": [
           "seat_assign",
           "seat_reclaim",
+          "api_access",
           "model_change",
           "budget_review",
           "purchase_review"
