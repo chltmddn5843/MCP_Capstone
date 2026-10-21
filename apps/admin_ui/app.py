@@ -16,8 +16,8 @@ from apps.admin_ui import labels as L  # noqa: E402
 from apps.admin_ui.common import AGENT, BACKEND, api, approval_inbox, assistant_panel, login, render_stream, start_task, task_history  # noqa: E402
 
 load_dotenv()
-SEED_USERS = {"emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이지우 · 고객지원 직원", "emp_hrd_01": "김하나 · HRD",
-              "emp_asset_01": "최민준 · 자산관리", "emp_approver_01": "정수아 · IT·보안 책임자"}
+SEED_USERS = {"emp_mkt_01": "박서준 · 마케팅 직원", "emp_cs_01": "이지우 · 고객지원 직원", "emp_hrd_01": "김하나 · HRD 직원",
+              "emp_asset_01": "최민준 · 관리자"}
 
 st.set_page_config(page_title="한빛제조 AI 활용·운영", layout="wide")
 
@@ -67,55 +67,10 @@ def employee_view() -> None:
         task_history()
 
 
-# ---------- HRD ----------
-def hrd_view() -> None:
-    st.header("활용 지원 (HRD)")
-    t_adopt, t_notice, t_ask, t_hist = st.tabs(["팀별 활용 현황", "자동 제안", "AI 비서", "내 요청"])
-    with t_adopt:
-        st.subheader("팀별 활용 현황")
-        st.caption("개인이 특정되지 않도록 5명 이상 팀만, 팀 단위로만 보여 줍니다. 활용 데이터는 교육과 제품 개선에만 쓰고 인사평가에 쓰지 않습니다.")
-        rows = api("GET", "/adoption/teams") or []
-        if rows:
-            st.dataframe([{"팀": r["team_name"], "인원": r["headcount"], "보낸 제안": r["suggestions_sent"], "도움 됨": r["useful"], "관련 없음": r["irrelevant"],
-                           "적용 방법 질문": r["questions"], "AI 활동 인원 비율": f"{r['active_ratio']:.0%}", "반복 질문": " / ".join(r["top_questions"]) or "-"} for r in rows], width="stretch", hide_index=True)
-            for r in rows:
-                if r["top_questions"] and st.button(f"'{r['team_name']}' 직무 가이드 초안 만들기", key=f"guide_{r['team_id']}"):
-                    tid = start_task(f"{r['team_name']} 팀의 반복 질문을 바탕으로 직무별 활용 가이드 초안을 써줘", "draft_role_guide", {"job_title": r["team_name"]}, new_thread=True)
-                    if tid:
-                        render_stream(tid)
-        st.subheader("최근 AI 업데이트")
-        st.caption("허용 목록 벤더의 공식 릴리스 노트만 수집합니다. '직원 업무에 연결'을 누르면 AI 비서가 관련 업무를 찾아 제안 초안을 만듭니다.")
-        for u in (api("GET", "/updates") or {}).get("items", []):
-            with st.container(border=True):
-                st.markdown(f"**{u['vendor']} · {u['title']}** ({u['published_at'][:10]})\n\n{u['summary']}  [원문 보기]({u['url']})")
-                if st.button("직원 업무에 연결", key=f"rev_{u['id']}"):
-                    tid = start_task(f"업데이트 {u['id']}를 검토해서 관련 직원 업무에 활용 제안을 만들어줘", "review_update", {"update_id": u["id"]}, new_thread=True)
-                    if tid:
-                        render_stream(tid)
-    with t_notice:
-        st.subheader("팀·전사 공지 승인")
-        st.caption("개인 맞춤 제안은 알림 정책 안에서 자동 발송되고, 팀·전사 공지만 HRD 승인을 거칩니다.")
-        sugg = (api("GET", "/suggestions", params={"status": "pending_approval"}) or {}).get("items", [])
-        for s in sugg:
-            with st.container(border=True):
-                st.markdown(f"**대상: {s['target_type']} {s['target_id'] or ''}** · 보내는 이유: {s['relevance']}")
-                st.write(s["body"])
-                if st.button("승인하고 발송", key=f"sa_{s['id']}") and api("POST", f"/suggestions/{s['id']}/approve"):
-                    st.success("발송했습니다.")
-                    st.rerun()
-        if not sugg:
-            st.caption("승인 대기 공지가 없습니다.")
-        approval_inbox(me)
-    with t_ask:
-        assistant_panel("hrd")
-    with t_hist:
-        task_history()
-
-
-# ---------- 자산관리 ----------
-def asset_view() -> None:
+# ---------- 관리자 ----------
+def admin_view() -> None:
     st.header("구독 운영 (관리자)")
-    t_lic, t_cost, t_inbox, t_need, t_ask, t_hist = st.tabs(["이용권", "비용 급증 알림", "승인 대기", "미지원 요청", "AI 비서", "내 요청"])
+    t_lic, t_cost, t_inbox, t_need, t_adopt, t_ask, t_hist = st.tabs(["이용권", "비용 급증 알림", "승인 대기", "미지원 요청", "활용 현황·자동 제안", "AI 비서", "내 요청"])
     with t_lic:
         for inv in api("GET", "/inventory") or []:
             st.subheader(f"{inv['tool_name']} · {inv['contract']['plan_name']}")
@@ -161,21 +116,34 @@ def asset_view() -> None:
             st.caption("기록된 요청이 없습니다.")
     with t_inbox:
         approval_inbox(me)
+    with t_adopt:
+        st.subheader("팀별 활용 현황")
+        st.caption("개인이 특정되지 않도록 5명 이상 팀만, 팀 단위로만 보여 줍니다. 활용 데이터는 교육과 제품 개선에만 쓰고 인사평가에 쓰지 않습니다.")
+        rows = api("GET", "/adoption/teams") or []
+        if rows:
+            st.dataframe([{"팀": r["team_name"], "인원": r["headcount"], "보낸 제안": r["suggestions_sent"], "도움 됨": r["useful"], "관련 없음": r["irrelevant"],
+                           "적용 방법 질문": r["questions"], "AI 활동 인원 비율": f"{r['active_ratio']:.0%}", "반복 질문": " / ".join(r["top_questions"]) or "-"} for r in rows], width="stretch", hide_index=True)
+        st.subheader("최근 제품 업데이트와 자동 제안")
+        st.caption("허용 목록 벤더의 공식 릴리스 노트만 수집합니다. 새 항목이 있으면 시스템이 관련 팀을 판단해 알림 정책 안에서 팀 Slack으로 자동 발송합니다. '지금 검토'를 누르면 같은 판단을 바로 실행합니다.")
+        for u in (api("GET", "/updates") or {}).get("items", []):
+            with st.container(border=True):
+                st.markdown(f"**{u['vendor']} · {u['title']}** ({u['published_at'][:10]})\n\n{u['summary']}  [원문 보기]({u['url']})")
+                if st.button("지금 검토", key=f"rev_{u['id']}"):
+                    tid = start_task(f"업데이트 {u['id']}를 검토해서 관련 팀 업무에 활용 제안을 만들어줘", "review_update", {"update_id": u["id"]}, new_thread=True)
+                    if tid:
+                        render_stream(tid)
+        st.subheader("자동 제안 기록")
+        st.caption("어느 팀에 뭘 보냈고, 왜 보내지 않았는지 남깁니다. (후속: 같은 내용을 HRD에 메일)")
+        sugg = (api("GET", "/suggestions") or {}).get("items", [])
+        if sugg:
+            st.dataframe([{"업데이트": s_["update_id"], "대상": f"{s_['target_type']} {s_['target_id'] or ''}", "상태": L.SUGGESTION_STATUS.get(s_["status"], s_["status"]),
+                           "보낸 이유": s_["relevance"] or "-", "보내지 않은 이유": s_.get("hold_reason") or "-"} for s_ in sugg], width="stretch", hide_index=True)
+        else:
+            st.caption("기록이 없습니다.")
     with t_ask:
-        assistant_panel("asset")
+        assistant_panel("admin")
     with t_hist:
         task_history()
 
 
-# ---------- 승인자 ----------
-def approver_view() -> None:
-    st.header("승인 대기 (책임자)")
-    t_inbox, t_ask = st.tabs(["승인 대기", "AI 비서"])
-    with t_inbox:
-        approval_inbox(me)
-    with t_ask:
-        assistant_panel("approver")
-        task_history()
-
-
-{"employee": employee_view, "hrd": hrd_view, "asset": asset_view, "approver": approver_view}.get(role, employee_view)()
+{"employee": employee_view, "admin": admin_view}.get(role, employee_view)()

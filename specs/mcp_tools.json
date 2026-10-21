@@ -223,11 +223,10 @@
               "type": "object"
             },
             "Role": {
+              "description": "v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절).",
               "enum": [
                 "employee",
-                "hrd",
-                "asset",
-                "approver",
+                "admin",
                 "system"
               ],
               "title": "Role",
@@ -345,9 +344,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "GET /me"
@@ -424,7 +421,7 @@
       },
       {
         "name": "list_approved_tools",
-        "description": "승인된 도구와 플랜, 과금 유형, 정책 요약을 돌려준다.",
+        "description": "승인된 제품(AI·소프트웨어 구독)과 플랜, 과금 유형, 정책 요약을 돌려준다.",
         "inputSchema": {
           "properties": {
             "category": {
@@ -609,9 +606,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "GET /tools"
@@ -723,16 +718,14 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "GET /models"
       },
       {
         "name": "find_relevant_tasks",
-        "description": "업데이트와 관련될 수 있는 등록 업무 후보를 돌려준다. HRD에게는 팀 단위로만 보인다.",
+        "description": "업데이트와 관련될 수 있는 등록 업무 후보를 돌려준다. 관리자에게는 팀 단위로만 보인다.",
         "inputSchema": {
           "properties": {
             "update_id": {
@@ -765,7 +758,7 @@
         "outputSchema": {
           "$defs": {
             "RelevantTaskCandidate": {
-              "description": "HRD에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다.",
+              "description": "관리자에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다. 시스템 계정만 개인을 본다.",
               "properties": {
                 "task_id": {
                   "title": "Task Id",
@@ -891,7 +884,7 @@
         },
         "x-roles": [
           "system",
-          "hrd"
+          "admin"
         ],
         "x-backend": "GET /updates/{id}/relevant-tasks"
       },
@@ -1031,7 +1024,7 @@
         },
         "x-roles": [
           "system",
-          "hrd"
+          "admin"
         ],
         "x-backend": "POST /suggestions"
       },
@@ -1166,7 +1159,7 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "hrd"
+          "admin"
         ],
         "x-backend": "GET /adoption/teams"
       },
@@ -1290,7 +1283,7 @@
         },
         "x-roles": [
           "employee",
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "GET /eval-results"
@@ -1437,9 +1430,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "POST /estimates/task-cost"
@@ -1591,7 +1582,7 @@
         },
         "x-roles": [
           "employee",
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "GET /usage"
@@ -1752,7 +1743,7 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "GET /usage?group_by="
@@ -1918,7 +1909,7 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "GET /anomalies"
@@ -2227,7 +2218,7 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "GET /anomalies/{id}"
@@ -2436,14 +2427,14 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "GET /inventory"
       },
       {
         "name": "record_unmet_need",
-        "description": "승인 도구로 해결되지 않는 수요를 기록한다.",
+        "description": "승인 제품으로 할 수 없는 요청(미지원 요청)을 기록한다.",
         "inputSchema": {
           "properties": {
             "summary": {
@@ -2492,14 +2483,14 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset"
+          "admin",
+          "system"
         ],
         "x-backend": "POST /unmet-needs"
       },
       {
         "name": "list_unmet_needs",
-        "description": "미충족 수요를 태그별로 집계한다.",
+        "description": "미지원 요청을 기능 태그별로 집계한다.",
         "inputSchema": {
           "properties": {
             "min_count": {
@@ -2590,8 +2581,8 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "hrd",
-          "asset"
+          "admin",
+          "system"
         ],
         "x-backend": "GET /unmet-needs"
       },
@@ -2646,13 +2637,13 @@
           "idempotentHint": false
         },
         "x-roles": [
-          "asset"
+          "admin"
         ],
         "x-backend": "POST /confirmations"
       },
       {
         "name": "create_action_plan",
-        "description": "조치안을 만든다. 위험도는 서버가 산정하고, 실행은 승인 뒤 별도로 한다. 직원은 seat_assign(본인)과 model_change(본인 소유 프로젝트, test 환경)만 만들 수 있다.",
+        "description": "처리 요청을 만든다. 단계(바로 처리·담당자 승인·책임자 결정)는 서버가 정한다. 바로 처리는 즉시 실행되어 status=executed로 돌아온다. 직원은 seat_assign(본인)과 model_change(본인 소유 프로젝트, test 환경)만 만들 수 있다.",
         "inputSchema": {
           "$defs": {
             "Evidence": {
@@ -2691,7 +2682,6 @@
                 "seat_assign",
                 "seat_reclaim",
                 "model_change",
-                "notice_send",
                 "budget_review",
                 "purchase_review"
               ],
@@ -2756,11 +2746,10 @@
               "type": "string"
             },
             "Role": {
+              "description": "v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절).",
               "enum": [
                 "employee",
-                "hrd",
-                "asset",
-                "approver",
+                "admin",
                 "system"
               ],
               "title": "Role",
@@ -2802,8 +2791,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "POST /plans"
@@ -2996,7 +2984,6 @@
                 "seat_assign",
                 "seat_reclaim",
                 "model_change",
-                "notice_send",
                 "budget_review",
                 "purchase_review"
               ],
@@ -3031,9 +3018,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "GET /plans/{id}"
@@ -3108,7 +3093,7 @@
           "idempotentHint": true
         },
         "x-roles": [
-          "asset",
+          "admin",
           "system"
         ],
         "x-backend": "POST /plans/{id}/execute"
@@ -3240,9 +3225,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "FTS5"
@@ -3329,9 +3312,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "GET /updates/{id}"
@@ -3401,9 +3382,7 @@
         },
         "x-roles": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
         "x-backend": "FTS5"
@@ -3421,9 +3400,6 @@
   "prompts": {
     "review_update": [
       "update_id"
-    ],
-    "draft_role_guide": [
-      "job_title"
     ],
     "recommend_model": [
       "task_description"

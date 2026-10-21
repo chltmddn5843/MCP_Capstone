@@ -1205,104 +1205,6 @@
         }
       }
     },
-    "/suggestions/{suggestion_id}/approve": {
-      "post": {
-        "tags": [
-          "F1"
-        ],
-        "summary": "Approve Suggestion",
-        "operationId": "approve_suggestion_suggestions__suggestion_id__approve_post",
-        "parameters": [
-          {
-            "name": "suggestion_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Suggestion Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_Suggestion_"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          }
-        }
-      }
-    },
     "/suggestions/{suggestion_id}/feedback": {
       "post": {
         "tags": [
@@ -5305,7 +5207,6 @@
           "seat_assign",
           "seat_reclaim",
           "model_change",
-          "notice_send",
           "budget_review",
           "purchase_review"
         ],
@@ -5457,7 +5358,7 @@
           "summary"
         ],
         "title": "RelevantTaskCandidate",
-        "description": "HRD에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다."
+        "description": "관리자에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다. 시스템 계정만 개인을 본다."
       },
       "RelevantTasksResponse": {
         "properties": {
@@ -5492,12 +5393,11 @@
         "type": "string",
         "enum": [
           "employee",
-          "hrd",
-          "asset",
-          "approver",
+          "admin",
           "system"
         ],
-        "title": "Role"
+        "title": "Role",
+        "description": "v2: 직원·관리자·시스템. 관리자는 자산·보안·승인 권한을 함께 가진다 (docs/설계문서.md 3절)."
       },
       "SavingsKind": {
         "type": "string",

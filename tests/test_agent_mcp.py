@@ -71,7 +71,7 @@ def test_tools_come_from_mcp_and_are_role_filtered(client):
 
     from schemas.common import Role
 
-    asset_tools = asyncio.run(tools_mod.load_tools("dev.emp_asset_01", Role.asset))
+    asset_tools = asyncio.run(tools_mod.load_tools("dev.emp_asset_01", Role.admin))
     emp_tools = asyncio.run(tools_mod.load_tools("dev.emp_mkt_01", Role.employee))
     names_a, names_e = {t.name for t in asset_tools}, {t.name for t in emp_tools}
     assert "execute_approved_plan" in names_a and "execute_approved_plan" not in names_e

@@ -25,7 +25,7 @@ npx @modelcontextprotocol/inspector     # tools/list에 역할별 도구가 보�
 | `auth.py` | 토큰 → 백엔드 `GET /me`로 역할 확인 → `tools/list`에서 숨기고 호출도 막음 |
 | `resources.py`, `prompts.py` | Resource 6개, Prompt 6개 (`RESOURCES`, `PROMPTS` 목록과 같음) |
 
-역할별로 보이는 도구 수: employee 10, hrd 11, asset 16, approver 5, system 15. 토큰이 없으면 0개.
+역할별로 보이는 도구 수: employee 10, admin 19, system 17. 토큰이 없으면 0개.
 
 ## 확인
 ```bash

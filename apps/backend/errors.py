@@ -25,6 +25,12 @@ def install_error_handlers(app: FastAPI) -> None:
         body = {"error": {"code": exc.code.value, "message": exc.message, "details": exc.details}}
         return JSONResponse(status_code=HTTP_STATUS_BY_CODE[exc.code], content=body)
 
+    @app.exception_handler(Exception)
+    async def _unhandled(_: Request, exc: Exception):
+        # 어떤 예외든 JSON 봉투로. 화면·MCP·에이전트가 "응답이 JSON이 아님" 대신 실제 메시지를 보게 한다.
+        body = {"error": {"code": "internal", "message": f"{type(exc).__name__}: {str(exc)[:500]}", "details": None}}
+        return JSONResponse(status_code=500, content=body)
+
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError):
         body = {"error": {"code": "invalid", "message": "입력 검증 실패", "details": {"errors": exc.errors()}}}

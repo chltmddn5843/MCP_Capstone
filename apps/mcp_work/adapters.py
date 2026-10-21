@@ -145,11 +145,7 @@ def _approvers(plan_type: PlanType, risk: RiskLevel) -> list[str]:
     """누가 승인해야 하는지. 백엔드 _decide 규칙(11절)을 에이전트 안내용으로 옮겨 적은 것이다."""
     if risk == RiskLevel.low:
         return []
-    if risk == RiskLevel.high:
-        return [Role.approver.value]
-    if plan_type == PlanType.notice_send:
-        return [Role.hrd.value]
-    return [Role.asset.value]
+    return [Role.admin.value]  # v2: 담당자 승인·책임자 결정 모두 관리자 한 명
 
 
 @adapter("create_action_plan")

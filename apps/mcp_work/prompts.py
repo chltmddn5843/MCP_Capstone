@@ -23,10 +23,6 @@ TEMPLATES: dict[str, str] = {
         "우리 회사 플랜에 포함되는지 본다. 포함되면 find_relevant_tasks로 관련 업무 후보를 찾아 업무마다 관련성 근거를 "
         "한 줄로 쓰고 save_suggestion으로 저장한다. 플랜에 없거나 관련 업무 근거가 없으면 보내지 말고 "
         "save_suggestion(status=on_hold, hold_reason)으로 보류 사유를 남긴다. 근거가 없는 대상에는 제안을 만들지 않는다."),
-    "draft_role_guide": (
-        "직무 '{job_title}'용 AI 활용 가이드 초안을 써라. get_team_adoption의 자주 묻는 질문과 "
-        "search_vendor_docs의 공식 문서를 근거로, 업무 예시 3개와 요청문 예시, search_internal_policy의 주의 사항을 포함한다. "
-        "팀 단위(5명 이상) 반응과 반복 질문만 쓰고, 개인 이름이나 개인 지표는 쓰지 않는다."),
     "recommend_model": (
         "다음 업무에 맞는 모델을 추천하라: {task_description}. 건당 입력 길이, 필요한 정확도, 처리 시간이 빠져 있으면 먼저 묻는다. "
         "list_approved_models와 get_eval_results로 품질 기준을 통과한 후보만 고르고, estimate_task_cost로 비용을 비교한다. "

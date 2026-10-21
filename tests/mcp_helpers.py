@@ -12,8 +12,8 @@ from apps.backend.main import app as backend_app
 from apps.mcp_work import auth, backend
 
 TRANSPORT = httpx.ASGITransport(app=backend_app)
-TOKENS = {"employee": "dev.emp_mkt_01", "cs": "dev.emp_cs_01", "hrd": "dev.emp_hrd_01",
-          "asset": "dev.emp_asset_01", "approver": "dev.emp_approver_01", "system": "dev.sys"}
+TOKENS = {"employee": "dev.emp_mkt_01", "cs": "dev.emp_cs_01", "hrd_employee": "dev.emp_hrd_01",
+          "admin": "dev.emp_asset_01", "asset": "dev.emp_asset_01", "system": "dev.sys"}  # v2: 역할은 employee·admin·system
 
 
 @asynccontextmanager
