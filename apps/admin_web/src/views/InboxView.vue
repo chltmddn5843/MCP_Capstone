@@ -1,0 +1,133 @@
+<script setup>
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getPlans, approvePlan, rejectPlan } from '../api.js'
+import { RISK, PLAN_STATUS } from '../labels.js'
+
+const route = useRoute()
+const router = useRouter()
+const plans = ref([])
+const tab = ref('pending')
+const notice = ref('')
+const busy = ref(false)
+
+const load = async () => { plans.value = await getPlans() }
+onMounted(load)
+
+const list = computed(() => plans.value.filter((p) => (tab.value === 'pending') === (p.status === 'pending_approval')))
+const selected = computed(() => list.value.find((p) => p.id === route.query.id) ?? list.value[0])
+watch(tab, () => router.replace({ query: {} }))
+
+const select = (id) => router.replace({ query: { id } })
+
+async function decide(fn, verb) {
+  busy.value = true
+  const p = selected.value
+  const status = await fn(p.id)
+  notice.value = `${p.id} ${verb}: ${PLAN_STATUS[status ?? 'rejected']}`
+  await load()
+  router.replace({ query: {} })
+  busy.value = false
+}
+</script>
+
+<template>
+  <header class="page-head">
+    <div><span class="small muted">운영 · 처리 요청</span><h1>승인 대기</h1></div>
+    <div role="tablist" aria-label="보기" class="segment">
+      <button type="button" role="tab" :aria-selected="tab === 'pending'" @click="tab = 'pending'">승인 대기 {{ plans.filter((p) => p.status === 'pending_approval').length }}</button>
+      <button type="button" role="tab" :aria-selected="tab === 'history'" @click="tab = 'history'">처리 이력</button>
+    </div>
+  </header>
+
+  <p v-if="notice" class="status" role="status">{{ notice }}</p>
+
+  <div v-if="list.length" class="row">
+    <section class="col-1 stack" style="gap: 8px" aria-label="처리 요청 목록">
+      <button v-for="p in list" :key="p.id" type="button" class="list-item" :aria-current="p.id === selected?.id" @click="select(p.id)">
+        <span class="li-top">
+          <span class="pill" :class="`pill-${RISK[p.risk].tone}`">{{ RISK[p.risk].label }}</span>
+          <span class="xs muted">{{ tab === 'pending' ? p.createdAt : PLAN_STATUS[p.status] }}</span>
+        </span>
+        <strong style="font-size: 15px">{{ p.title }}</strong>
+        <span class="small muted">{{ p.subtitle }}</span>
+      </button>
+    </section>
+
+    <section v-if="selected" class="card col-3 detail" aria-labelledby="plan-h">
+      <div class="card-head" style="align-items: flex-start">
+        <div style="gap: 6px">
+          <span class="xs muted">처리 요청 {{ selected.id }} · 신청 {{ selected.requester }}</span>
+          <h2 id="plan-h" style="font-size: 22px">{{ selected.title }}</h2>
+          <span style="font-size: 14px">{{ selected.summary }}</span>
+        </div>
+        <span class="pill" :class="`pill-${RISK[selected.risk].tone}`">{{ RISK[selected.risk].label }}</span>
+      </div>
+
+      <ol class="steps" aria-label="진행 단계">
+        <li v-for="(st, i) in selected.steps" :key="st.label" :aria-current="st.current ? 'step' : undefined">
+          <div class="track" :class="{ done: st.done, current: st.current }" />
+          <span class="xs" :class="st.done || st.current ? 'strong' : 'muted'">{{ i + 1 }} {{ st.label }}</span>
+          <span class="xs" :class="st.current ? '' : 'muted'">{{ st.at }}</span>
+        </li>
+      </ol>
+
+      <div class="card-lime">
+        <div class="ai-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
+          <strong style="font-size: 14px">AI 의견 · {{ selected.aiOpinion.title }}</strong>
+        </div>
+        <span style="font-size: 14px; line-height: 1.65">{{ selected.aiOpinion.body }}</span>
+      </div>
+
+      <div class="two">
+        <div class="stack" style="gap: 10px">
+          <strong class="small">변경 내용</strong>
+          <dl class="kv">
+            <div v-for="[k, v] in selected.changes" :key="k"><dt class="muted">{{ k }}</dt><dd>{{ v }}</dd></div>
+          </dl>
+        </div>
+        <div class="stack" style="gap: 10px">
+          <strong class="small">참고한 데이터</strong>
+          <div class="tags"><span v-for="e in selected.evidence" :key="e" class="tag">{{ e }}</span></div>
+        </div>
+      </div>
+
+      <div v-if="selected.status === 'pending_approval'" class="foot">
+        <span class="xs muted" style="flex: 1 1 240px">
+          {{ selected.risk === 'high' ? '책임자 결정은 기록만 남기고, 구매·운영 변경은 시스템 밖에서 진행합니다.' : '승인하면 실행 직전 서버가 상태를 다시 확인합니다.' }}
+        </span>
+        <button type="button" class="btn" style="min-height: 48px" :disabled="busy" @click="decide(rejectPlan, '반려')">반려</button>
+        <button type="button" class="btn btn-dark" style="min-height: 48px; padding: 0 24px" :disabled="busy" @click="decide(approvePlan, '승인')">
+          {{ selected.risk === 'high' ? '결정 기록' : '승인하고 실행' }}
+        </button>
+      </div>
+      <p v-else class="small muted" style="margin: 0">상태: {{ PLAN_STATUS[selected.status] }}</p>
+    </section>
+  </div>
+  <p v-else class="card small muted">{{ tab === 'pending' ? '승인 대기 중인 요청이 없습니다.' : '처리 이력이 없습니다.' }}</p>
+</template>
+
+<style scoped>
+.segment { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--white); border: 1px solid var(--line); }
+.segment button { min-height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; font-size: 14px; }
+.segment button[aria-selected='true'] { background: var(--ink); color: var(--white); font-weight: 600; }
+.list-item { text-align: left; border: 1px solid var(--line); border-radius: 14px; background: var(--white); padding: 17px; display: flex; flex-direction: column; gap: 8px; }
+.list-item:hover { border-color: var(--line-strong); }
+.list-item[aria-current='true'] { border: 2px solid var(--ink); padding: 16px; }
+.li-top { display: flex; justify-content: space-between; gap: 8px; width: 100%; }
+.detail { padding: 28px; gap: 24px; }
+.steps { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.steps li { display: flex; flex-direction: column; gap: 8px; }
+.track { height: 4px; border-radius: 999px; background: rgba(17, 17, 19, 0.1); }
+.track.done { background: var(--ink); }
+.track.current { background: var(--lime); outline: 1px solid rgba(17, 17, 19, 0.24); }
+.strong { font-weight: 700; }
+.ai-title { display: flex; align-items: center; gap: 8px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.kv { margin: 0; display: flex; flex-direction: column; font-size: 14px; }
+.kv div { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.kv div:last-child { border-bottom: 0; }
+.kv dd { margin: 0; }
+.foot { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 20px; border-top: 1px solid var(--line); }
+</style>
