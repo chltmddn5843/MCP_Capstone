@@ -2,8 +2,10 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './styles.css'
+import { loggedIn } from './request.js'
 
 const routes = [
+  { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { title: '로그인', public: true } },
   { path: '/', name: 'home', component: () => import('./views/HomeView.vue'), meta: { title: '홈' } },
   { path: '/inbox', name: 'inbox', component: () => import('./views/InboxView.vue'), meta: { title: '승인 대기' } },
   { path: '/licenses', name: 'licenses', component: () => import('./views/LicensesView.vue'), meta: { title: '구독·이용권' } },
@@ -15,6 +17,11 @@ const routes = [
 ]
 
 const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: () => ({ top: 0 }) })
+// 로그인하지 않았으면 /login으로. 로그인했는데 /login이면 원래 가려던 곳으로
+router.beforeEach((to) => {
+  if (!to.meta.public && !loggedIn()) return { name: 'login', query: { next: to.fullPath } }
+  if (to.name === 'login' && loggedIn()) return to.query.next || '/'
+})
 router.afterEach((to) => { document.title = `${to.meta.title} · 구독 운영` })
 
 createApp(App).use(router).mount('#app')
