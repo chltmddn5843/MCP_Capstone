@@ -34,9 +34,10 @@ EMPLOYEES = {e.id: e for e in [
 ]}
 
 TOOLS = {t.id: t for t in [
-    Tool(id="tool_ai_a", vendor="AI-A", product="AI-A Enterprise Chat", category="chat_assistant", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="고객 개인정보 입력 금지"),
-    Tool(id="tool_ai_b", vendor="AI-B", product="AI-B API", category="llm_api", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal),
-    Tool(id="tool_cand_x", vendor="Vendor-X", product="X Docs AI", category="chat_assistant", approval_status=ToolApprovalStatus.under_review, allowed_data_class=DataClass.public, policy_note="비교 후보. 계약 없음"),
+    Tool(id="tool_ai_a", vendor="OpenAI", product="ChatGPT Enterprise", category="chat_assistant", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="기업용 워크스페이스·관리 기능 제공. 고객 개인정보는 승인된 업무에만 입력"),
+    Tool(id="tool_ai_b", vendor="Anthropic", product="Claude API", category="llm_api", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="긴 문서 분석과 요약에 적합. 민감정보는 사내 정책 준수"),
+    Tool(id="tool_cand_x", vendor="xAI", product="Grok API", category="llm_api", approval_status=ToolApprovalStatus.under_review, allowed_data_class=DataClass.public, policy_note="실시간 검색 도구 연동 후보. 기업 계약 전 검토 필요"),
+    Tool(id="tool_canva", vendor="Canva", product="Canva Enterprise", category="design_collaboration", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="브랜드 키트·디자인 협업·AI 디자인 기능"),
 ]}
 
 CONTRACTS = {c.id: c for c in [
@@ -51,9 +52,9 @@ TOOLS_WITH_PLAN = [
 ]
 
 MODELS = {m.id: m for m in [
-    Model(id="mdl_b_large", vendor="AI-B", name="b-large", input_usd_per_mtok=3.0, output_usd_per_mtok=15.0, allowed_data_class=DataClass.internal),
-    Model(id="mdl_b_mid", vendor="AI-B", name="b-mid", input_usd_per_mtok=0.8, output_usd_per_mtok=4.0, allowed_data_class=DataClass.internal),
-    Model(id="mdl_b_small", vendor="AI-B", name="b-small", input_usd_per_mtok=0.25, output_usd_per_mtok=1.25, allowed_data_class=DataClass.internal),
+    Model(id="mdl_b_large", vendor="Anthropic", name="Claude Opus 4.7", capabilities="복잡한 추론·긴 문서 분석·고품질 작성", input_usd_per_mtok=5.0, output_usd_per_mtok=25.0, allowed_data_class=DataClass.internal),
+    Model(id="mdl_b_mid", vendor="OpenAI", name="GPT-5.2", capabilities="범용 추론·분류·요약·멀티모달 업무", input_usd_per_mtok=1.75, output_usd_per_mtok=14.0, allowed_data_class=DataClass.internal),
+    Model(id="mdl_b_small", vendor="xAI", name="Grok 4.7", capabilities="빠른 범용 응답·코드·검색 도구 연동", input_usd_per_mtok=2.0, output_usd_per_mtok=6.0, allowed_data_class=DataClass.internal),
 ]}
 
 TASKS = {t.id: t for t in [
@@ -63,8 +64,8 @@ TASKS = {t.id: t for t in [
 ]}
 
 UPDATES = {u.id: u for u in [
-    VendorUpdate(id="upd_ai_a_doc_compare", source_id="src_ai_a_rn", vendor="AI-A", published_at=NOW - timedelta(days=1), title="문서 비교 기능 추가", summary="여러 파일을 함께 올리고 차이점과 공통점을 표로 정리할 수 있다. Enterprise 플랜부터 제공.", url="https://vendor-a.example/release-notes/2026-10-19", affected_plans=["Enterprise"], fetched_at=NOW),
-    VendorUpdate(id="upd_ai_b_price", source_id="src_ai_b_rn", vendor="AI-B", published_at=NOW - timedelta(days=5), title="b-mid 입력 단가 인하", summary="b-mid 입력 토큰 단가 20% 인하.", url="https://vendor-b.example/release-notes/2026-10-15", affected_plans=["API"], fetched_at=NOW),
+    VendorUpdate(id="upd_ai_a_doc_compare", source_id="src_ai_a_rn", vendor="OpenAI", published_at=NOW - timedelta(days=1), title="ChatGPT Enterprise 문서 비교 기능", summary="여러 파일을 함께 올리고 차이점과 공통점을 표로 정리할 수 있다. Enterprise 플랜부터 제공.", url="https://openai.com/business/chatgpt-pricing/", affected_plans=["Enterprise"], fetched_at=NOW),
+    VendorUpdate(id="upd_ai_b_price", source_id="src_ai_b_rn", vendor="Anthropic", published_at=NOW - timedelta(days=5), title="Claude API 가격·모델 업데이트", summary="Claude 모델은 긴 문맥 분석과 문서 요약에 적합하다.", url="https://platform.claude.com/docs/en/about-claude/pricing", affected_plans=["API"], fetched_at=NOW),
 ]}
 
 SUGGESTIONS = {s.id: s for s in [
@@ -93,7 +94,7 @@ PLANS = {p.id: p for p in [
 ]}
 
 CONFIRMATIONS = {c.id: c for c in [
-    Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="AI-A 이용권을 계속 사용하시나요?", due_at=NOW + timedelta(days=5)),
+    Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", due_at=NOW + timedelta(days=5)),
 ]}
 
 UNMET_NEEDS = [

@@ -177,7 +177,7 @@ def list_tools(category: str | None = None, user: Employee = Depends(current_use
 
 @app.get("/models", response_model=Envelope[list[Model]], tags=["catalog"])
 def list_models(user: Employee = Depends(current_user)):
-    return ok([Model(**r) for r in db.rows("SELECT id, vendor, name, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class FROM models WHERE approved ORDER BY input_usd_per_mtok DESC")])
+    return ok([Model(**r) for r in db.rows("SELECT id, vendor, name, capabilities, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class FROM models WHERE approved ORDER BY input_usd_per_mtok DESC")])
 
 
 # ---------- updates / suggestions (F1) ----------
@@ -304,7 +304,7 @@ def eval_results(task_type: str, model_ids: list[str] | None = Query(None), user
 
 @app.post("/estimates/task-cost", response_model=Envelope[TaskCostEstimateResponse], tags=["F2"])
 def estimate(body: TaskCostEstimateRequest, user: Employee = Depends(current_user)):
-    r = db.one("SELECT id, vendor, name, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class FROM models WHERE id = :id", id=body.model_id)
+    r = db.one("SELECT id, vendor, name, capabilities, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class FROM models WHERE id = :id", id=body.model_id)
     if not r:
         raise ApiError(ErrorCode.not_found, "모델 없음")
     m = Model(**r)

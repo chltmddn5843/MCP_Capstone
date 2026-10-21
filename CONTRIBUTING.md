@@ -16,7 +16,7 @@ git switch -c backend/plans-api        # 예: mcp/work-tools, agent/runtime-loop
 | --- | --- |
 | `apps/backend`, `db/`, `apps/mock_vendor`, `jobs/` | 백엔드+DB |
 | `apps/mcp_work`, `apps/mcp_docs` | MCP |
-| `apps/agent_runtime`, `apps/admin_ui`, `apps/slack_bot` | Agent+프론트 |
+| `apps/agent_runtime`, `apps/admin_web`, `apps/slack_bot` | Agent+프론트 |
 | `packages/schemas`, `specs/` | **공유. 리드 리뷰 필수** |
 
 ## 3. 명세는 `packages/schemas`가 유일한 진실

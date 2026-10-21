@@ -1,24 +1,24 @@
 ---
 doc_id: vendor-ai-b-docs
-title: AI-B API 모델 가격·사용 가이드 (가상 샘플)
+title: AI 모델 가격·사용 가이드 (개발용 카탈로그)
 doc_type: vendor
-vendor: AI-B
+vendor: Anthropic
 kind: pricing
-url: https://vendor-b.example/pricing
+url: https://platform.claude.com/docs/en/about-claude/pricing
 published_at: 2026-10-15
 is_candidate: false
 ---
 
-> 개발용 가상 샘플이다.
+> 가격은 2026-10-21에 공식 가격 문서를 확인해 기록한 데모용 기준값이며, 실제 계약·할인·배치 요금은 별도 확인이 필요하다.
 
-## b-mid 입력 단가 인하 (2026-10-15)
-b-mid 입력 토큰 단가를 20% 인하한다. 출력 단가는 그대로다.
-원문: https://vendor-b.example/release-notes/2026-10-15
+## Claude 모델 선택 기준
+Claude Opus 4.7은 복잡한 추론과 긴 문서 분석에 적합하고, 입력 100만 토큰당 5달러·출력 25달러를 기준으로 계산한다.
+원문: https://platform.claude.com/docs/en/about-claude/pricing
 
 ## 모델별 단가
-b-large: 입력 100만 토큰당 3.0달러, 출력 15.0달러. 긴 문서 이해와 복잡한 생성에 적합하다.
-b-mid: 입력 0.8달러, 출력 4.0달러. 분류, 요약처럼 형식이 정해진 업무에 적합하다.
-b-small: 입력 0.25달러, 출력 1.25달러. 짧은 입력의 단순 분류에 적합하지만 품질을 먼저 평가해야 한다.
+Claude Opus 4.7: 입력 100만 토큰당 5달러, 출력 25달러. 복잡한 추론과 긴 문서 분석에 적합하다.
+GPT-5.2: 입력 1.75달러, 출력 14달러. 범용 추론·분류·요약에 적합하다.
+Grok 4.7: 입력 2달러, 출력 6달러. 빠른 응답과 검색 도구 연동에 적합하다.
 
 ## 긴 입력 줄이기
 보고서 전체를 넣으면 입력 토큰이 크게 늘어난다. 필요한 장만 잘라 넣거나 장별 요약을 먼저 만든 뒤 합친다.

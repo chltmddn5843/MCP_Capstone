@@ -84,6 +84,7 @@ class Model(Base):
     id: str
     vendor: str
     name: str
+    capabilities: str = ""
     input_usd_per_mtok: float
     output_usd_per_mtok: float
     approved: bool = True

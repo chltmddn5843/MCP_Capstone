@@ -80,6 +80,7 @@ CREATE TABLE models (
   tool_id varchar REFERENCES tools(id),
   vendor varchar NOT NULL,
   name varchar NOT NULL,
+  capabilities text NOT NULL DEFAULT '',
   input_usd_per_mtok numeric(10,4) NOT NULL,
   output_usd_per_mtok numeric(10,4) NOT NULL,
   approved boolean NOT NULL DEFAULT true,
