@@ -299,5 +299,7 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("POST", "/confirmations/{confirmation_id}/answer", "사용 의사 응답", [Role.employee]),
     ("GET", "/savings", "절감 합계", [Role.admin]),
     ("GET", "/audit-log", "감사 기록", [Role.admin]),
+    ("GET", "/review-runs", "자동 제안 판단 기록 (v2)", [Role.admin]),
+    ("GET", "/notify-outbox", "Slack 연결 전 발송함", [Role.admin]),
     ("POST", "/internal/jobs/{job_name}/run", "배치 수동 실행", [Role.system, Role.admin]),
 ]
