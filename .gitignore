@@ -42,3 +42,6 @@ Thumbs.db
 
 # 실행 로그
 logs/
+
+# node
+node_modules/
