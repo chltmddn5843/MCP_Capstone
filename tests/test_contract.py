@@ -56,12 +56,25 @@ def test_suggestion_requires_relevance_unless_on_hold():
     assert client.post("/suggestions", json={**hold, "hold_reason": ""}, headers=SYS).status_code == 422
 
 
-def test_low_risk_plan_executes_immediately():
-    body = {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "미배정 좌석", "evidence": []}
+def test_every_agent_plan_waits_for_admin():
+    """v2.1: 에이전트가 만드는 처리 요청은 전부 승인 대기. 즉시 실행되는 유형이 없다."""
+    body = {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "사용 신청", "evidence": []}
     d = client.post("/plans", json=body, headers=EMP).json()["data"]
-    assert d["risk_level"] == "low" and d["status"] == "executed" and d["executed_at"]
-    sv = client.get("/savings", headers=ASSET).json()["data"]
-    assert sv["by_kind"].get("purchase_avoided", 0) > 0
+    assert d["risk_level"] == "medium" and d["status"] == "pending_approval" and d["executed_at"] is None
+    api = {"type": "api_access", "items": [{"tool_id": "tool_ai_b", "purpose": "세일즈 데이터 자동 분석"}], "rationale": "API 사용 신청", "evidence": []}
+    d = client.post("/plans", json=api, headers=EMP).json()["data"]
+    assert d["status"] == "pending_approval"
+    # 반납은 좌석이 있어야 한다: 위 배정 요청을 관리자가 승인·실행한 뒤 본인 반납 요청
+    first = client.post("/plans", json=body, headers=EMP).json()
+    pid = first["data"]["id"] if "data" in first else first["error"]["details"]["plan_id"]
+    pending = [p for p in client.get("/plans", params={"type": "seat_assign", "status": "pending_approval"}, headers=ASSET).json()["data"]["items"] if p["requested_by"] == "emp_mkt_01"]
+    pid = pending[0]["id"]
+    assert client.post(f"/plans/{pid}/approve", json={"reason": "t"}, headers=ASSET).status_code == 200
+    assert client.post(f"/plans/{pid}/execute", headers={**ASSET, "Idempotency-Key": f"k_{pid}"}).status_code == 200
+    mine = {"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "본인 반납", "evidence": []}
+    assert client.post("/plans", json=mine, headers=EMP).status_code == 201
+    other = {"type": "seat_reclaim", "items": [{"employee_id": "emp_cs_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "x", "evidence": []}
+    assert client.post("/plans", json=other, headers=EMP).status_code == 403  # 남의 좌석 반납 불가
 
 
 def test_anomaly_detail_has_project_purpose():
@@ -161,7 +174,7 @@ def test_employee_usage_self_only():
 
 def test_mcp_registry_roles_and_schemas():
     names = [t.name for t in TOOLS]
-    assert len(names) == len(set(names)) == 24
+    assert len(names) == len(set(names)) == 26
     assert "execute_approved_plan" not in {t.name for t in tools_for_role(Role.employee)}
     assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.admin)}
     for t in TOOLS:
@@ -206,3 +219,19 @@ def test_employee_model_change_only_own_project_test_env():
     assert client.post("/plans", json=ok_body, headers=EMP).status_code == 403  # 마케팅 직원은 오너가 아님
     not_mine = {"type": "seat_assign", "items": [{"employee_id": "emp_cs_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "x", "evidence": []}
     assert client.post("/plans", json=not_mine, headers=EMP).status_code == 403
+
+
+def test_employee_profile_and_plan_opinion():
+    """검토용 직원 프로필과 AI 의견 붙이기. 의견은 JSON으로 저장되고 조회 시 구조화돼 돌아온다."""
+    prof = client.get("/employees/emp_mkt_01", headers=SYS).json()["data"]
+    assert prof["employee"]["name"] == "박지후" and "password" not in str(prof)
+    assert client.get("/employees/emp_mkt_01", headers=EMP).status_code == 403
+    body = {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "사용 신청", "evidence": []}
+    pid = client.post("/plans", json=body, headers=EMP).json()["data"]["id"]
+    op = {"recommendation": "approve", "summary": "미배정 좌석이 있어 바로 배정해도 됩니다.", "requester": {"name": "박서준", "dept": "마케팅", "job_title": "콘텐츠 마케터", "current_products": []},
+          "asset": {"product": "ChatGPT Enterprise", "purchased": 60, "assigned": 59, "unassigned": 1, "seat_price_krw": 45000}, "facts": ["60석 중 1석 남음"], "changes": [["직원", "박서준 (마케팅)"]], "evidence_text": ["이용권 현황: 미배정 1석"]}
+    r = client.patch(f"/plans/{pid}/opinion", json=op, headers=SYS)
+    assert r.status_code == 200 and r.json()["data"]["ai_opinion"]["recommendation"] == "approve"
+    got = client.get(f"/plans/{pid}", headers=ASSET).json()["data"]
+    assert got["ai_opinion"]["summary"].startswith("미배정") and got["ai_opinion"]["generated_at"]
+    assert client.patch(f"/plans/{pid}/opinion", json=op, headers=EMP).status_code == 403

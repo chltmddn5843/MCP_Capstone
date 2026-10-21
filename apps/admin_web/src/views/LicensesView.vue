@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { getProducts, getSeatRequests, requestConfirmation } from '../api.js'
 import { FLAG, won, pct, onTabKeys } from '../labels.js'
 import ProductLogo from '../components/ProductLogo.vue'
@@ -15,7 +15,12 @@ async function load() {
   ;[products.value, requests.value] = await Promise.all([getProducts(), getSeatRequests()])
   activeId.value ||= products.value[0]?.id
 }
-onMounted(load)
+onMounted(() => {
+  load()
+  const onFocus = () => { if (document.visibilityState === 'visible') load() }  // 승인·실행 뒤 돌아오면 다시 읽는다
+  window.addEventListener('focus', onFocus); document.addEventListener('visibilitychange', onFocus)
+  onBeforeUnmount(() => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) })
+})
 
 const product = computed(() => products.value.find((p) => p.id === activeId.value))
 const flagged = computed(() => product.value?.seats ?? [])
@@ -112,7 +117,7 @@ async function ask(seat) {
           <div v-for="r in requests" :key="r.id" class="inset" :class="{ outline: r.status === 'done' }">
             <div class="req-top">
               <strong class="small">{{ r.who }}</strong>
-              <span class="pill" :class="r.status === 'pending' ? 'pill-ok' : 'pill-neutral'">{{ r.status === 'pending' ? '승인 대기' : '바로 처리됨' }}</span>
+              <span class="pill" :class="r.status === 'pending' ? 'pill-ok' : 'pill-neutral'">{{ r.status === 'pending' ? '승인 대기' : '처리 완료' }}</span>
             </div>
             <span class="small muted">{{ r.product }} · {{ r.purpose }}</span>
             <span class="small">{{ r.note }}</span>

@@ -1,6 +1,6 @@
 // 화면이 부르는 데이터 함수 전부. 백엔드 응답(Envelope{data}, packages/schemas)을 화면 모양으로 바꾼다. 화면은 이 파일만 본다.
 // 함수 이름과 반환 모양은 목업 시절과 같다 (화면 수정 없이 연결). 변환 규칙은 각 함수 주석.
-import { get, post, put, request } from './request.js'
+import { get, post, put, request, createTask } from './request.js'
 import { PLAN_TYPE, PLAN_STATUS, BILLING, TOOL_LABEL, cap } from './labels.js'
 
 const dt = (s) => (s ? s.slice(5, 16).replace('T', ' ') : '')
@@ -151,18 +151,66 @@ const PLAN_STEPS = (p) => {
   else if (p.status === 'rejected') base.push({ label: '반려', at: p.reject_reason ?? '', done: true })
   return base
 }
-const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모', capability_tag: '필요 기능' }
+// id → 이름 해석 (AI 의견이 없는 요청의 변경 내용·참고 데이터용). 카탈로그는 한 번만 읽고, 직원은 관리자 전용 GET /employees/{id}로 본다.
+const names = { tools: null, contracts: null, models: null, employees: {} }
+async function loadNames() {
+  if (names.tools) return
+  const [tools, inv, models] = await Promise.all([get('/tools').catch(() => []), get('/inventory').catch(() => []), get('/models').catch(() => [])])
+  names.tools = Object.fromEntries(tools.map((t) => [t.id, t.product]))
+  names.contracts = Object.fromEntries(inv.map((i) => [i.contract.id, `${i.tool_name} (${i.contract.plan_name})`]))
+  names.models = Object.fromEntries(models.map((m) => [m.id, m.name]))
+}
+async function employeeName(id) {
+  if (!(id in names.employees)) {
+    try { const p = await get(`/employees/${id}`); names.employees[id] = `${p.employee.name} (${p.employee.dept_name ?? ''} · ${p.employee.job_title})` } catch { names.employees[id] = id }
+  }
+  return names.employees[id]
+}
+async function humanize(k, v) {
+  if (k === 'employee_id' || k === 'reassign_to_employee_id') return employeeName(v)
+  if (k === 'contract_id') return names.contracts?.[v] ?? v
+  if (k === 'tool_id') return names.tools?.[v] ?? v
+  if (k === 'from_model_id' || k === 'to_model_id' || k === 'model_id') return names.models?.[v] ?? v
+  if (k === 'confirmation_id') return '사용 의사 응답 있음'
+  return humanValue(k, v)
+}
+const EVIDENCE_KO = { confirmations: '사용 의사 응답', inventory: '이용권 현황', get_license_inventory: '이용권 현황', eval_results: '모델 품질 평가', get_eval_results: '모델 품질 평가', usage_records: '사용량', get_usage_summary: '사용량', get_anomaly_detail: '비용 급증 알림 상세', get_my_profile: '직원 프로필', vendor_update: '제품 업데이트', get_vendor_update: '제품 업데이트', me: '직원 프로필' }
+async function evidenceText(e) {
+  const label = EVIDENCE_KO[e.source] ?? TOOL_LABEL[e.source] ?? e.source
+  const ref = names.contracts?.[e.ref] ?? names.tools?.[e.ref] ?? names.models?.[e.ref] ?? (String(e.ref).startsWith('emp_') ? await employeeName(e.ref) : String(e.ref).startsWith('cfm_') ? '반납 응답' : e.ref)
+  return `${label}: ${ref}`
+}
+const RECO = { approve: '승인 권장', reject: '반려 권장', alternative: '대안 권장' }
+const ENV_KO = { test: '테스트', prod: '운영' }
+const humanValue = (k, v) => (k === 'environment' ? (ENV_KO[v] ?? v) : k.endsWith('_krw') ? `${Number(v).toLocaleString('ko-KR')}원` : String(v))
+function opinionView(p) {
+  const o = p.ai_opinion
+  if (!o) return p.status === 'pending_approval' ? { title: 'AI 의견 작성 중…', body: '요청자·자산 현황을 확인하고 있습니다. 잠시 뒤 자동으로 표시됩니다.', pending: true } : { title: '요청 사유', body: p.rationale }
+  const lines = []
+  if (o.requester) lines.push(`요청자: ${o.requester.name} · ${o.requester.dept} · ${o.requester.job_title}${o.requester.current_products?.length ? ` · 현재 ${o.requester.current_products.join(', ')}` : ''}`)
+  if (o.asset) lines.push(`자산: ${o.asset.product}${o.asset.purchased != null ? ` ${o.asset.purchased}석 중 배정 ${o.asset.assigned}석, 미배정 ${o.asset.unassigned}석` : ''}${o.asset.seat_price_krw ? ` · 좌석 월 ${Number(o.asset.seat_price_krw).toLocaleString('ko-KR')}원` : ''}${o.asset.note ? ` · ${o.asset.note}` : ''}`)
+  return { title: `${RECO[o.recommendation] ?? 'AI 의견'} · ${o.summary}`, body: lines.join('\n'), facts: o.facts ?? [], risks: o.risks ?? [], alternative: o.alternative ?? null, recommendation: o.recommendation }
+}
+const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모', capability_tag: '필요 기능' }
 export async function getPlans() {
-  const [page, names] = await Promise.all([get('/plans', { limit: 100 }), getNames()])
-  return page.items.map((p) => ({
+  const page = await get('/plans', { limit: 100 })
+  await loadNames()
+  return Promise.all(page.items.map(async (p) => ({
     id: p.id, type: p.type, risk: p.risk_level, status: p.status, createdAt: dt(p.created_at),
-    title: PLAN_TYPE[p.type] ?? p.type, subtitle: Object.values(p.items[0] ?? {}).filter((v) => typeof v === 'string').slice(0, 3).map((v) => named(names, v)).join(' · '),
-    requester: named(names, p.requested_by), summary: p.rationale, steps: PLAN_STEPS(p),
-    aiOpinion: p.ai_opinion ? { title: 'AI 의견', body: p.ai_opinion } : { title: '요청 사유', body: p.rationale },
-    changes: Object.entries(p.items[0] ?? {}).filter(([k]) => !k.startsWith('_')).map(([k, v]) => [KEY_KO[k] ?? k, named(names, v) + (k.endsWith('_krw') ? '원' : '')]),
-    evidence: (p.evidence ?? []).map((e) => `${TOOL_LABEL[e.source] ?? e.source} · ${named(names, e.ref)}`),
+    title: PLAN_TYPE[p.type] ?? p.type,
+    subtitle: '',  // 아래 changes에서 채운다 (이름 기준)
+    requester: p.ai_opinion?.requester ? `${p.ai_opinion.requester.name} (${p.ai_opinion.requester.dept})` : await employeeName(p.requested_by), summary: p.rationale, steps: PLAN_STEPS(p),
+    aiOpinion: opinionView(p),
+    opinion: p.ai_opinion ?? null,
+    changes: p.ai_opinion?.changes?.length ? p.ai_opinion.changes : await Promise.all(Object.entries(p.items[0] ?? {}).filter(([, v]) => v != null && v !== '').map(async ([k, v]) => [KEY_KO[k] ?? k, await humanize(k, v)])),
+    evidence: p.ai_opinion?.evidence_text?.length ? p.ai_opinion.evidence_text : await Promise.all((p.evidence ?? []).map(evidenceText)),
     raw: p,
-  }))
+  }))).then((rows) => rows.map((r) => ({ ...r, subtitle: r.changes.slice(0, 2).map((c) => c[1]).join(' · ') })))
+}
+
+// 웹에서 만든 처리 요청에도 AI 검토를 붙인다 (에이전트가 만든 요청은 에이전트가 스스로 검토를 띄운다)
+function requestReview(planId) {
+  createTask(`처리 요청 ${planId}를 검토해 관리자용 의견을 붙여줘`, { promptName: 'review_plan', promptArgs: { plan_id: planId } }).catch(() => {})
 }
 
 // GET /updates + GET /suggestions → 업데이트별 판단 (팀별 결과는 제안 기록에서)
@@ -224,7 +272,9 @@ export async function requestConfirmation(employeeId) {
     const contract = inv.find((i) => i.low_usage_candidates.some((c) => c.employee_id === employeeId))?.contract.id
     plan = await post('/plans', { type: 'seat_reclaim', items: [{ employee_id: employeeId, contract_id: contract }], rationale: '장기 미사용 이용권 사용 의사 확인', evidence: [{ source: 'get_license_inventory', ref: contract }] })
   }
-  return post('/confirmations', { employee_id: employeeId, plan_id: plan.id, question: '이용권을 계속 사용하시나요?' })
+  const c = await post('/confirmations', { employee_id: employeeId, plan_id: plan.id, question: '이용권을 계속 사용하시나요?' })
+  requestReview(plan.id)
+  return c
 }
 
 // POST /plans — 비용 급증 알림 대응 → 처리 요청
@@ -232,6 +282,7 @@ export async function createPlanFromAnomaly(anomalyId, actionId) {
   const a = (await getAnomalies()).find((x) => x.id === anomalyId)
   const label = a.investigation.actions.find((x) => x.id === actionId)?.label ?? actionId
   const plan = await post('/plans', { type: 'budget_review', items: [{ project_id: a.projectId, current_budget_krw: a.budget, note: label }], rationale: `${a.scopeName} 비용 급증(${a.ratio}배) 대응: ${label}`, evidence: [{ source: 'get_anomaly_detail', ref: anomalyId }] })
+  requestReview(plan.id)
   return plan.id
 }
 

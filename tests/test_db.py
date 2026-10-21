@@ -95,7 +95,10 @@ def test_grant_and_revoke_change_usable_tools():
     """부여하면 그 직원의 실제 사용 가능 도구에 생기고, 회수하면 사라진다. API 도구는 팀 프로젝트가 있을 때만."""
     assert "tool_ai_a" not in tools_of("emp_mkt_01")
     assert "tool_ai_b" in tools_of("emp_cs_01") and "tool_ai_b" not in tools_of("emp_hrd_01")  # HRD팀은 Claude API 프로젝트가 없다
-    assert assign("emp_mkt_01").json()["data"]["status"] == "executed"
+    plan = assign("emp_mkt_01").json()["data"]
+    assert plan["status"] == "pending_approval"  # v2.1: 배정도 관리자 승인 뒤 실행
+    client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "t"})
+    assert client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "as1"}).status_code == 200
     assert "tool_ai_a" in tools_of("emp_mkt_01")
     plan = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}],
                                                       "rationale": "t", "evidence": []}).json()["data"]
@@ -105,7 +108,7 @@ def test_grant_and_revoke_change_usable_tools():
 
 
 def test_assign_revalidates_before_execute():
-    """중복 배정·휴직자·좌석 초과는 실행 전에 막고 조치안을 failed로 남긴다. 절감 기록은 생기지 않는다."""
+    """중복 배정·휴직자·좌석 초과는 승인 대기에 들어가기 전에 막고(409) 조치안을 failed로 남긴다. 절감 기록은 생기지 않는다."""
     savings = db.one("SELECT count(*) AS n FROM savings_ledger")["n"]
     for emp, why in [("emp_gen_002", "이미"), ("emp_gen_007", "on_leave")]:
         r = assign(emp)

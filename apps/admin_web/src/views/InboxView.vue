@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getPlans, approvePlan, rejectPlan } from '../api.js'
 import { RISK, PLAN_STATUS, onTabKeys } from '../labels.js'
@@ -16,7 +16,12 @@ const reason = ref('')
 const reasonEl = ref(null)
 
 const load = async () => { plans.value = await getPlans() }
-onMounted(load)
+onMounted(() => {
+  load()
+  // AI 의견이 아직 없는 승인 대기 건이 있으면 5초마다 다시 읽는다 (검토 에이전트가 붙이는 중)
+  const timer = setInterval(() => { if (plans.value.some((p) => p.status === 'pending_approval' && !p.opinion)) load() }, 5000)
+  onBeforeUnmount(() => clearInterval(timer))
+})
 
 const list = computed(() => plans.value.filter((p) => (tab.value === 'pending') === (p.status === 'pending_approval')))
 const selected = computed(() => list.value.find((p) => p.id === route.query.id) ?? list.value[0])
@@ -82,9 +87,14 @@ async function decide(fn, verb) {
       <div class="card-lime">
         <div class="ai-title">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
-          <strong style="font-size: 14px">AI 의견 · {{ selected.aiOpinion.title }}</strong>
+          <strong style="font-size: 14px">{{ selected.aiOpinion.title }}</strong>
         </div>
-        <span style="font-size: 14px; line-height: 1.65">{{ selected.aiOpinion.body }}</span>
+        <span style="font-size: 14px; line-height: 1.65; white-space: pre-line">{{ selected.aiOpinion.body }}</span>
+        <ul v-if="selected.aiOpinion.facts?.length" class="facts small">
+          <li v-for="f in selected.aiOpinion.facts" :key="f">{{ f }}</li>
+        </ul>
+        <span v-if="selected.aiOpinion.risks?.length" class="small"><strong>주의</strong> · {{ selected.aiOpinion.risks.join(' / ') }}</span>
+        <span v-if="selected.aiOpinion.alternative" class="small"><strong>대안</strong> · {{ selected.aiOpinion.alternative }}</span>
       </div>
 
       <div class="two">
@@ -140,6 +150,7 @@ async function decide(fn, verb) {
 .track.current { background: var(--lime); outline: 1px solid rgba(17, 17, 19, 0.24); }
 .strong { font-weight: 700; }
 .ai-title { display: flex; align-items: center; gap: 8px; }
+.facts { margin: 4px 0 0; padding-left: 18px; line-height: 1.7; }
 .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
 .kv { margin: 0; display: flex; flex-direction: column; font-size: 14px; }
 .kv div { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }

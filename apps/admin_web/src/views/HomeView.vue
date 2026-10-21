@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { getSummary, getAnomalies, getPlans, getProducts, getMe, getModelCostMonths } from '../api.js'
 import { RISK, won, pct } from '../labels.js'
 import ModelCostDonut from '../components/ModelCostDonut.vue'
@@ -13,8 +13,14 @@ const months = ref([])
 const me = ref({ name: '' })
 getMe().then((v) => (me.value = v)).catch(() => {})
 
-onMounted(async () => {
+async function load() {
   ;[s.value, anomalies.value, plans.value, products.value, months.value] = await Promise.all([getSummary(), getAnomalies(), getPlans(), getProducts(), getModelCostMonths().catch(() => [])])
+}
+onMounted(() => {
+  load()
+  const onFocus = () => { if (document.visibilityState === 'visible') load() }  // 승인·실행 뒤 돌아오면 다시 읽는다
+  window.addEventListener('focus', onFocus); document.addEventListener('visibilitychange', onFocus)
+  onBeforeUnmount(() => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) })
 })
 
 const pending = computed(() => plans.value.filter((p) => p.status === 'pending_approval'))

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -137,6 +138,16 @@ class Runner:
         asyncio.create_task(self._run(task, Command(resume=decision), config))
         return task
 
+    async def review_plan(self, plan_id: str, parent: Task) -> None:
+        """처리 요청이 승인 대기에 들어가면 시스템 계정으로 review_plan 검토를 돌려 ai_opinion을 붙인다."""
+        token = os.getenv("SYSTEM_TOKEN", "dev.sys")
+        try:
+            await self.create(requester_id="sys", requester_role=Role.system, token=token, text=f"처리 요청 {plan_id}를 검토해 관리자용 의견을 붙여줘",
+                              thread_id=None, prompt_name="review_plan", prompt_args={"plan_id": plan_id}, channel="system")
+            record(parent.trace_id, "review.spawned", plan_id=plan_id)
+        except Exception as exc:  # noqa: BLE001 — 검토 실패는 본 작업에 영향을 주지 않는다
+            record(parent.trace_id, "review.error", plan_id=plan_id, error=str(exc)[:160])
+
     def _save(self, task: Task) -> None:
         task.updated_at = _now()
         self.store.save(task)
@@ -183,6 +194,8 @@ class Runner:
             self._save(task)
             await self.bus.publish(task.task_id, EventType.DONE, result=task.result)
             record(task.trace_id, "task.done", turns=task.turns, stop_reason=v.get("stop_reason"))
+            if v.get("plan_created") and v.get("plan_id") and task.channel != "system":
+                asyncio.create_task(self.review_plan(v["plan_id"], parent=task))  # 승인 대기 건에 AI 의견 붙이기 (시스템 계정)
         except Exception as exc:  # noqa: BLE001
             log.exception("task %s failed", task.task_id)
             task.status, task.error = TaskStatus.failed, f"{type(exc).__name__}: {exc}"[:500]
