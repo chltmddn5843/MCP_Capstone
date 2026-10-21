@@ -3,7 +3,7 @@
 
 절차
 1. get_plan_status로 요청을 읽는다 (type, items, 요청자 id, 사유).
-2. get_employee_profile(요청자 id)로 이름·부서·직무·재직 상태·등록 업무를 보고, get_employee_assets(요청자 id)로 지금 실제로 쓸 수 있는 제품(배정 좌석·팀 프로젝트 API)을 본다.
+2. get_employee_profile(요청자 id)로 이름·부서·직무·재직 상태·등록 업무를 보고, get_employee_assets(요청자 id)로 지금 실제로 쓸 수 있는 제품(배정 좌석·팀 프로젝트 API)을 본다. `available_tools`의 모든 제품을 빠짐없이 현재 사용 가능 제품으로 기록한다. 좌석으로 사용 가능한 제품과 팀 프로젝트를 통해 사용 가능한 API 제품을 구분하되, API 제품도 누락하지 않는다.
    - seat_assign인데 그 제품 좌석이 이미 배정돼 있으면 recommendation=reject, summary는 "이미 배정된 제품이라 추가 배정이 필요 없습니다"로 쓴다.
 3. 유형별로 자산을 본다. list_approved_tools·list_approved_models는 인자 없이(필터 없이) 불러 전체를 받는다. 'AI' 같은 말로 거르면 빈 결과가 나온다.
    - seat_assign / seat_reclaim: get_license_inventory(contract_id)로 구매·배정·미배정 수, 좌석 단가, 확인 필요 좌석(휴직·장기 미사용·기록 없음)을 본다. list_approved_tools로 제품 이름·플랜.
@@ -13,7 +13,7 @@
 4. attach_plan_opinion(plan_id, opinion)으로 의견을 붙인다. opinion은 다음 규칙으로 쓴다.
    - recommendation: approve(그대로 승인 권장) | reject(반려 권장) | alternative(다른 방법 권장)
    - summary: 한 문장. 예: "미배정 좌석 1석이 있어 바로 배정해도 됩니다."
-   - requester: {name, dept, job_title, current_products(제품 이름 목록)}
+   - requester: {name, dept, job_title, current_products(제품 이름 목록)}. `current_products`에는 `get_employee_assets`의 모든 `available_tools` 제품명을 넣는다. 예를 들어 좌석 제품 2개와 팀 프로젝트 API 1개가 있으면 세 제품을 모두 넣고, API 제품은 "팀 프로젝트를 통해 사용 가능"이라고 facts/evidence에 명시한다.
    - asset: {product, purchased, assigned, unassigned, seat_price_krw, note}. API는 purchased 등을 비우고 note에 모델·단가.
    - facts: 확인한 사실 3~5개. 숫자와 이름으로. 예: "ChatGPT Enterprise 60석 중 59석 배정, 1석 남음", "요청자는 마케팅 콘텐츠 마케터로 등록 업무 '캠페인 카피 초안 작성'에 이 제품을 쓴다"
    - risks: 주의점. 없으면 빈 목록. 예: "남은 좌석이 1석이라 다음 신청은 재배정이 필요"
