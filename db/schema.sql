@@ -76,7 +76,8 @@ CREATE TABLE contracts (
 );
 
 CREATE TABLE models (
-  id varchar PRIMARY KEY,
+  -- "공급사:API 모델명" (예: anthropic:claude-sonnet-5-5). 에이전트 LLM_MODEL 값과 같아 그대로 호출에 쓴다
+  id varchar PRIMARY KEY CHECK (id ~ '^[a-z]+:[a-z0-9.-]+$'),
   tool_id varchar REFERENCES tools(id),
   vendor varchar NOT NULL,
   name varchar NOT NULL,

@@ -71,7 +71,8 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
         case "list_approved_models":
             models = await _call(client, "GET", "/models")
             if a.get("data_class") and isinstance(models, list):
-                models = [m for m in models if m["allowed_data_class"] == a["data_class"]]
+                rank = ["public", "internal", "confidential"]  # MCP 어댑터와 같게: 요청 등급 이상을 허용하는 모델
+                models = [m for m in models if rank.index(m["allowed_data_class"]) >= rank.index(a["data_class"])]
             return {"models": models}
         case "find_relevant_tasks":
             return await _call(client, "GET", f"/updates/{a['update_id']}/relevant-tasks", params={"job_filter": a.get("job_filter")})
@@ -96,6 +97,8 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
             return await _call(client, "GET", f"/anomalies/{a['anomaly_id']}")
         case "get_license_inventory":
             return {"contracts": await _call(client, "GET", "/inventory", params={"contract_id": a.get("contract_id")})}
+        case "get_employee_assets":
+            return await _call(client, "GET", f"/employees/{a['employee_id']}/assets")
         case "record_unmet_need":
             d = await _call(client, "POST", "/unmet-needs", json_body=a)
             return d if "error" in d else {"need_id": d["need"]["id"], "same_tag_count": d["same_tag_count"], "threshold_met": d["threshold_met"]}

@@ -139,10 +139,26 @@ def _tools_with_plan(approved_only: bool = False) -> list[ToolWithPlan]:
     return out
 
 
+def _assets(emp: Employee) -> MeResponse:
+    """실제로 쓸 수 있는 도구만: 좌석 계약은 본인 배정 좌석이 있을 때, API 계약은 소속 팀 프로젝트가 그 제품 모델을 쓸 때."""
+    usable = {r["tool_id"] for r in db.rows(
+        "SELECT c.tool_id FROM seat_assignments s JOIN contracts c ON c.id = s.contract_id WHERE s.employee_id = :e AND s.status = 'assigned'"
+        " UNION SELECT m.tool_id FROM projects p JOIN models m ON m.id = p.model_id WHERE p.dept_id = :d", e=emp.id, d=emp.dept_id)}
+    tasks = [RegisteredTask(**r) for r in db.rows(f"SELECT {TASK_COLS} FROM registered_tasks WHERE employee_id = :e ORDER BY updated_at DESC", e=emp.id)]
+    return MeResponse(employee=emp, tasks=tasks, available_tools=[t for t in _tools_with_plan(True) if t.contract and t.id in usable])
+
+
 @app.get("/me", response_model=Envelope[MeResponse], tags=["me"])
 def me(user: Employee = Depends(current_user)):
-    tasks = [RegisteredTask(**r) for r in db.rows(f"SELECT {TASK_COLS} FROM registered_tasks WHERE employee_id = :e ORDER BY updated_at DESC", e=user.id)]
-    return ok(MeResponse(employee=user, tasks=tasks, available_tools=[t for t in _tools_with_plan(True) if t.contract]))
+    return ok(_assets(user))
+
+
+@app.get("/employees/{employee_id}/assets", response_model=Envelope[MeResponse], tags=["F4"])
+def employee_assets(employee_id: str, user: Employee = Depends(require(Role.admin, Role.system))):
+    emp = get_employee(employee_id)
+    if not emp:
+        raise ApiError(ErrorCode.not_found, "직원 없음")
+    return ok(_assets(emp))
 
 
 @app.get("/me/tasks", response_model=Envelope[list[RegisteredTask]], tags=["me"])
@@ -535,6 +551,64 @@ SEAT_SQL = {
 }
 
 
+def _seat_blocker(p: ActionPlan) -> str | None:
+    """좌석 조치안 실행 직전 재검증. 막을 이유가 없으면 None.
+    ponytail: 검사와 반영 사이 잠금이 없어 동시 배정 2건이 마지막 1석을 함께 통과할 수 있다. 필요하면 contracts 행을 FOR UPDATE로 잠근다."""
+    if p.type not in SEAT_SQL:
+        return None
+    for cid in {i["contract_id"] for i in p.items}:
+        c = db.one("SELECT c.seats_purchased, count(s.id) AS used FROM contracts c LEFT JOIN seat_assignments s ON s.contract_id = c.id AND s.status = 'assigned'"
+                   " WHERE c.id = :c GROUP BY c.id", c=cid)
+        if not c:
+            return f"계약 없음: {cid}"
+        adding = sum(1 for i in p.items if i["contract_id"] == cid) if p.type == PlanType.seat_assign else 0
+        if c["used"] + adding > c["seats_purchased"]:
+            return f"{cid} 남은 좌석 {c['seats_purchased'] - c['used']}석, 요청 {adding}석"
+    for i in p.items:
+        e = db.one("SELECT status FROM employees WHERE id = :e", e=i["employee_id"])
+        has = db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = :c AND employee_id = :e AND status = 'assigned'", c=i["contract_id"], e=i["employee_id"])
+        if not e:
+            return f"직원 없음: {i['employee_id']}"
+        if p.type == PlanType.seat_assign and e["status"] != "active":
+            return f"{i['employee_id']}는 {e['status']} 상태라 배정할 수 없습니다"
+        if p.type == PlanType.seat_assign and has:
+            return f"{i['employee_id']}는 이미 {i['contract_id']} 좌석이 있습니다"
+        if p.type == PlanType.seat_reclaim and not has:
+            return f"{i['employee_id']}에게 회수할 {i['contract_id']} 좌석이 없습니다"
+        if p.type == PlanType.seat_reclaim and i.get("confirmation_id"):  # 확인 요청을 붙였으면 반납·휴직 응답이 있어야 회수
+            a = db.one("SELECT answer FROM confirmations WHERE id = :id AND employee_id = :e", id=i["confirmation_id"], e=i["employee_id"])
+            if not a or a["answer"] not in ("return_seat", "on_leave"):
+                return f"{i['employee_id']}의 확인 응답이 반납·휴직이 아닙니다 ({a and a['answer'] or '무응답'})"
+        r = i.get("reassign_to_employee_id")
+        if r and (db.one("SELECT status FROM employees WHERE id = :e", e=r) or {}).get("status") != "active":
+            return f"재배정 대상 {r}이 재직 중이 아닙니다"
+        if r and db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = :c AND employee_id = :e AND status = 'assigned'", c=i["contract_id"], e=r):
+            return f"재배정 대상 {r}는 이미 좌석이 있습니다"
+    return None
+
+
+def _project_blocker(p: ActionPlan) -> str | None:
+    """모델 변경·예산 조정 실행 직전 재검증: 프로젝트가 승인 때 본 값 그대로인지, 바꿀 모델이 승인됐는지."""
+    for i in p.items if p.type in (PlanType.model_change, PlanType.budget_review) else []:
+        prj = db.one("SELECT model_id, environment, monthly_budget_krw FROM projects WHERE id = :id", id=i["project_id"])
+        if not prj:
+            return f"프로젝트 없음: {i['project_id']}"
+        if p.type == PlanType.budget_review:
+            if i.get("proposed_budget_krw") is None:
+                return "제안 예산(proposed_budget_krw)이 없어 반영할 값이 없습니다"
+            if prj["monthly_budget_krw"] != i["current_budget_krw"]:
+                return f"{i['project_id']} 예산이 {prj['monthly_budget_krw']:,}원으로 바뀌었습니다"
+            continue
+        if prj["model_id"] != i["from_model_id"]:
+            return f"{i['project_id']} 모델이 이미 {prj['model_id']}입니다"
+        if prj["environment"] != i.get("environment", "test"):
+            return f"{i['project_id']}는 {prj['environment']} 환경입니다. 요청 환경({i.get('environment', 'test')})과 다릅니다"
+        to = db.one("SELECT approved FROM models WHERE id = :id", id=i["to_model_id"])
+        if not to or not to["approved"]:
+            return f"{i['to_model_id']}는 승인된 모델이 아닙니다"
+    return None
+
+
 def _exec_response(p: ActionPlan) -> PlanExecuteResponse:
     sv = db.rows("SELECT id, plan_id, kind, amount_krw, basis FROM savings_ledger WHERE plan_id = :id ORDER BY id", id=p.id)
     return PlanExecuteResponse(plan=p, result=p.result, verified={"items": p.items, "state": "applied"}, savings=sv)
@@ -550,8 +624,13 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
         raise ApiError(ErrorCode.forbidden, f"승인 상태가 아님: {p.status.value}")
     if p.risk_level == RiskLevel.high:
         raise ApiError(ErrorCode.forbidden, "높은 위험도 조치는 MVP에서 실행하지 않습니다 (요청만 생성)")
-    if any(i.get("_stale") for i in p.items):  # 스텁: 재검증 실패 흉내
-        raise ApiError(ErrorCode.stale, "승인 뒤 대상 상태가 바뀌어 실행을 멈췄습니다", {"plan_id": p.id})
+    why = "승인 뒤 대상 상태가 바뀌었습니다" if any(i.get("_stale") for i in p.items) else _seat_blocker(p) or _project_blocker(p)
+    if why:  # 재검증 실패: 조치안을 failed로 남기고 멈춘다 (좌석·절감 기록은 건드리지 않음)
+        with db.tx() as c:
+            c.execute(db.text("UPDATE action_plans SET status = 'failed', result = CAST(:r AS jsonb) WHERE id = :id AND status = 'approved'"),
+                      dict(r=db.js({"ok": False, "reason": why}), id=p.id))
+            _audit(c, user, "plan.fail", p.id, {"status": "approved"}, {"status": "failed", "reason": why})
+        raise ApiError(ErrorCode.stale, f"실행 전 재검증 실패: {why}", {"plan_id": p.id})
     result = {"vendor": "mock", "ok": True, "items": p.items}
     with db.tx() as c:
         n = c.execute(db.text("UPDATE action_plans SET status = 'executed', executed_at = now(), execution_key = :k, result = CAST(:r AS jsonb)"
@@ -560,6 +639,13 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
             raise ApiError(ErrorCode.stale, "실행 직전에 상태가 바뀌었습니다", {"plan_id": p.id})
         for i in p.items if p.type in SEAT_SQL else []:
             c.execute(db.text(SEAT_SQL[p.type]), dict(sid=_new_id("seat"), c=i["contract_id"], e=i["employee_id"]))
+            if i.get("reassign_to_employee_id"):  # 회수한 좌석을 바로 다른 사람에게
+                c.execute(db.text(SEAT_SQL[PlanType.seat_assign]), dict(sid=_new_id("seat"), c=i["contract_id"], e=i["reassign_to_employee_id"]))
+        for i in p.items if p.type == PlanType.model_change else []:
+            c.execute(db.text("UPDATE projects SET model_id = :to WHERE id = :p AND model_id = :fr"), dict(to=i["to_model_id"], p=i["project_id"], fr=i["from_model_id"]))
+        for i in p.items if p.type == PlanType.budget_review else []:
+            c.execute(db.text("UPDATE projects SET monthly_budget_krw = :to WHERE id = :p AND monthly_budget_krw = :fr"),
+                      dict(to=i["proposed_budget_krw"], p=i["project_id"], fr=i["current_budget_krw"]))
         if p.type == PlanType.seat_assign:
             c.execute(db.text("INSERT INTO savings_ledger (id, plan_id, kind, amount_krw, basis) VALUES (:id, :p, 'purchase_avoided', 90000,"
                               " '미배정 좌석 배정으로 추가 구매 회피 (월 45,000원 × 남은 2개월)')"), dict(id=_new_id("sav"), p=p.id))

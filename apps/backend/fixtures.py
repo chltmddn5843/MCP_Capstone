@@ -51,10 +51,12 @@ TOOLS_WITH_PLAN = [
     ToolWithPlan(**TOOLS["tool_cand_x"].model_dump()),
 ]
 
-MODELS = {m.id: m for m in [
-    Model(id="mdl_b_large", vendor="Anthropic", name="Claude Opus 4.7", capabilities="복잡한 추론·긴 문서 분석·고품질 작성", input_usd_per_mtok=5.0, output_usd_per_mtok=25.0, allowed_data_class=DataClass.internal),
-    Model(id="mdl_b_mid", vendor="OpenAI", name="GPT-5.2", capabilities="범용 추론·분류·요약·멀티모달 업무", input_usd_per_mtok=1.75, output_usd_per_mtok=14.0, allowed_data_class=DataClass.internal),
-    Model(id="mdl_b_small", vendor="xAI", name="Grok 4.7", capabilities="빠른 범용 응답·코드·검색 도구 연동", input_usd_per_mtok=2.0, output_usd_per_mtok=6.0, allowed_data_class=DataClass.internal),
+MODELS = {m.id: m for m in [  # id = "공급사:API 모델명" = 에이전트 LLM_MODEL 값과 같은 키. 단가는 공식 가격표(2026-10-21) 기준
+    Model(id="anthropic:claude-opus-5-5", vendor="Anthropic", name="Claude Opus 5.5", capabilities="복잡한 추론·긴 문서 분석·고품질 작성", input_usd_per_mtok=4.0, output_usd_per_mtok=20.0, allowed_data_class=DataClass.internal),
+    Model(id="anthropic:claude-sonnet-5-5", vendor="Anthropic", name="Claude Sonnet 5.5", capabilities="범용 추론·분류·요약·코드", input_usd_per_mtok=2.0, output_usd_per_mtok=10.0, allowed_data_class=DataClass.internal),
+    Model(id="anthropic:claude-haiku-5-5", vendor="Anthropic", name="Claude Haiku 5.5", capabilities="빠른 단순 분류·추출 (입력 10만 토큰 이하 단가)", input_usd_per_mtok=0.1, output_usd_per_mtok=0.5, allowed_data_class=DataClass.internal),
+    Model(id="xai:grok-4.7", vendor="xAI", name="Grok 4.7", capabilities="빠른 범용 응답·실시간 검색 도구 연동", input_usd_per_mtok=2.0, output_usd_per_mtok=6.0, approved=False, allowed_data_class=DataClass.public),
+    Model(id="xai:grok-4.3", vendor="xAI", name="Grok 4.3", capabilities="저비용 범용 응답", input_usd_per_mtok=1.25, output_usd_per_mtok=2.5, approved=False, allowed_data_class=DataClass.public),
 ]}
 
 TASKS = {t.id: t for t in [
@@ -65,7 +67,7 @@ TASKS = {t.id: t for t in [
 
 UPDATES = {u.id: u for u in [
     VendorUpdate(id="upd_ai_a_doc_compare", source_id="src_ai_a_rn", vendor="OpenAI", published_at=NOW - timedelta(days=1), title="ChatGPT Enterprise 문서 비교 기능", summary="여러 파일을 함께 올리고 차이점과 공통점을 표로 정리할 수 있다. Enterprise 플랜부터 제공.", url="https://openai.com/business/chatgpt-pricing/", affected_plans=["Enterprise"], fetched_at=NOW),
-    VendorUpdate(id="upd_ai_b_price", source_id="src_ai_b_rn", vendor="Anthropic", published_at=NOW - timedelta(days=5), title="Claude API 가격·모델 업데이트", summary="Claude 모델은 긴 문맥 분석과 문서 요약에 적합하다.", url="https://platform.claude.com/docs/en/about-claude/pricing", affected_plans=["API"], fetched_at=NOW),
+    VendorUpdate(id="upd_ai_b_price", source_id="src_ai_b_rn", vendor="Anthropic", published_at=NOW - timedelta(days=5), title="Claude API 가격·모델 업데이트", summary="Claude Opus 5.5(입력 $4·출력 $20/MTok), Sonnet 5.5($2·$10), Haiku 5.5($0.10·$0.50) 가격표. 분류처럼 짧은 작업은 하위 모델로 비용을 줄일 수 있다.", url="https://platform.claude.com/docs/en/about-claude/pricing", affected_plans=["API"], fetched_at=NOW),
 ]}
 
 SUGGESTIONS = {s.id: s for s in [
@@ -73,19 +75,20 @@ SUGGESTIONS = {s.id: s for s in [
 ]}
 
 EVAL_RESULTS = [
-    EvalResult(id="ev_001", task_type="customer_inquiry_classification", model_id="mdl_b_large", quality_score=0.94, threshold=0.90, passed=True, avg_input_tokens=600, avg_output_tokens=20, latency_ms=1800, evaluated_at=NOW - timedelta(days=14)),
-    EvalResult(id="ev_002", task_type="customer_inquiry_classification", model_id="mdl_b_mid", quality_score=0.92, threshold=0.90, passed=True, avg_input_tokens=600, avg_output_tokens=20, latency_ms=900, evaluated_at=NOW - timedelta(days=14)),
-    EvalResult(id="ev_003", task_type="customer_inquiry_classification", model_id="mdl_b_small", quality_score=0.84, threshold=0.90, passed=False, avg_input_tokens=600, avg_output_tokens=20, latency_ms=500, evaluated_at=NOW - timedelta(days=14)),
+    EvalResult(id="ev_001", task_type="customer_inquiry_classification", model_id="anthropic:claude-opus-5-5", quality_score=0.95, threshold=0.90, passed=True, avg_input_tokens=600, avg_output_tokens=20, latency_ms=1700, evaluated_at=NOW - timedelta(days=14)),
+    EvalResult(id="ev_002", task_type="customer_inquiry_classification", model_id="anthropic:claude-sonnet-5-5", quality_score=0.93, threshold=0.90, passed=True, avg_input_tokens=600, avg_output_tokens=20, latency_ms=850, evaluated_at=NOW - timedelta(days=14)),
+    EvalResult(id="ev_003", task_type="customer_inquiry_classification", model_id="anthropic:claude-haiku-5-5", quality_score=0.87, threshold=0.90, passed=False, avg_input_tokens=600, avg_output_tokens=20, latency_ms=350, evaluated_at=NOW - timedelta(days=14)),
+    EvalResult(id="ev_004", task_type="customer_inquiry_classification", model_id="xai:grok-4.7", quality_score=0.89, threshold=0.90, passed=False, avg_input_tokens=600, avg_output_tokens=20, latency_ms=600, evaluated_at=NOW - timedelta(days=14)),
 ]
 
 PROJECTS = {p.id: p for p in [
-    Project(id="prj_cs_classify", name="고객 문의 분류", dept_id="dept_cs", owner_id="emp_cs_01", purpose="문의 자동 분류", model_id="mdl_b_large", environment=Environment.prod, monthly_budget_krw=1500000),
-    Project(id="prj_quote_summary", name="견적서 요약", dept_id="dept_sales", owner_id="emp_sales_02", purpose="견적서 PDF 요약", model_id="mdl_b_large", environment=Environment.prod, monthly_budget_krw=800000),
-    Project(id="prj_faq", name="사내 FAQ", dept_id="dept_mgmt", owner_id="emp_asset_01", purpose="사내 규정 Q&A", model_id="mdl_b_mid", environment=Environment.test, monthly_budget_krw=300000),
+    Project(id="prj_cs_classify", name="고객 문의 분류", dept_id="dept_cs", owner_id="emp_cs_01", purpose="문의 자동 분류", model_id="anthropic:claude-opus-5-5", environment=Environment.prod, monthly_budget_krw=600000),
+    Project(id="prj_quote_summary", name="견적서 요약", dept_id="dept_sales", owner_id="emp_sales_02", purpose="견적서 PDF 요약", model_id="anthropic:claude-opus-5-5", environment=Environment.prod, monthly_budget_krw=800000),
+    Project(id="prj_faq", name="사내 FAQ", dept_id="dept_mgmt", owner_id="emp_asset_01", purpose="사내 규정 Q&A", model_id="anthropic:claude-sonnet-5-5", environment=Environment.test, monthly_budget_krw=50000),
 ]}
 
 ANOMALIES = {a.id: a for a in [
-    Anomaly(id="anm_001", scope_type="project", scope_id="prj_quote_summary", scope_name="견적서 요약", rule="daily_cost_gt_3x_baseline", baseline=26000, observed=81000, ratio=3.1, projected_monthly_cost=krw(1760), status=AnomalyStatus.open, created_at=NOW - timedelta(hours=2)),
+    Anomaly(id="anm_001", scope_type="project", scope_id="prj_quote_summary", scope_name="견적서 요약", rule="daily_cost_gt_3x_baseline", baseline=14010, observed=53397, ratio=3.81, projected_monthly_cost=krw(1160.8), status=AnomalyStatus.open, created_at=NOW - timedelta(hours=2)),
 ]}
 
 PLANS = {p.id: p for p in [
@@ -94,7 +97,7 @@ PLANS = {p.id: p for p in [
 ]}
 
 CONFIRMATIONS = {c.id: c for c in [
-    Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", due_at=NOW + timedelta(days=5)),
+    Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", answer=ConfirmationAnswer.return_seat, due_at=NOW + timedelta(days=5), answered_at=NOW - timedelta(minutes=15)),
 ]}
 
 UNMET_NEEDS = [
