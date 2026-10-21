@@ -19,7 +19,7 @@ class ApiError(Exception):
 
 
 def _call(method: str, base: str, path: str, token: str, **kw) -> dict:
-    r = requests.request(method, base + path, headers={"Authorization": f"Bearer {token}"}, timeout=30, **kw)
+    r = requests.request(method, base + path, headers={"Authorization": "Bearer " + token}, timeout=30, **kw)
     try:
         body = r.json()
     except ValueError as exc:
@@ -46,7 +46,7 @@ def create_task(token: str, text: str, thread_id: str | None) -> dict:
 def stream_events(token: str, task_id: str, after: int = 0, timeout: int = 180) -> Iterator[dict]:
     """SSE를 읽어 이벤트 dict를 차례로 낸다. 종료 이벤트(DONE·FAILED·APPROVAL_REQUIRED)에서 서버가 닫는다."""
     with requests.get(f"{AGENT_URL}/ai/tasks/{task_id}/stream", params={"after": after},
-                      headers={"Authorization": f"Bearer {token}"}, stream=True, timeout=timeout) as r:
+                      headers={"Authorization": "Bearer " + token}, stream=True, timeout=timeout) as r:
         if r.status_code != 200:
             raise ApiError("internal", f"stream HTTP {r.status_code}: {r.text[:200]}")
         for raw in r.iter_lines():

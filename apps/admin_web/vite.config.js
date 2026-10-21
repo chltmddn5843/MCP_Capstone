@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5173,
+    allowedHosts: ['oil-barbie-strike-comparison.trycloudflare.com'],
     proxy: {
       // 백엔드 /ai/tasks 중계가 생기면 '/api/ai' 항목을 지운다. 운영은 nginx.conf.template이 같은 규칙.
       '/api/ai': { target: process.env.AGENT_URL || 'http://localhost:8002', rewrite: (p) => p.replace(/^\/api/, '') },
