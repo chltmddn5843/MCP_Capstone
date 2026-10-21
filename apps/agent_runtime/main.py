@@ -68,8 +68,11 @@ def runner() -> Runner:
 
 @app.post("/ai/tasks", response_model=Envelope[TaskCreated], status_code=202)
 async def create_task(body: TaskCreate, user: Employee = Depends(current_user), token: str = Depends(_token)):
-    task = await runner().create(requester_id=user.id, requester_role=user.role, token=token, text=body.input, thread_id=body.thread_id,
-                                 prompt_name=body.prompt_name, prompt_args=body.prompt_args, channel=body.channel)
+    try:
+        task = await runner().create(requester_id=user.id, requester_role=user.role, token=token, text=body.input, thread_id=body.thread_id,
+                                     prompt_name=body.prompt_name, prompt_args=body.prompt_args, channel=body.channel)
+    except RuntimeError as exc:  # 업무 MCP 연결 실패 등 실행 문맥을 만들 수 없을 때
+        raise ApiError(ErrorCode.conflict, str(exc))
     return ok(TaskCreated(task_id=task.task_id, thread_id=task.thread_id, status=task.status))
 
 

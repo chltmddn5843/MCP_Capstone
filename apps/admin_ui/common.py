@@ -26,12 +26,13 @@ def _down(base: str, exc: Exception) -> None:
 def api(method: str, path: str, base: str = BACKEND, quiet: bool = False, **kw):
     try:
         r = requests.request(method, base + path, headers={**hdr(), **kw.pop("headers", {})}, timeout=30, **kw)
-        body = r.json()
-    except requests.exceptions.RequestException as exc:
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
         _down(base, exc)
         return None
-    except ValueError:
-        st.error(f"{method} {path}: 서버 응답을 읽을 수 없습니다 (HTTP {r.status_code})")
+    try:
+        body = r.json()
+    except ValueError:  # requests.JSONDecodeError 포함
+        st.error(f"{method} {path}: 서버가 JSON이 아닌 응답을 보냈습니다 (HTTP {r.status_code}). {r.text[:300]}")
         return None
     if "error" in body:
         if not quiet:
@@ -43,9 +44,14 @@ def api(method: str, path: str, base: str = BACKEND, quiet: bool = False, **kw):
 
 def login(employee_id: str) -> bool:
     try:
-        r = requests.post(f"{BACKEND}/auth/dev-login", json={"employee_id": employee_id}, timeout=10).json()
-    except requests.exceptions.RequestException as exc:
+        resp = requests.post(f"{BACKEND}/auth/dev-login", json={"employee_id": employee_id}, timeout=10)
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
         _down(BACKEND, exc)
+        return False
+    try:
+        r = resp.json()
+    except ValueError:
+        st.error(f"로그인 응답을 읽을 수 없습니다 (HTTP {resp.status_code}). {resp.text[:300]}")
         return False
     if "error" in r:
         st.error(r["error"]["message"])
@@ -70,8 +76,11 @@ def render_stream(task_id: str, after: int = 0) -> None:
     answer_box, answer = st.empty(), ""
     try:
         resp = requests.get(f"{AGENT}/ai/tasks/{task_id}/stream", params={"after": after}, headers=hdr(), stream=True, timeout=180)
-    except requests.exceptions.RequestException as exc:
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
         _down(AGENT, exc)
+        return
+    if resp.status_code != 200:
+        st.error(f"진행 상황을 받을 수 없습니다 (HTTP {resp.status_code}). {resp.text[:300]}")
         return
     with resp as r:
         for raw in r.iter_lines():
