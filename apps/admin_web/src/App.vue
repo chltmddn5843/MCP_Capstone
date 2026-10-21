@@ -1,9 +1,11 @@
 <script setup>
 import { ref, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getCounts, getMe } from './api.js'
+import { loggedIn, logout } from './request.js'
 
 const route = useRoute()
+const router = useRouter()
 const me = ref({ name: '', role: '' })
 const counts = ref({ inbox: 0, cost: 0 })
 const mainEl = ref(null)
@@ -21,15 +23,19 @@ const groups = [
   ] },
 ]
 
-getMe().then((v) => (me.value = v)).catch((e) => (me.value = { name: '?', role: String(e.message ?? e) }))
-// 처리 요청을 승인·생성하면 배지가 바뀌므로 화면을 옮길 때마다 다시 센다.
+const signOut = () => { logout(); me.value = { name: '', role: '' }; router.push('/login') }
+// 처리 요청을 승인·생성하면 배지가 바뀌므로 화면을 옮길 때마다 다시 센다. 로그인 화면에서는 부르지 않는다.
 watch(() => route.fullPath, async (_, prev) => {
+  if (route.meta.public || !loggedIn()) return
+  if (!me.value.employee) getMe().then((v) => (me.value = v)).catch(() => {})
   counts.value = await getCounts()
   if (prev) { await nextTick(); mainEl.value?.focus() }
 }, { immediate: true })
 </script>
 
 <template>
+  <RouterView v-if="route.meta.public" />
+  <template v-else>
   <a class="skip" href="#main">본문으로 건너뛰기</a>
   <div class="layout">
     <nav class="sidebar" aria-label="관리자 메뉴">
@@ -59,6 +65,9 @@ watch(() => route.fullPath, async (_, prev) => {
         <div class="me">
           <div class="avatar" aria-hidden="true">{{ me.name.slice(0, 1) }}</div>
           <div><strong>{{ me.name }}</strong><span>{{ me.role }}</span></div>
+          <button type="button" class="signout" @click="signOut" aria-label="로그아웃" title="로그아웃">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h11" /></svg>
+          </button>
         </div>
       </div>
     </nav>
@@ -67,15 +76,18 @@ watch(() => route.fullPath, async (_, prev) => {
       <RouterView />
     </main>
   </div>
+  </template>
 </template>
 
 <style scoped>
+.signout { margin-left: auto; width: 36px; height: 36px; border-radius: 8px; border: 0; background: transparent; color: var(--muted-on-ink); display: grid; place-items: center; }
+.signout:hover { background: rgba(255, 255, 255, 0.08); color: var(--white); }
 .skip { position: absolute; left: 16px; top: -48px; z-index: 10; padding: 10px 14px; border-radius: 10px; background: var(--lime); font-weight: 700; }
 .skip:focus { top: 16px; }
 .main:focus { outline: none; }
 .sidebar { background: var(--ink); color: var(--white); padding: 24px 16px; display: flex; flex-direction: column; gap: 28px; position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
-.brand div:last-child, .me div:last-child { display: flex; flex-direction: column; }
+.brand div:last-child, .me > div:nth-child(2) { display: flex; flex-direction: column; min-width: 0; }
 .brand strong { font-size: 15px; }
 .brand span, .me span { font-size: 12px; color: var(--muted-on-ink); }
 .logo { width: 28px; height: 28px; border-radius: 8px; background: var(--lime); color: var(--ink); display: grid; place-items: center; }

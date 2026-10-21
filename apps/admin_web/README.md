@@ -11,6 +11,7 @@ npm run build      # dist/
 
 | 경로 | 화면 | 기능 |
 | --- | --- | --- |
+| `/login` | 로그인 (사번·이메일 + 비밀번호, 개발 서버에선 시연 계정 버튼) | 인증 |
 | `/` | 홈 · 지금 확인할 일 | 전체 |
 | `/inbox` | 승인 대기 · AI 의견 · **AI 비서 처리 확인** | 처리 요청 |
 | `/licenses` | 구독·이용권 | F4 |
@@ -20,7 +21,7 @@ npm run build      # dist/
 | `/assistant` | **AI 비서에게 묻기** (진행 스트림, 내 요청) | 전체 |
 
 ## 구조
-- `src/request.js` — fetch 공통(`/api/*`), 토큰(dev-login 자동, JWT 로그인 화면은 후속), SSE 스트리밍(`streamTask`), 에이전트 작업 API.
+- `src/request.js` — fetch 공통(`/api/*`), 토큰(`POST /auth/login` JWT를 `localStorage.token`에, 없거나 401이면 `/login`), `login`·`devLogin`(개발 서버 전용)·`logout`, SSE 스트리밍(`streamTask`), 에이전트 작업 API.
 - `src/api.js` — 화면별 데이터 함수. 함수 이름·반환 모양은 목업 시절과 같다.
 - `src/components/TaskStream.vue` — 에이전트 진행 이벤트(TOKEN·TOOL_START/END·APPROVAL_REQUIRED·DONE·FAILED) 표시.
 - `src/components/TaskApprovals.vue` — 변경 도구 앞에서 멈춘 작업 확인·거절 → 이어서 처리.

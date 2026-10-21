@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from typing import Any
 
@@ -62,6 +63,17 @@ class ScriptedModel(BaseChatModel):
 def make_model(name: str) -> BaseChatModel:
     if name == "fake":
         return ScriptedModel()
+    if ":" not in name:
+        raise ValueError('LLM_MODEL은 "provider:model" 또는 "fake" 형식이어야 합니다.')
+    provider, model = name.split(":", 1)
+    if provider == "xai":
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=model,
+            api_key=os.getenv("XAI_API_KEY"),
+            base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1"),
+        )
     from langchain.chat_models import init_chat_model
 
     return init_chat_model(name)
