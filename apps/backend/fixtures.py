@@ -97,7 +97,7 @@ PLANS = {p.id: p for p in [
 ]}
 
 CONFIRMATIONS = {c.id: c for c in [
-    Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", due_at=NOW + timedelta(days=5)),
+    Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", answer=ConfirmationAnswer.return_seat, due_at=NOW + timedelta(days=5), answered_at=NOW - timedelta(minutes=15)),
 ]}
 
 UNMET_NEEDS = [
