@@ -1,0 +1,474 @@
+// AI·구독 SW 운영 에이전트 — 업무 DB (PostgreSQL 16, 스키마 app)
+// 원천: packages/schemas/schemas/entities.py + docs/설계문서.md v2 6절 + docs/아키텍처.md 6절
+// 시각화: https://dbdiagram.io 에 이 파일 내용을 붙여 넣는다
+// 규칙: id는 문자열(접두어_…), enum 값은 schemas.common과 같은 영어 값, 시각은 timestamptz(UTC)
+// agent 스키마(LangGraph checkpoint·작업 이력)는 라이브러리가 만들므로 여기 넣지 않는다
+
+Project capstone {
+  database_type: 'PostgreSQL'
+  Note: '업무 데이터는 backend만 쓴다. MCP·agent·worker는 backend API를 거친다 (worker는 backend 코드라 예외).'
+}
+
+// ───────── enum (schemas.common) ─────────
+Enum role {
+  employee
+  admin
+  system
+}
+Enum employee_status {
+  active
+  on_leave
+  resigned
+}
+Enum tool_kind {
+  ai
+  software
+}
+Enum tool_approval_status {
+  approved
+  under_review
+  denied
+}
+Enum data_class {
+  public
+  internal
+  confidential
+}
+Enum billing_type {
+  seat_flat
+  seat_plus_usage
+  api_usage
+}
+Enum task_source {
+  manual
+  bot
+}
+Enum source_kind {
+  release_notes
+  pricing
+  docs
+}
+Enum target_type {
+  employee
+  team
+  all
+}
+Enum suggestion_status {
+  draft
+  pending_approval
+  sent
+  on_hold
+}
+Enum reaction {
+  useful
+  irrelevant
+  question
+}
+Enum unmet_need_status {
+  open
+  under_review
+  closed
+}
+Enum environment {
+  test
+  prod
+}
+Enum seat_status {
+  assigned
+  unassigned
+}
+Enum license_flag {
+  unused
+  on_leave
+  no_record
+  recent_hire
+}
+Enum anomaly_status {
+  open
+  investigating
+  resolved
+}
+Enum plan_type {
+  seat_assign
+  seat_reclaim
+  model_change
+  budget_review
+  purchase_review
+}
+Enum plan_status {
+  draft
+  pending_approval
+  approved
+  executed
+  failed
+  rejected
+}
+Enum risk_level {
+  low
+  medium
+  high
+}
+Enum confirmation_answer {
+  still_needed
+  return_seat
+  on_leave
+}
+Enum savings_kind {
+  purchase_avoided
+  renewal_reduced
+  billing_reduced
+  projected
+}
+Enum job_status {
+  queued
+  running
+  done
+  failed
+  dead
+}
+
+// ───────── 조직 ─────────
+Table departments {
+  id varchar [pk, note: 'dept_mkt']
+  name varchar [not null]
+  parent_id varchar [ref: >? departments.id]
+  slack_channel_id varchar [note: 'v2: 팀 Slack 채널 (F1 자동 발송)']
+  suggestions_enabled boolean [not null, default: true, note: 'v2: 팀별 자동 발송 스위치']
+}
+
+Table employees {
+  id varchar [pk, note: 'emp_mkt_01, sys']
+  name varchar [not null]
+  email varchar [not null, unique]
+  dept_id varchar [not null, ref: > departments.id]
+  role role [not null]
+  job_title varchar [not null]
+  status employee_status [not null, default: 'active']
+  hire_date date
+  slack_user_id varchar [unique]
+  password_hash varchar [note: 'v3 JWT 로그인. 응답 모델에 넣지 않는다. sys는 null']
+}
+
+// ───────── 제품·계약·모델 ─────────
+Table tools {
+  id varchar [pk, note: 'tool_ai_a']
+  kind tool_kind [not null, default: 'ai', note: 'v2: AI 외 구독 SW(Adobe 등)']
+  vendor varchar [not null]
+  product varchar [not null]
+  category varchar [not null]
+  approval_status tool_approval_status [not null]
+  allowed_data_class data_class [not null]
+  policy_note text
+}
+
+Table contracts {
+  id varchar [pk, note: 'ctr_ai_a_2026']
+  tool_id varchar [not null, ref: > tools.id]
+  plan_name varchar [not null]
+  billing_type billing_type [not null]
+  seats_purchased int [not null, default: 0, note: 'CHECK >= 0']
+  seat_price_krw int [not null, default: 0]
+  term_start date [not null]
+  term_end date [not null, note: 'CHECK term_end > term_start']
+  mid_term_reduction boolean [not null, default: false]
+}
+
+Table models {
+  id varchar [pk, note: 'mdl_b_mid']
+  tool_id varchar [ref: >? tools.id, note: '신규 제안: 어느 API 제품의 모델인지 (entities에는 vendor 문자열만)']
+  vendor varchar [not null]
+  name varchar [not null]
+  input_usd_per_mtok numeric(10,4) [not null]
+  output_usd_per_mtok numeric(10,4) [not null]
+  approved boolean [not null, default: true]
+  allowed_data_class data_class [not null]
+  indexes { (vendor, name) [unique] }
+}
+
+Table eval_results {
+  id varchar [pk]
+  task_type varchar [not null, note: 'customer_inquiry_classification']
+  model_id varchar [not null, ref: > models.id]
+  quality_score numeric(5,4) [not null]
+  threshold numeric(5,4) [not null]
+  passed boolean [not null]
+  avg_input_tokens int [not null]
+  avg_output_tokens int [not null]
+  latency_ms int [not null]
+  evaluated_at timestamptz [not null]
+  indexes { (task_type, model_id) [unique] }
+}
+
+// ───────── 직원 등록 업무 ─────────
+Table registered_tasks {
+  id varchar [pk]
+  employee_id varchar [not null, ref: > employees.id]
+  title varchar [not null]
+  description text [not null]
+  frequency varchar [not null, note: 'daily | weekly | monthly | adhoc']
+  tools_used "varchar[]" [not null, default: '{}', note: 'tool id 배열 (FK 없음, 앱에서 검증)']
+  source task_source [not null, default: 'manual']
+  updated_at timestamptz [not null]
+}
+
+// ───────── F1 업데이트 기반 제안 ─────────
+Table vendor_sources {
+  id varchar [pk, note: 'src_ai_a_rn']
+  vendor varchar [not null]
+  url varchar [not null, unique]
+  kind source_kind [not null]
+  is_candidate boolean [not null, default: false]
+}
+
+Table vendor_updates {
+  id varchar [pk]
+  source_id varchar [not null, ref: > vendor_sources.id]
+  vendor varchar [not null]
+  published_at timestamptz [not null]
+  title varchar [not null]
+  summary text [not null]
+  url varchar [not null, unique, note: '수집 배치 중복 방지 키']
+  affected_plans "varchar[]" [not null, default: '{}']
+  fetched_at timestamptz [not null]
+}
+
+Table suggestions {
+  id varchar [pk]
+  update_id varchar [not null, ref: > vendor_updates.id]
+  target_type target_type [not null]
+  target_employee_id varchar [ref: >? employees.id, note: 'target_type=employee. API의 target_id로 합쳐 응답']
+  target_dept_id varchar [ref: >? departments.id, note: 'target_type=team']
+  task_id varchar [ref: >? registered_tasks.id]
+  relevance text [not null, note: '근거 없으면 발송 금지 (알림 정책)']
+  body text [not null]
+  status suggestion_status [not null]
+  hold_reason text
+  sent_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  indexes { (target_dept_id, sent_at) [note: '팀당 주 2건 상한 검사'] }
+}
+
+Table feedback {
+  id varchar [pk]
+  suggestion_id varchar [not null, ref: > suggestions.id]
+  employee_id varchar [not null, ref: > employees.id]
+  reaction reaction [not null]
+  created_at timestamptz [not null]
+  indexes { (suggestion_id, employee_id) [unique] }
+}
+
+Table suggestion_holds {
+  id varchar [pk]
+  dept_id varchar [not null, ref: > departments.id]
+  tool_category varchar [not null]
+  hold_until timestamptz [not null]
+  reason varchar [not null, note: '관련 없음 2회 연속 → 4주 보류']
+  indexes { (dept_id, tool_category) [unique] }
+}
+
+Table review_runs {
+  id varchar [pk]
+  update_id varchar [not null, ref: > vendor_updates.id]
+  agent_task_id varchar [note: 'agent 작업 id (agent 스키마, FK 없음)']
+  ran_at timestamptz [not null]
+  sent_dept_ids "varchar[]" [not null, default: '{}']
+  held jsonb [note: '[{dept_id, reason}] 보내지 않은 팀과 이유']
+  Note: 'v2 신규: 자동 제안 판단 기록 (관리자 화면)'
+}
+
+// ───────── F3 사용량·비용 ─────────
+Table projects {
+  id varchar [pk, note: 'prj_cs_classify']
+  name varchar [not null]
+  dept_id varchar [not null, ref: > departments.id]
+  owner_id varchar [not null, ref: > employees.id]
+  purpose text [not null]
+  model_id varchar [not null, ref: > models.id]
+  environment environment [not null]
+  monthly_budget_krw int [not null]
+}
+
+Table api_keys {
+  id varchar [pk]
+  project_id varchar [not null, ref: > projects.id]
+  label varchar [not null]
+  vendor_key_ref varchar [not null, unique, note: '벤더 쪽 키 id. 키 값 자체는 저장하지 않는다']
+  created_at timestamptz [not null]
+  revoked_at timestamptz
+}
+
+Table usage_records {
+  id bigserial [pk]
+  vendor_record_id varchar [not null, unique, note: '벤더 사용량 행 id. 수집 재시도 시 중복 방지']
+  contract_id varchar [not null, ref: > contracts.id]
+  period_start timestamptz [not null, note: '시간 단위 버킷']
+  employee_id varchar [ref: >? employees.id, note: '좌석형 사용']
+  project_id varchar [ref: >? projects.id, note: 'API형 사용']
+  api_key_id varchar [ref: >? api_keys.id]
+  model_id varchar [ref: >? models.id]
+  input_length_bucket varchar [note: '0-1k | 1-4k | 4-16k | 16k+ (원인 조사 breakdown)']
+  requests int [not null]
+  input_tokens bigint [not null]
+  output_tokens bigint [not null]
+  cost_usd numeric(12,4) [not null]
+  fx_rate numeric(10,2) [not null, note: '수집 시점 환율']
+  cost_krw int [not null]
+  indexes {
+    (project_id, period_start)
+    (employee_id, period_start)
+    (contract_id, period_start)
+  }
+  Note: '대화 내용은 저장하지 않는다. 메타데이터만 (설계 원칙 2)'
+}
+
+Table anomalies {
+  id varchar [pk]
+  scope_type varchar [not null, note: 'project | employee | dept | contract (다형 참조, FK 없음)']
+  scope_id varchar [not null]
+  rule varchar [not null, note: 'daily_cost_gt_3x_baseline']
+  baseline numeric(14,2) [not null]
+  observed numeric(14,2) [not null]
+  ratio numeric(8,2) [not null]
+  projected_monthly_krw int
+  projected_monthly_usd numeric(12,4)
+  status anomaly_status [not null, default: 'open']
+  created_at timestamptz [not null]
+  indexes { (scope_type, scope_id, rule, created_at) }
+}
+
+// ───────── F4 이용권 · F5 미지원 요청 ─────────
+Table seat_assignments {
+  id varchar [pk]
+  contract_id varchar [not null, ref: > contracts.id]
+  employee_id varchar [not null, ref: > employees.id]
+  status seat_status [not null]
+  assigned_at timestamptz [not null]
+  unassigned_at timestamptz
+  last_activity_at timestamptz [note: 'null = 기록 없음 = 확인 필요 (미사용 아님)']
+  flag license_flag
+  indexes {
+    (contract_id, employee_id) [note: "부분 UNIQUE WHERE status = 'assigned' (Alembic에서 생성)"]
+  }
+}
+
+Table unmet_needs {
+  id varchar [pk]
+  employee_id varchar [not null, ref: > employees.id]
+  dept_id varchar [not null, ref: > departments.id]
+  summary text [not null]
+  capability_tag varchar [not null]
+  status unmet_need_status [not null, default: 'open']
+  created_at timestamptz [not null]
+  indexes { capability_tag }
+}
+
+// ───────── 처리 요청 · 절감 · 감사 ─────────
+Table action_plans {
+  id varchar [pk]
+  type plan_type [not null]
+  risk_level risk_level [not null]
+  status plan_status [not null]
+  items jsonb [not null, note: '[{employee_id, contract_id}] 등 type별']
+  rationale text [not null]
+  evidence jsonb [not null, default: '[]']
+  ai_opinion text [note: 'v2: 승인 대기 건에 붙는 AI 의견']
+  requested_by varchar [not null, ref: > employees.id]
+  approver_id varchar [ref: >? employees.id]
+  approved_at timestamptz
+  reject_reason text
+  execution_key varchar [unique, note: 'Idempotency-Key. 두 번째 실행은 첫 결과 반환']
+  executed_at timestamptz
+  result jsonb
+  created_at timestamptz [not null]
+  indexes { (status, created_at) }
+  Note: "상태 전이는 UPDATE ... WHERE status = :expected 로만 (실행 직전 재확인)"
+}
+
+Table confirmations {
+  id varchar [pk]
+  plan_id varchar [not null, ref: > action_plans.id]
+  employee_id varchar [not null, ref: > employees.id]
+  question text [not null]
+  answer confirmation_answer
+  due_at timestamptz [not null, note: '5영업일. 무응답은 유지']
+  answered_at timestamptz
+  indexes { (plan_id, employee_id) [unique] }
+}
+
+Table savings_ledger {
+  id varchar [pk]
+  plan_id varchar [not null, ref: > action_plans.id]
+  kind savings_kind [not null]
+  amount_krw int [not null]
+  basis text [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table audit_log {
+  id varchar [pk]
+  actor_id varchar [not null, ref: > employees.id]
+  actor_role role [not null]
+  action varchar [not null, note: 'plan.approve']
+  target varchar [not null, note: 'plan_001']
+  before jsonb
+  after jsonb
+  trace_id varchar
+  created_at timestamptz [not null]
+  indexes { (target, created_at) }
+  Note: 'append-only. UPDATE·DELETE 권한을 주지 않는다'
+}
+
+// ───────── 운영 (v3 대기열) ─────────
+Table job_runs {
+  id varchar [pk]
+  name varchar [not null, note: 'collect_usage | send_suggestion | execute_plan ...']
+  queue varchar [not null, note: 'batch | agent | notify']
+  status job_status [not null, default: 'queued']
+  attempt int [not null, default: 0]
+  idempotency_key varchar [not null, unique]
+  payload jsonb
+  last_error text
+  trace_id varchar
+  created_at timestamptz [not null]
+  finished_at timestamptz
+  indexes { (status, created_at) }
+}
+
+TableGroup org [color: #6c757d] {
+  departments
+  employees
+}
+TableGroup catalog [color: #0d6efd] {
+  tools
+  contracts
+  models
+  eval_results
+  registered_tasks
+}
+TableGroup f1_suggestion [color: #198754] {
+  vendor_sources
+  vendor_updates
+  suggestions
+  feedback
+  suggestion_holds
+  review_runs
+}
+TableGroup f3_usage [color: #fd7e14] {
+  projects
+  api_keys
+  usage_records
+  anomalies
+}
+TableGroup f4_seat [color: #6f42c1] {
+  seat_assignments
+  unmet_needs
+}
+TableGroup plan_audit [color: #dc3545] {
+  action_plans
+  confirmations
+  savings_ledger
+  audit_log
+}
+TableGroup ops [color: #b58900] {
+  job_runs
+}
