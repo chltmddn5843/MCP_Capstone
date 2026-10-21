@@ -14,6 +14,7 @@ class AgentState(TypedDict, total=False):
     requester_id: str
     requester_role: str
     prompt_name: str | None
+    channel: str  # slack | admin_ui | system. slack이면 답변을 자연어로만 (내부 식별자 비노출)
     turn: int  # 모델 호출 횟수
     tool_counts: dict[str, int]  # 도구별 호출 횟수 (같은 도구 3회 제한)
     evidence: list[dict]  # 도구 결과에서 모은 근거

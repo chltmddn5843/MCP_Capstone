@@ -123,3 +123,20 @@ def test_task_list_scoping(client):
     assert mine and all(t["requester_id"] == "emp_mkt_01" for t in mine)
     assert client.get("/ai/tasks", params={"mine": False}, headers=EMP).status_code == 403
     assert client.get("/ai/tasks", params={"mine": False}, headers=ASSET).status_code == 200
+
+
+def test_public_answer_has_no_internal_identifiers(client):
+    """직원(또는 Slack 채널) 답변에는 도구 이름·id·근거 줄이 없다. 참고 데이터는 evidence에 남는다."""
+    task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
+    events(client, task_id, EMP)
+    t = wait_status(client, task_id, EMP, {"done"})
+    ans = t["result"]["answer"]
+    assert "근거" not in ans and "create_action_plan" not in ans and "plan_" not in ans and "emp_" not in ans, ans
+    assert t["result"]["evidence"] and t["result"]["plan_id"].startswith("plan_")  # 구조화된 참고 데이터는 유지
+
+
+def test_admin_web_answer_keeps_evidence_line(client):
+    task_id = client.post("/ai/tasks", json={"input": "내 등록 업무 알려줘", "channel": "admin_ui"}, headers=ASSET).json()["data"]["task_id"]
+    events(client, task_id, ASSET)
+    t = wait_status(client, task_id, ASSET, {"done"})
+    assert "get_my_profile" in t["result"]["answer"]  # 관리자 웹에서는 상세 유지 (스크립트 모델은 도구 이름을 답에 넣는다)

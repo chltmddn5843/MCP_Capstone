@@ -17,8 +17,10 @@ def _read(name: str) -> str:
         return f.read().strip()
 
 
-def build_system_prompt(role: str, prompt_name: str | None, prompt_args: dict | None = None) -> str:
+def build_system_prompt(role: str, prompt_name: str | None, prompt_args: dict | None = None, channel: str | None = None) -> str:
     parts = [_read("system_base"), _read(f"role_{role}")]
+    if channel == "slack":
+        parts.append(_read("channel_slack"))
     if prompt_name:
         tpl = _read(f"prompt_{prompt_name}")
         if tpl:

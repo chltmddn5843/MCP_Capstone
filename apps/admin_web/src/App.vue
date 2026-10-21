@@ -21,7 +21,7 @@ const groups = [
   ] },
 ]
 
-getMe().then((v) => (me.value = v))
+getMe().then((v) => (me.value = v)).catch((e) => (me.value = { name: '?', role: String(e.message ?? e) }))
 // 처리 요청을 승인·생성하면 배지가 바뀌므로 화면을 옮길 때마다 다시 센다.
 watch(() => route.fullPath, async (_, prev) => {
   counts.value = await getCounts()
@@ -37,7 +37,7 @@ watch(() => route.fullPath, async (_, prev) => {
         <div class="logo" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l3-7 3 14 3-7h3" /></svg>
         </div>
-        <div><strong>구독 운영</strong><span>A 코스메틱</span></div>
+        <div><strong>구독 운영</strong><span>한빛제조</span></div>
       </div>
 
       <div v-for="g in groups" :key="g.label" class="group">
@@ -52,10 +52,10 @@ watch(() => route.fullPath, async (_, prev) => {
       </div>
 
       <div class="foot">
-        <button type="button" class="btn btn-primary ask">
+        <RouterLink to="/assistant" class="btn btn-primary ask">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
           AI 비서에게 묻기
-        </button>
+        </RouterLink>
         <div class="me">
           <div class="avatar" aria-hidden="true">{{ me.name.slice(0, 1) }}</div>
           <div><strong>{{ me.name }}</strong><span>{{ me.role }}</span></div>

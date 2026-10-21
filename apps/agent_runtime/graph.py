@@ -21,7 +21,7 @@ from langgraph.types import interrupt
 
 from apps.agent_runtime.config import MAX_SAME_TOOL, MAX_SECONDS, MAX_TURNS
 from apps.agent_runtime.harness.context import fit_context
-from apps.agent_runtime.harness.guardrails import approval_summary, is_destructive
+from apps.agent_runtime.harness.guardrails import approval_summary, is_destructive, public_channel, sanitize_public_answer
 from apps.agent_runtime.harness.observability import record, usage_of
 from apps.agent_runtime.harness.recovery import call_with_recovery
 from apps.agent_runtime.harness.tools import shape_result
@@ -165,6 +165,8 @@ async def finalize(state: AgentState) -> dict:
     if reason in ("turn_limit", "time_limit", "tool_repeat"):
         label = {"turn_limit": "최대 턴 수", "time_limit": "작업 시간 한도", "tool_repeat": "같은 도구 반복 한도"}[reason]
         text = (text + "\n\n" if text else "") + f"({label}에 도달해 여기까지 확인한 내용으로 답합니다. 추가 확인이 필요하면 다시 요청해 주세요.)"
+    if public_channel(state.get("requester_role"), state.get("channel")):  # Guardrails: 직원·Slack에는 자연어만
+        text = sanitize_public_answer(text)
     return {"answer": text or "답변을 만들지 못했습니다.", "stop_reason": reason or "answer"}
 
 
