@@ -4630,6 +4630,112 @@
       }
     },
     "/confirmations": {
+      "get": {
+        "tags": [
+          "F4"
+        ],
+        "summary": "List Confirmations",
+        "description": "사용 의사 확인 요청 목록. Slack 봇 워커가 answered=false로 읽어 직원에게 DM을 보낸다.",
+        "operationId": "list_confirmations_confirmations_get",
+        "parameters": [
+          {
+            "name": "answered",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "false면 아직 응답 없는 요청만",
+              "title": "Answered"
+            },
+            "description": "false면 아직 응답 없는 요청만"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_Confirmation__"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
       "post": {
         "tags": [
           "F4"
@@ -5245,9 +5351,106 @@
           "F1"
         ],
         "summary": "Notify Outbox",
-        "description": "Slack 연결 전 발송함. Slack 봇이 붙으면 delivered_at이 채워진다.",
+        "description": "발송함. 발송 배치가 넣고, Slack 봇 워커가 읽어 보낸 뒤 delivered_at을 채운다.",
         "operationId": "notify_outbox_notify_outbox_get",
         "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/notify-outbox/{outbox_id}/delivered": {
+      "patch": {
+        "tags": [
+          "F1"
+        ],
+        "summary": "Notify Outbox Delivered",
+        "description": "Slack 봇 워커가 실제로 보낸 뒤 전달 표시. 이미 표시된 건은 그대로 돌려준다 (멱등).",
+        "operationId": "notify_outbox_delivered_notify_outbox__outbox_id__delivered_patch",
+        "parameters": [
+          {
+            "name": "outbox_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Outbox Id"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -6751,6 +6954,26 @@
           "meta"
         ],
         "title": "Envelope[list[Anomaly]]"
+      },
+      "Envelope_list_Confirmation__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Confirmation"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[list[Confirmation]]"
       },
       "Envelope_list_ContractInventory__": {
         "properties": {

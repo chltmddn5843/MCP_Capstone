@@ -939,6 +939,13 @@ def _add_business_days(start: datetime, days: int) -> datetime:
 CFM_COLS = "id, plan_id, employee_id, question, answer, due_at, answered_at"
 
 
+@app.get("/confirmations", response_model=Envelope[list[Confirmation]], tags=["F4"])
+def list_confirmations(answered: bool | None = Query(None, description="false면 아직 응답 없는 요청만"), user: Employee = Depends(require(Role.admin, Role.system))):
+    """사용 의사 확인 요청 목록. Slack 봇 워커가 answered=false로 읽어 직원에게 DM을 보낸다."""
+    rs = db.rows(f"SELECT {CFM_COLS} FROM confirmations WHERE (CAST(:a AS boolean) IS NULL OR (answer IS NOT NULL) = CAST(:a AS boolean)) ORDER BY due_at", a=answered)
+    return ok([Confirmation(**r) for r in rs])
+
+
 @app.post("/confirmations", response_model=Envelope[Confirmation], status_code=201, tags=["F4"])
 def create_confirmation(body: ConfirmationCreate, user: Employee = Depends(require(Role.admin, Role.system))):
     if not get_employee(body.employee_id):
@@ -1081,6 +1088,17 @@ def review_runs(user: Employee = Depends(require(Role.admin))):
 
 
 @app.get("/notify-outbox", tags=["F1"])
-def notify_outbox(user: Employee = Depends(require(Role.admin))):
-    """Slack 연결 전 발송함. Slack 봇이 붙으면 delivered_at이 채워진다."""
+def notify_outbox(user: Employee = Depends(require(Role.admin, Role.system))):
+    """발송함. 발송 배치가 넣고, Slack 봇 워커가 읽어 보낸 뒤 delivered_at을 채운다."""
     return ok(db.rows("SELECT id, suggestion_id, channel, target, text, created_at, delivered_at FROM notify_outbox ORDER BY created_at DESC"))
+
+
+@app.patch("/notify-outbox/{outbox_id}/delivered", tags=["F1"])
+def notify_outbox_delivered(outbox_id: str, user: Employee = Depends(require(Role.admin, Role.system))):
+    """Slack 봇 워커가 실제로 보낸 뒤 전달 표시. 이미 표시된 건은 그대로 돌려준다 (멱등)."""
+    with db.tx() as c:
+        r = db.one("UPDATE notify_outbox SET delivered_at = coalesce(delivered_at, now()) WHERE id = :id"
+                   " RETURNING id, suggestion_id, channel, target, text, created_at, delivered_at", c, id=outbox_id)
+    if not r:
+        raise ApiError(ErrorCode.not_found, "발송함 항목 없음")
+    return ok(r)
