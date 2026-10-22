@@ -76,6 +76,7 @@ from schemas.rest import (
     ConfirmationCreate,
     ContractInventory,
     DevLoginRequest,
+    SlackExchangeRequest,
     DevLoginResponse,
     LoginRequest,
     FeedbackCreate,
@@ -132,6 +133,18 @@ def dev_login(body: DevLoginRequest):
     emp = get_employee(body.employee_id)
     if not emp:
         raise ApiError(ErrorCode.not_found, f"직원 {body.employee_id} 없음")
+    return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
+
+
+@app.post("/auth/slack-exchange", response_model=Envelope[DevLoginResponse], tags=["auth"])
+def slack_exchange(body: SlackExchangeRequest, user: Employee = Depends(require(Role.system))):
+    """Slack 봇(시스템 토큰)이 Slack 사용자 대신 직원 토큰을 받는다. APP_ENV=prod에서도 열려 있다(dev-login 대신)."""
+    r = None if body.employee_id else db.one("SELECT id FROM employees WHERE slack_user_id = :s", s=body.slack_user_id)
+    emp = get_employee(body.employee_id or (r and r["id"]) or "")
+    if not emp:
+        raise ApiError(ErrorCode.not_found, f"Slack 사용자 {body.slack_user_id} 에 연결된 직원이 없습니다. SLACK_USER_MAP을 확인하세요.")
+    if emp.status == "resigned":
+        raise ApiError(ErrorCode.forbidden, "퇴사 처리된 계정입니다")
     return ok(DevLoginResponse(access_token=issue_token(emp), employee=emp))
 
 
