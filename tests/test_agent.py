@@ -63,7 +63,10 @@ def test_profile_question_runs_to_done_with_evidence(client):
 
 
 def test_employee_seat_request_waits_for_admin(client):
-    """직원 사용 신청: 의도 분류 → create_action_plan → 승인 대기. 에이전트는 실행하지 않고 '전달했어요'라고 답한다."""
+    """직원 사용 신청: 의도 분류 → create_action_plan → 좌석이 없으면 승인 대기. 에이전트는 실행하지 않고 '전달했어요'라고 답한다."""
+    from apps.backend import db
+    with db.tx() as c:  # 좌석을 꽉 채워 승인 대기로 들어가게 한다 (남으면 바로 배정)
+        c.execute(db.text("UPDATE contracts SET seats_purchased = (SELECT count(*) FROM seat_assignments WHERE contract_id = 'ctr_chatgpt_2026' AND status = 'assigned') WHERE id = 'ctr_chatgpt_2026'"))
     task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
@@ -175,6 +178,9 @@ def test_admin_web_answer_keeps_evidence_line(client):
 
 def test_plan_creation_triggers_review_with_opinion(client):
     """직원 요청으로 처리 요청이 생기면 시스템 계정 검토가 돌아 ai_opinion이 붙는다 (관리자 승인 전)."""
+    from apps.backend import db
+    with db.tx() as c:  # 좌석을 꽉 채워 승인 대기로 들어가게 한다 (남으면 바로 배정)
+        c.execute(db.text("UPDATE contracts SET seats_purchased = (SELECT count(*) FROM seat_assignments WHERE contract_id = 'ctr_chatgpt_2026' AND status = 'assigned') WHERE id = 'ctr_chatgpt_2026'"))
     from apps.backend.main import app as backend_app
     from fastapi.testclient import TestClient as BackendClient
     task_id = client.post("/ai/tasks", json={"input": "AI-A 이용권 신청하고 싶어요", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
@@ -209,3 +215,18 @@ def test_review_update_prompt_saves_suggestion(client):
     assert t["status"] == "done" and [c["name"] for c in t["tool_calls"]][:2] == ["get_vendor_update", "find_relevant_tasks"]
     sugs = bc.get("/suggestions", params={"update_id": upd["id"]}, headers=SYS).json()["data"]["items"]
     assert sugs and sugs[0]["relevance"]
+
+
+def test_model_release_simulation_makes_one_card(client):
+    """F1: 출시 시뮬레이션 → 새 모델 감지 → review_update가 전사 카드 뉴스 한 장(핵심 기능 + 직무별 활용)을 저장한다."""
+    from fastapi.testclient import TestClient as BackendClient
+    SYS = {"Authorization": "Bearer dev.sys"}
+    bc = BackendClient(backend_app)
+    found = bc.post("/internal/jobs/collect_release_notes/run", params={"simulate": True}, headers=SYS).json()["data"]["result"]["new_models"][0]
+    r = client.post("/ai/tasks", json={"input": f"업데이트 {found['update_id']}를 검토해 관련 업무에 활용 제안을 만들어줘", "prompt_name": "review_update",
+                                       "prompt_args": {"update_id": found["update_id"]}, "channel": "system"}, headers=SYS)
+    t = wait_status(client, r.json()["data"]["task_id"], SYS, {"done", "failed"})
+    assert t["status"] == "done"
+    sugs = bc.get("/suggestions", params={"update_id": found["update_id"]}, headers=SYS).json()["data"]["items"]
+    assert len(sugs) == 1 and sugs[0]["target_type"] == "all"
+    assert "핵심 기능" in sugs[0]["body"] and "이렇게 써 보세요" in sugs[0]["body"] and "• " in sugs[0]["body"]

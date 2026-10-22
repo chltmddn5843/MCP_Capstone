@@ -96,10 +96,7 @@ def test_grant_and_revoke_change_usable_tools():
     """부여하면 그 직원의 실제 사용 가능 도구에 생기고, 회수하면 사라진다. API 도구는 팀 프로젝트가 있을 때만."""
     assert "tool_chatgpt" not in tools_of("emp_mkt_01")
     assert "tool_claude" in tools_of("emp_cs_01") and "tool_claude" not in tools_of("emp_hrd_01")  # HRD팀은 Claude API 프로젝트가 없다
-    plan = assign("emp_mkt_01").json()["data"]
-    assert plan["status"] == "pending_approval"  # v2.1: 배정도 관리자 승인 뒤 실행
-    client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "t"})
-    assert client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "as1"}).status_code == 200
+    assert assign("emp_mkt_01").json()["data"]["status"] == "executed"  # F4: 남은 좌석이 있으면 바로 배정
     assert "tool_chatgpt" in tools_of("emp_mkt_01")
     plan = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}],
                                                       "rationale": "t", "evidence": []}).json()["data"]
@@ -109,17 +106,44 @@ def test_grant_and_revoke_change_usable_tools():
 
 
 def test_assign_revalidates_before_execute():
-    """중복 배정·휴직자·좌석 초과는 승인 대기에 들어가기 전에 막고(409) 조치안을 failed로 남긴다. 절감 기록은 생기지 않는다."""
+    """중복 배정·휴직자는 승인 대기에 들어가기 전에 막고(409) 조치안을 failed로 남긴다.
+    좌석이 없으면 승인 대기 → 관리자 승인 = 1석 추가 구매(Mock) 후 배정. 좌석 수를 넘지 않고, 구매했으니 절감 기록도 없다."""
     savings = db.one("SELECT count(*) AS n FROM savings_ledger")["n"]
-    for emp, why in [("emp_gen_002", "이미"), ("emp_gen_007", "on_leave")]:
+    for emp, why in [("emp_mkt_02", "이미"), ("emp_mgmt_02", "on_leave")]:
         r = assign(emp)
         assert r.status_code == 409 and why in r.json()["error"]["message"]
         assert db.one("SELECT status FROM action_plans WHERE id = :id", id=r.json()["error"]["details"]["plan_id"])["status"] == "failed"
     with db.tx() as c:  # 좌석을 꽉 채운 상태로 만든다 (구매 수 = 배정 수)
         c.execute(db.text("UPDATE contracts SET seats_purchased = 58 WHERE id = 'ctr_chatgpt_2026'"))
     r = assign("emp_mkt_01")
-    assert r.status_code == 409 and "남은 좌석 0석" in r.json()["error"]["message"]
+    plan = r.json()["data"]
+    assert r.status_code == 201 and plan["status"] == "pending_approval"
+    assert any(e["value"].get("on_approve") == "1석 추가 구매(Mock) 후 배정" for e in plan["evidence"] if isinstance(e["value"], dict))
+    client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "t"})
+    done = client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "buy1"}).json()["data"]["plan"]
+    assert done["status"] == "executed" and done["result"]["purchased_seats"] == {"ctr_chatgpt_2026": 1}
+    seats = db.one("SELECT c.seats_purchased AS p, count(s.id) AS used FROM contracts c JOIN seat_assignments s ON s.contract_id = c.id AND s.status = 'assigned'"
+                   " WHERE c.id = 'ctr_chatgpt_2026' GROUP BY c.id")
+    assert seats["p"] == seats["used"] == 59   # 산 만큼만 배정
     assert db.one("SELECT count(*) AS n FROM savings_ledger")["n"] == savings
+
+
+def test_api_access_hands_key_over_once():
+    """API 사용 승인 → 개인 테스트 프로젝트·키 생성, 키는 본인만 한 번 (Slack에는 앞부분만)."""
+    emp = {"Authorization": "Bearer dev.emp_md_01"}
+    plan = client.post("/plans", headers=emp, json={"type": "api_access", "items": [{"tool_id": "tool_claude", "purpose": "리뷰 요약 자동화"}],
+                                                    "rationale": "t", "evidence": []}).json()["data"]
+    client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "t"})
+    done = client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "ak1"}).json()["data"]["plan"]
+    h = done["result"]["handoffs"][0]
+    assert "secret" not in h and h["key_prefix"].startswith("sk-mock-")
+    url = f"/keys/handoff/{h['handoff_id']}/reveal"
+    assert client.post(url, headers=ADMIN).status_code == 404      # 관리자도 남의 키는 못 본다
+    got = client.post(url, headers=emp).json()["data"]
+    assert got["secret"].startswith(h["key_prefix"]) and got["product"] == "Claude API"
+    assert client.post(url, headers=emp).status_code == 409        # 두 번째는 안 됨
+    assert db.one("SELECT secret FROM key_handoffs WHERE id = :id", id=h["handoff_id"])["secret"] is None
+    assert db.one("SELECT owner_id, environment FROM projects WHERE id = :id", id=h["project_id"]) == {"owner_id": "emp_md_01", "environment": "test"}
 
 
 SEED_CHECKS = {  # 시드 일관성: 모두 0건이어야 한다
@@ -151,3 +175,42 @@ def test_model_change_execute_applies_and_revalidates():
     assert db.one("SELECT model_id FROM projects WHERE id = 'prj_faq'")["model_id"] == "anthropic:claude-haiku-5-5"
     r = run("mc2")
     assert r.status_code == 409 and "이미" in r.json()["error"]["message"]
+
+
+def test_new_hire_registered_and_placed_on_desk():
+    """신입 등록(Slack 회원 ID 포함) → 빈 책상에 앉히기 → 옮기기. 남의 자리는 막고, 모자라면 책상을 붙인다."""
+    desks = client.get("/desks", headers=ADMIN).json()["data"]
+    mkt = [d for d in desks if d["dept_id"] == "dept_mkt"]
+    empty = [d["id"] for d in mkt if d["employee_id"] is None]
+    taken = next(d for d in mkt if d["employee_id"])
+    assert len(empty) >= 2 and all(d["floor"] == "4F" for d in mkt)
+    new = client.post("/employees", headers=ADMIN, json=[{"name": "신입", "email": "new.hire@hanbit.example", "dept_id": "dept_mkt",
+                                                         "job_title": "마케터", "slack_user_id": "U0NEWHIRE1"}]).json()["data"][0]
+    assert new["slack_user_id"] == "U0NEWHIRE1"
+    assert client.post("/employees", headers=ADMIN, json=[{"name": "중복", "email": "dup@hanbit.example", "dept_id": "dept_mkt",
+                                                          "job_title": "x", "slack_user_id": "U0NEWHIRE1"}]).status_code == 409
+    assert client.put(f"/desks/{empty[0]}", headers=ADMIN, json={"employee_id": new["id"]}).json()["data"]["employee_id"] == new["id"]
+    assert client.put(f"/desks/{taken['id']}", headers=ADMIN, json={"employee_id": new["id"]}).status_code == 409   # 남의 자리
+    client.put(f"/desks/{empty[1]}", headers=ADMIN, json={"employee_id": new["id"]})                                 # 옮기기
+    mine = [d["id"] for d in client.get("/desks", headers=ADMIN).json()["data"] if d["employee_id"] == new["id"]]
+    assert mine == [empty[1]]                                                                                         # 한 사람 한 자리
+    added = client.post("/desks", headers=ADMIN, json={"floor": "4F", "dept_id": "dept_mkt", "count": 6}).json()["data"]
+    assert [d["seq"] for d in added] == list(range(len(mkt) + 1, len(mkt) + 7))
+    assert client.put(f"/desks/{empty[1]}", headers={"Authorization": "Bearer dev.emp_mkt_01"}, json={"employee_id": None}).status_code == 403
+
+
+def test_model_release_detected_once_per_model_and_card_sent_to_all():
+    """새 모델 감지: 평소 폴링은 새것 없음, 시뮬레이션마다 승인 공급사 모델 하나씩. 승인 전 공급사(xAI)는 알리지 않는다.
+    전사 카드는 팀 주간 상한 없이 업무 시간에 발송함으로 간다."""
+    assert run("collect_release_notes", WORK_HOUR)["new_models"] == []
+    sim = lambda: client.post("/internal/jobs/collect_release_notes/run", params={"now": WORK_HOUR, "simulate": True}, headers=SYS).json()["data"]["result"]["new_models"]  # noqa: E731
+    first, second, third = sim(), sim(), sim()
+    assert [x["model_id"] for x in first + second] == ["openai:gpt-5.6", "anthropic:claude-sonnet-5-6"] and third == []
+    m = db.one("SELECT approved, tool_id FROM models WHERE id = 'openai:gpt-5.6'")
+    assert m == {"approved": False, "tool_id": "tool_chatgpt"}                     # 사내 사용 승인은 관리자가 따로
+    upd = client.get(f"/updates/{first[0]['update_id']}", headers=SYS).json()["data"]
+    assert upd["title"] == "새 모델 출시: GPT-5.6" and upd["affected_plans"] == ["ChatGPT Enterprise"]
+    sid = client.post("/suggestions", headers=SYS, json={"update_id": upd["id"], "target_type": "all", "relevance": "새 모델",
+                                                         "body": "핵심 기능\n1. a\n2. b\n3. c\n이렇게 써 보세요\n• 마케터: x"}).json()["data"]["id"]
+    sent = run("send_suggestions", WORK_HOUR)["sent"]
+    assert any(x["suggestion_id"] == sid and x["dept_id"] is None for x in sent)

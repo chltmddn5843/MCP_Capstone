@@ -230,6 +230,26 @@ class EmployeeCreate(BaseModel):
     job_title: str = Field(min_length=1, max_length=50)
     role: Role = Role.employee
     hire_date: date | None = None
+    slack_user_id: str | None = Field(None, pattern=r"^[UW][A-Z0-9]{8,}$", description="Slack 회원 ID (프로필 → ⋮ → 회원 ID 복사). 넣으면 Slack 봇이 바로 알아본다")
+
+
+# ---------- /desks (좌석 배치도의 책상, F4 신입 배치) ----------
+class Desk(BaseModel):
+    id: str = Field(description="예: 4F-mkt-07")
+    floor: str = Field(description="층. 예: 4F")
+    dept_id: str = Field(description="이 책상이 속한 부서 구역")
+    seq: int = Field(description="구역 안 순서. 6개씩 한 섬")
+    employee_id: str | None = None
+
+
+class DeskAssign(BaseModel):
+    employee_id: str | None = Field(None, description="앉힐 직원. 다른 자리에 있으면 옮긴다. null이면 자리를 비운다")
+
+
+class DeskCreate(BaseModel):
+    floor: str = Field(pattern=r"^[0-9]{1,2}F$")
+    dept_id: str
+    count: int = Field(6, ge=1, le=30)
 
 
 class ContractCreate(BaseModel):
@@ -317,6 +337,15 @@ class SeatPaceDetail(BaseModel):
     by_model: list[BreakdownRow] = []
 
 
+class KeyReveal(BaseModel):
+    """API 사용 승인 뒤 발급한 키를 본인이 한 번만 보는 링크의 결과. 열고 나면 서버에서 키 값을 지운다."""
+    product: str
+    project_name: str
+    key_prefix: str = Field(description="키 앞부분. Slack 안내에도 같은 값이 나가 본인 키인지 맞춰 본다")
+    secret: str = Field(description="키 전체. 이 응답에서 한 번만 준다")
+    expires_at: datetime
+
+
 # ---------- /plans ----------
 class PlanCreate(BaseModel):
     type: PlanType
@@ -401,6 +430,9 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/departments", "부서 목록", [Role.admin, Role.system]),
     ("POST", "/departments", "부서 추가", [Role.admin]),
     ("POST", "/employees", "직원 여러 명 추가 (비밀번호 없음 = 로그인 전)", [Role.admin]),
+    ("GET", "/desks", "책상 목록과 앉은 직원 (좌석 배치도)", [Role.admin, Role.system]),
+    ("PUT", "/desks/{desk_id}", "책상에 직원 앉히기·옮기기·비우기", [Role.admin]),
+    ("POST", "/desks", "부서 구역에 책상 추가", [Role.admin]),
     ("POST", "/contracts", "구독 제품·계약 등록", [Role.admin]),
     ("PUT", "/models/approved", "쓸 AI 모델 승인 목록 교체", [Role.admin]),
     ("POST", "/projects", "API 프로젝트 등록", [Role.admin]),
@@ -408,6 +440,7 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("PUT", "/budgets", "연간 예산 설정", [Role.admin]),
     ("GET", "/usage/seats", "좌석별 오늘 토큰 소비 속도", [Role.admin, Role.system]),
     ("GET", "/usage/seats/{employee_id}", "좌석 소비 속도 상세 (직원은 본인만)", [Role.employee, Role.admin, Role.system]),
+    ("POST", "/keys/handoff/{handoff_id}/reveal", "발급된 API 키를 본인이 한 번만 확인 (24시간)", [Role.employee, Role.admin]),
     ("GET", "/plans", "조치안 목록", [Role.employee, Role.admin, Role.system]),
     ("POST", "/plans", "처리 요청 생성. 모든 요청은 승인 대기(pending_approval). 직원: seat_assign·seat_reclaim(본인), api_access, model_change(본인 소유 프로젝트, test)", [Role.employee, Role.admin, Role.system]),
     ("GET", "/plans/{plan_id}", "조치안 상태", [Role.employee, Role.admin, Role.system]),

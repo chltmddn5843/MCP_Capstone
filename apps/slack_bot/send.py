@@ -30,6 +30,27 @@ def _buttons(items: list[tuple[str, str, str, str | None]]) -> dict:
 
 
 # ---------- 1. 활용 제안 (F1) ----------
+MODEL_RELEASE = "새 모델 출시"
+
+
+def build_model_card(suggestion: dict, update: dict, job_title: str | None = None) -> list[dict]:
+    """새 모델 카드 뉴스: 제목 + 핵심 기능 3개 + 직무별 '이렇게 써 보세요'. 받는 사람의 직무 줄은 굵게."""
+    lines = []
+    for line in suggestion["body"].splitlines():
+        if line.strip() in ("핵심 기능", "이렇게 써 보세요"):
+            line = f"*{line.strip()}*"
+        elif job_title and line.lstrip("•- ").startswith(job_title + ":"):
+            line = f"*{line.strip()}*  ← 내 직무"
+        lines.append(line)
+    cond = ", ".join(update.get("affected_plans") or []) or "회사 승인 제품"
+    return [
+        {"type": "header", "text": {"type": "plain_text", "text": update["title"][:150]}},
+        _section("\n".join(lines)),
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"쓸 수 있는 곳: {cond} · 사내 데이터 사용은 회사 정책을 따라요 · <{update.get('url', '')}|원문 보기>"}]},
+        _buttons([("도움 됨", "fb_useful", suggestion["id"], "primary"), ("관련 없음", "fb_irrelevant", suggestion["id"], None), ("적용 방법 질문", "fb_question", suggestion["id"], None)]),
+    ]
+
+
 def build_suggestion(suggestion: dict, task_title: str | None, update: dict) -> list[dict]:
     head = f"*{task_title}* 업무에 쓸 수 있는 기능이 추가됐어요." if task_title else f"*{update.get('vendor', '')}* 에 새 기능이 추가됐어요."
     cond = ", ".join(update.get("affected_plans") or []) or "회사 플랜에서 사용 가능"
@@ -41,7 +62,10 @@ def build_suggestion(suggestion: dict, task_title: str | None, update: dict) -> 
     ]
 
 
-def send_suggestion(client, channel: str, suggestion: dict, task_title: str | None, update: dict) -> dict:
+def send_suggestion(client, channel: str, suggestion: dict, task_title: str | None, update: dict, job_title: str | None = None) -> dict:
+    if update.get("title", "").startswith(MODEL_RELEASE):
+        blocks = build_model_card(suggestion, update, job_title)
+        return client.chat_postMessage(channel=channel, text=update["title"], blocks=blocks)
     blocks = build_suggestion(suggestion, task_title, update)
     return client.chat_postMessage(channel=channel, text=suggestion["body"][:200], blocks=blocks)
 
@@ -74,6 +98,27 @@ def build_approval_request(task: dict, web_url: str | None = None) -> list[dict]
 
 def send_approval_request(client, channel: str, task: dict, web_url: str | None = None) -> dict:
     return client.chat_postMessage(channel=channel, text="AI 비서 처리 확인 요청", blocks=build_approval_request(task, web_url))
+
+
+# ---------- 4-1. 처리 요청 승인 (관리자 DM, F4) ----------
+def build_plan_request(plan: dict, who: str, product: str, web_url: str | None = None) -> list[dict]:
+    """직원 신청이 승인 대기로 들어오면 관리자에게. 승인하면 실행까지, 결과 안내는 워커가 요청자에게 보낸다."""
+    item = (plan.get("items") or [{}])[0]
+    if plan["type"] == "seat_assign":
+        buy = next((e["value"]["on_approve"] for e in plan.get("evidence", []) if isinstance(e.get("value"), dict) and e["value"].get("on_approve")), None)
+        head, what = "이용권 신청", f"남은 좌석이 없어요. 승인하면 {buy or '좌석을 추가 구매(Mock)한 뒤 배정'}합니다." if buy else "승인하면 바로 배정합니다."
+    elif plan["type"] == "api_access":
+        head, what = "API 사용 신청", f"용도: {item.get('purpose', '-')}\n승인하면 개인 테스트 프로젝트와 키를 만들고, 키는 본인만 한 번 볼 수 있는 링크로 보냅니다."
+    elif plan["type"] == "seat_reclaim":
+        head, what = "이용권 반납", "승인하면 좌석을 회수합니다."
+    else:
+        head, what = "처리 요청", plan.get("rationale", "")
+    opinion = (plan.get("ai_opinion") or {}).get("summary")
+    link = f"\n<{web_url}|웹 콘솔에서 자세히 보기>" if web_url else ""
+    return [
+        _section(f"*{head}* · {who} → {product}\n{what}" + (f"\nAI 의견: {opinion}" if opinion else "") + link),
+        _buttons([("승인", "pl_yes", plan["id"], "primary"), ("반려", "pl_no", plan["id"], "danger")]),
+    ]
 
 
 # ---------- 5. 좌석 토큰 소비 경보 (F3, 본인에게만) ----------

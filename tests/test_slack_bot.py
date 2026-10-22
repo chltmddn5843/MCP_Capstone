@@ -146,22 +146,22 @@ def test_create_app_registers_listeners_without_network():
 
 # ---------- 발신 워커 (확인 요청 DM · 발송함 · F1 체인) ----------
 def _fake_backend(calls, outbox_delivered):
-    emp = {"id": "emp_gen_052", "name": "이새봄", "dept_id": "dept_mkt", "slack_user_id": "U_FAKE"}
+    emp = {"id": "emp_sales_09", "name": "이새봄", "dept_id": "dept_mkt", "slack_user_id": "U_FAKE"}
     def backend(method, path, token, **kw):
         calls.append((method, path))
         if path == "/confirmations":
-            return [{"id": "cfm_9", "plan_id": "plan_9", "employee_id": "emp_gen_052", "question": "계속 쓰시나요?", "answer": None, "due_at": "2026-10-28T00:00:00Z", "answered_at": None}]
+            return [{"id": "cfm_9", "plan_id": "plan_9", "employee_id": "emp_sales_09", "question": "계속 쓰시나요?", "answer": None, "due_at": "2026-10-28T00:00:00Z", "answered_at": None}]
         if path == "/inventory":
-            return [{"contract": {"id": "ctr_chatgpt_2026"}, "tool_name": "ChatGPT Enterprise", "low_usage_candidates": [{"employee_id": "emp_gen_052", "last_activity_at": None}]}]
+            return [{"contract": {"id": "ctr_chatgpt_2026"}, "tool_name": "ChatGPT Enterprise", "low_usage_candidates": [{"employee_id": "emp_sales_09", "last_activity_at": None}]}]
         if path == "/plans/plan_9":
-            return {"id": "plan_9", "type": "seat_reclaim", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_chatgpt_2026"}]}
+            return {"id": "plan_9", "type": "seat_reclaim", "items": [{"employee_id": "emp_sales_09", "contract_id": "ctr_chatgpt_2026"}]}
         if path.startswith("/employees/"):
             return {"employee": emp, "tasks": [{"id": "task_1", "title": "캠페인 카피 초안"}], "products": []}
         if path == "/notify-outbox":
             return [{"id": "out_1", "suggestion_id": "sug_1", "channel": "slack", "target": "U_FAKE", "text": "새 기능을 카피 작성에 쓸 수 있어요", "delivered_at": None},
                     {"id": "out_0", "suggestion_id": "sug_0", "channel": "slack", "target": "C_X", "text": "이미 보냄", "delivered_at": "2026-10-20T00:00:00Z"}]
         if path == "/suggestions":
-            return {"items": [{"id": "sug_1", "update_id": "upd_1", "target_type": "employee", "target_id": "emp_gen_052", "task_id": "task_1", "body": "b", "status": "sent"}]}
+            return {"items": [{"id": "sug_1", "update_id": "upd_1", "target_type": "employee", "target_id": "emp_sales_09", "task_id": "task_1", "body": "b", "status": "sent"}]}
         if path == "/updates/upd_1":
             return {"id": "upd_1", "vendor": "OpenAI", "url": "https://v.example/rn", "affected_plans": ["Enterprise"], "title": "t", "summary": "s"}
         if path == "/notify-outbox/out_1/delivered":
@@ -179,7 +179,7 @@ def test_worker_sends_confirmation_dm_once_and_delivers_outbox(monkeypatch, tmp_
     from apps.slack_bot import worker
     calls, delivered = [], []
     monkeypatch.setattr(api, "backend", _fake_backend(calls, delivered))
-    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0001": "emp_gen_052"})  # 시드의 U_FAKE 대신 매핑표로 찾는다
+    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0001": "emp_sales_09"})  # 시드의 U_FAKE 대신 매핑표로 찾는다
     monkeypatch.setattr(worker, "STATE_PATH", tmp_path / "state.json")
     worker._emp_cache.clear()
     slack = FakeSlack()
@@ -210,7 +210,7 @@ def test_run_f1_reviews_only_unreviewed_updates_then_sends(monkeypatch, tmp_path
     from apps.slack_bot import worker
     calls, delivered = [], []
     monkeypatch.setattr(api, "backend", _fake_backend(calls, delivered))
-    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0001": "emp_gen_052"})
+    monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0001": "emp_sales_09"})
     created = []
     def agent(method, path, token, **kw):
         if method == "POST":
@@ -237,10 +237,11 @@ def test_worker_notifies_requester_after_web_decision(monkeypatch):
         if path == "/tools":
             return [{"id": "tool_chatgpt", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_chatgpt_2026"}}, {"id": "tool_claude", "product": "Claude API", "contract": None}]
         if path == "/employees/emp_md_01":
-            return {"employee": {"id": "emp_md_01", "name": "정서진", "role": "employee", "slack_user_id": "U_MD01"}, "tasks": [], "products": []}
+            return {"employee": {"id": "emp_md_01", "name": "정서진", "dept_name": "상품기획·MD", "role": "employee", "slack_user_id": "U_MD01", "email": "seojin.jung@hanbit.example"}, "tasks": [], "products": []}
         raise AssertionError(path)
     monkeypatch.setattr(api, "backend", backend)
     monkeypatch.setattr(identity, "_user_map", lambda: {"U0REAL0002": "emp_md_01"})
+    monkeypatch.setattr(identity, "admin_slack_ids", lambda: ["U0ADMIN001"])
     worker._plan_status.clear(); worker._tool_cache.clear(); worker._emp_cache.clear()
     slack = FakeSlack()
     assert worker.notify_plan_outcomes(slack, baseline=True) == [] and slack.posted == []  # 기동 시점: 이미 끝난 plan_old는 알리지 않음
@@ -249,16 +250,27 @@ def test_worker_notifies_requester_after_web_decision(monkeypatch):
     plans[2]["status"], plans[2]["reject_reason"] = "rejected", "팀 프로젝트로 이미 쓸 수 있음"
     assert worker.notify_plan_outcomes(slack) == ["plan_new", "plan_rej"]
     texts = [m["text"] for m in slack.posted]
-    assert texts[0] == "요청하신 ChatGPT Enterprise 이용권이 배정됐어요. 지금부터 쓸 수 있어요." and all(c == "D_U0REAL0002" for c in [m["channel"] for m in slack.posted])
+    assert texts[0].startswith("요청하신 ChatGPT Enterprise 이용권이 배정됐어요. 지금부터 쓸 수 있어요.") and all(c == "D_U0REAL0002" for c in [m["channel"] for m in slack.posted])
+    assert "seojin.jung@hanbit.example" in texts[0] and "비밀번호: 따로 없어요" in texts[0] and "https://chatgpt.com" in texts[0]  # SSO 안내, 비밀번호 없음
     assert "Claude API 요청이 반려됐어요" in texts[1] and "팀 프로젝트로 이미 쓸 수 있음" in texts[1]
     assert worker.notify_plan_outcomes(slack) == [] and len(slack.posted) == 2  # 두 번 보내지 않음
+    # 기동 뒤 새로 들어온 승인 대기 → 관리자 DM에 [승인]/[반려]
+    plans.append({"id": "plan_full", "type": "seat_assign", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}],
+                  "evidence": [{"source": "inventory", "ref": "ctr_chatgpt_2026", "value": {"unassigned": 0, "on_approve": "1석 추가 구매(Mock) 후 배정"}}]})
+    worker.notify_plan_outcomes(slack)
+    ask = slack.posted[-1]
+    assert ask["channel"] == "D_U0ADMIN001" and "남은 좌석이 없어요" in ask["blocks"][0]["text"]["text"] and "1석 추가 구매" in ask["blocks"][0]["text"]["text"]
+    assert [b["action_id"] for b in ask["blocks"][1]["elements"]] == ["pl_yes", "pl_no"] and ask["blocks"][1]["elements"][0]["value"] == "plan_full"
 
 
 def test_outcome_messages_cover_reclaim_holder_and_requester():
     from apps.slack_bot import worker
-    names = {"ctr_chatgpt_2026": "ChatGPT Enterprise"}
-    m = worker.outcome_messages({"type": "seat_reclaim", "status": "executed", "requested_by": "emp_asset_01", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_chatgpt_2026"}]}, names)
-    assert "반납 처리됐어요" in m["emp_gen_052"] and "반납 처리가 끝났어요" in m["emp_asset_01"]
+    names = {"ctr_chatgpt_2026": "ChatGPT Enterprise", "tool_claude": "Claude API"}
+    m = worker.outcome_messages({"type": "api_access", "status": "executed", "requested_by": "emp_md_01", "items": [{"tool_id": "tool_claude", "purpose": "x"}],
+                                 "result": {"handoffs": [{"handoff_id": "kh_abc", "key_prefix": "sk-mock-AbCd"}]}}, names)
+    assert "sk-mock-AbCd" in m["emp_md_01"] and "/key/kh_abc" in m["emp_md_01"] and "한 번" in m["emp_md_01"]  # 키 전체는 Slack에 없음
+    m = worker.outcome_messages({"type": "seat_reclaim", "status": "executed", "requested_by": "emp_asset_01", "items": [{"employee_id": "emp_sales_09", "contract_id": "ctr_chatgpt_2026"}]}, names)
+    assert "반납 처리됐어요" in m["emp_sales_09"] and "반납 처리가 끝났어요" in m["emp_asset_01"]
     m = worker.outcome_messages({"type": "seat_assign", "status": "failed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]}, names)
     assert "관리자가 다시 확인" in m["emp_md_01"]
 
@@ -280,3 +292,12 @@ def test_seat_alert_dm_has_analyze_button():
     assert "토큰 사용량이 많은 작업 중이에요" in text and "312,000" in text and "10.4배" in text
     button = blocks[-1]["elements"][0]
     assert button["action_id"] == "seat_analyze" and button["value"] == "emp_md_01"
+
+
+def test_model_card_highlights_my_job():
+    upd = {"title": "새 모델 출시: GPT-5.6", "affected_plans": ["ChatGPT Enterprise"], "url": "https://x"}
+    body = "핵심 기능\n1. 긴 문서\n2. 표\n3. 이미지\n이렇게 써 보세요\n• 마케터: 카피 비교\n• 영업 담당: 견적 요약"
+    blocks = send.build_model_card({"id": "sug_x", "body": body}, upd, "마케터")
+    text = blocks[1]["text"]["text"]
+    assert blocks[0]["type"] == "header" and "*핵심 기능*" in text and "*• 마케터: 카피 비교*  ← 내 직무" in text and "\n• 영업 담당: 견적 요약" in text
+    assert [b["action_id"] for b in blocks[-1]["elements"]] == ["fb_useful", "fb_irrelevant", "fb_question"]

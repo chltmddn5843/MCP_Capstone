@@ -8,6 +8,7 @@ B(백엔드)는 이 파일의 라우트 시그니처와 response_model을 유지
 from __future__ import annotations
 
 import os
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -18,9 +19,11 @@ from starlette.background import BackgroundTask
 
 from apps.backend import db
 from apps.backend.auth import APP_ENV, authenticate, current_user, get_employee, hash_password, issue_token, require
+from apps.backend.fixtures import MOCK_RELEASES
 from apps.backend.fixtures import MODELS as MODEL_CATALOG  # 공식 단가표. 시드와 같은 값을 모델 고르기 목록으로 쓴다
 from apps.backend.errors import ApiError, install_error_handlers, ok
 from schemas.common import (
+    Evidence,
     RISK_BY_PLAN_TYPE,
     BreakdownBy,
     Envelope,
@@ -91,6 +94,10 @@ from schemas.rest import (
     RelevantTaskCandidate,
     SeatPace,
     SeatPaceDetail,
+    Desk,
+    DeskAssign,
+    DeskCreate,
+    KeyReveal,
     RelevantTasksResponse,
     SavingsSummary,
     SuggestionCreate,
@@ -238,13 +245,62 @@ def create_employees(body: list[EmployeeCreate], user: Employee = Depends(requir
     depts = {r["id"] for r in db.rows("SELECT id FROM departments")}
     if bad := sorted({e.dept_id for e in body} - depts):
         raise ApiError(ErrorCode.invalid, f"없는 부서: {', '.join(bad)}")
+    slacks = [e.slack_user_id for e in body if e.slack_user_id]
+    if dup := {x for x in slacks if slacks.count(x) > 1} | {r["slack_user_id"] for r in db.rows("SELECT slack_user_id FROM employees WHERE slack_user_id = ANY(:s)", s=slacks)}:
+        raise ApiError(ErrorCode.conflict, f"이미 다른 직원에 연결된 Slack 회원 ID: {', '.join(sorted(dup))}")
     ids = [_new_id("emp") for _ in body]
     with db.tx() as c:
         for i, e in zip(ids, body):
-            c.execute(db.text("INSERT INTO employees (id, name, email, dept_id, role, job_title, status, hire_date) VALUES (:id, :n, :e, :d, :r, :t, 'active', :h)"),
-                      dict(id=i, n=e.name.strip(), e=e.email.strip().lower(), d=e.dept_id, r=e.role.value, t=e.job_title.strip(), h=e.hire_date))
+            c.execute(db.text("INSERT INTO employees (id, name, email, dept_id, role, job_title, status, hire_date, slack_user_id) VALUES (:id, :n, :e, :d, :r, :t, 'active', :h, :s)"),
+                      dict(id=i, n=e.name.strip(), e=e.email.strip().lower(), d=e.dept_id, r=e.role.value, t=e.job_title.strip(), h=e.hire_date, s=e.slack_user_id))
         _audit(c, user, "setup.employees", "employees", None, {"added": ids})
     return ok([Employee(**r) for r in db.rows(f"SELECT {EMP_COLS} FROM employees e JOIN departments d ON d.id = e.dept_id WHERE e.id = ANY(:ids) ORDER BY e.name", ids=ids)])
+
+
+# ---------- 책상 (좌석 배치도, F4 신입 배치) ----------
+DESK_COLS = "id, floor, dept_id, seq, employee_id"
+
+
+@app.get("/desks", response_model=Envelope[list[Desk]], tags=["F4"])
+def desks(user: Employee = Depends(require(Role.admin, Role.system))):
+    return ok([Desk(**r) for r in db.rows(f"SELECT {DESK_COLS} FROM desks ORDER BY floor DESC, dept_id, seq")])
+
+
+@app.put("/desks/{desk_id}", response_model=Envelope[Desk], tags=["F4"])
+def assign_desk(desk_id: str, body: DeskAssign, user: Employee = Depends(require(Role.admin))):
+    """직원을 앉힌다. 다른 자리에 있던 사람이면 옮긴다(예전 자리는 빈다). employee_id가 null이면 자리를 비운다."""
+    with db.tx() as c:
+        d = db.one(f"SELECT {DESK_COLS} FROM desks WHERE id = :id FOR UPDATE", c, id=desk_id)
+        if not d:
+            raise ApiError(ErrorCode.not_found, f"책상 없음: {desk_id}")
+        e = body.employee_id
+        if e:
+            emp = db.one("SELECT name, role, status FROM employees WHERE id = :e", c, e=e)
+            if not emp or emp["role"] == "system":
+                raise ApiError(ErrorCode.not_found, f"직원 없음: {e}")
+            if emp["status"] == "resigned":
+                raise ApiError(ErrorCode.invalid, f"{emp['name']} 님은 퇴사 처리돼 자리를 줄 수 없습니다")
+            if d["employee_id"] and d["employee_id"] != e:
+                who = db.one("SELECT name FROM employees WHERE id = :e", c, e=d["employee_id"])["name"]
+                raise ApiError(ErrorCode.conflict, f"{desk_id}에는 {who} 님이 앉아 있습니다. 먼저 옮기거나 비워 주세요")
+            c.execute(db.text("UPDATE desks SET employee_id = NULL WHERE employee_id = :e AND id <> :id"), dict(e=e, id=desk_id))
+        c.execute(db.text("UPDATE desks SET employee_id = :e WHERE id = :id"), dict(e=e, id=desk_id))
+        _audit(c, user, "desk.assign", desk_id, {"employee_id": d["employee_id"]}, {"employee_id": e})
+    return ok(Desk(**db.one(f"SELECT {DESK_COLS} FROM desks WHERE id = :id", id=desk_id)))
+
+
+@app.post("/desks", response_model=Envelope[list[Desk]], status_code=201, tags=["F4"])
+def add_desks(body: DeskCreate, user: Employee = Depends(require(Role.admin))):
+    """부서 구역 끝에 책상을 붙인다 (빈 자리가 모자랄 때)."""
+    if not db.one("SELECT 1 AS x FROM departments WHERE id = :d", d=body.dept_id):
+        raise ApiError(ErrorCode.invalid, f"없는 부서: {body.dept_id}")
+    with db.tx() as c:
+        last = db.one("SELECT coalesce(max(seq), 0) AS n FROM desks WHERE floor = :f AND dept_id = :d", c, f=body.floor, d=body.dept_id)["n"]
+        ids = [f"{body.floor}-{body.dept_id.removeprefix('dept_')}-{last + k + 1:02d}" for k in range(body.count)]
+        for k, i in enumerate(ids):
+            c.execute(db.text("INSERT INTO desks (id, floor, dept_id, seq) VALUES (:id, :f, :d, :s)"), dict(id=i, f=body.floor, d=body.dept_id, s=last + k + 1))
+        _audit(c, user, "desk.add", body.dept_id, None, {"floor": body.floor, "added": ids})
+    return ok([Desk(**r) for r in db.rows(f"SELECT {DESK_COLS} FROM desks WHERE id = ANY(:ids) ORDER BY seq", ids=ids)])
 
 
 @app.post("/contracts", response_model=Envelope[Contract], status_code=201, tags=["setup"])
@@ -593,12 +649,11 @@ def usage(scope: UsageScope, scope_id: str, start: datetime, end: datetime, gran
 
 
 ANM_COLS = ("a.id, a.scope_type, a.scope_id, e.name AS scope_name, a.rule, a.baseline::float AS baseline, a.observed::float AS observed,"
-            " a.ratio::float AS ratio, a.projected_monthly_krw, a.projected_monthly_usd::float AS projected_monthly_usd, a.status, a.created_at")
+            " a.ratio::float AS ratio, a.status, a.created_at")
 
 
 def _anomaly(r: dict) -> Anomaly:
-    krw, usd = r.pop("projected_monthly_krw"), r.pop("projected_monthly_usd")
-    return Anomaly(**r, projected_monthly_cost=Money(krw=krw, usd=usd) if krw is not None else None)
+    return Anomaly(**r)
 
 
 @app.get("/projects", response_model=Envelope[list[Project]], tags=["F3"])
@@ -785,15 +840,26 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
                   dict(id=pid, ty=body.type.value, rk=risk.value, st=status.value, it=db.js(items), ra=body.rationale,
                        ev=db.js([e.model_dump() for e in body.evidence]), by=user.id))
         _audit(c, user, "plan.create", pid, None, {"status": status.value, "risk_level": risk.value})
-    plan = _plan(pid)
-    if plan.type in SEAT_SQL:  # v2.1: 승인 대기로 들어가기 전에 한 번 검증한다 (중복 배정·휴직자·좌석 초과·회수 대상 없음). 실행 직전에 한 번 더 한다
-        problem = _seat_blocker(plan)
+    plan, short = _plan(pid), {}
+    if plan.type in SEAT_SQL:  # v2.1: 승인 대기로 들어가기 전에 한 번 검증한다 (중복 배정·휴직자·회수 대상 없음). 실행 직전에 한 번 더 한다
+        short = _seat_shortage(plan)
+        problem = _seat_blocker(plan, buy=bool(short))
         if problem:
             with db.tx() as c:
                 c.execute(db.text("UPDATE action_plans SET status = 'failed', result = CAST(:r AS jsonb) WHERE id = :id"), dict(r=db.js({"ok": False, "reason": problem}), id=pid))
                 _audit(c, user, "plan.reject_invalid", pid, {"status": status.value}, {"status": "failed", "reason": problem})
             raise ApiError(ErrorCode.conflict, problem, {"plan_id": pid})
-    if risk == RiskLevel.low:  # 자동 처리 유형(현재 없음)만 즉시 실행
+    if plan.type == PlanType.seat_assign and not short:  # F4: 남은 좌석이 있으면 시스템이 바로 승인·배정한다
+        with db.tx() as c:
+            c.execute(db.text("UPDATE action_plans SET status = 'approved', approver_id = 'sys', approved_at = now() WHERE id = :id"), dict(id=pid))
+            _audit(c, user, "plan.auto_approve", pid, {"status": status.value}, {"status": "approved", "reason": "남은 좌석 있음"})
+        plan = _execute(_plan(pid), f"auto_{pid}", user).plan
+    elif short:  # 좌석이 없으면 관리자 승인 대기. 승인하면 모자란 만큼 추가 구매(Mock) 후 배정해 좌석 수를 넘지 않는다
+        note = [Evidence(source="inventory", ref=cid, value={"unassigned": 0, "on_approve": f"{n}석 추가 구매(Mock) 후 배정"}) for cid, n in short.items()]
+        with db.tx() as c:
+            c.execute(db.text("UPDATE action_plans SET evidence = evidence || CAST(:ev AS jsonb) WHERE id = :id"), dict(ev=db.js([e.model_dump() for e in note]), id=pid))
+        plan = _plan(pid)
+    elif risk == RiskLevel.low:  # 자동 처리 유형(현재 없음)만 즉시 실행
         plan = _execute(plan, f"auto_{pid}", user).plan
     return ok(plan)
 
@@ -865,19 +931,33 @@ SEAT_SQL = {
 }
 
 
-def _seat_blocker(p: ActionPlan) -> str | None:
-    """좌석 조치안 실행 직전 재검증. 막을 이유가 없으면 None.
+def _seat_shortage(p: ActionPlan) -> dict[str, int]:
+    """좌석 배정 조치안에서 계약별로 모자라는 좌석 수. 넉넉하면 빈 dict."""
+    if p.type != PlanType.seat_assign:
+        return {}
+    out = {}
+    for cid in {i["contract_id"] for i in p.items}:
+        c = db.one("SELECT c.seats_purchased, count(s.id) AS used FROM contracts c LEFT JOIN seat_assignments s ON s.contract_id = c.id AND s.status = 'assigned'"
+                   " WHERE c.id = :c GROUP BY c.id", c=cid)
+        adding = sum(1 for i in p.items if i["contract_id"] == cid)
+        if c and c["used"] + adding > c["seats_purchased"]:
+            out[cid] = c["used"] + adding - c["seats_purchased"]
+    return out
+
+
+def _seat_blocker(p: ActionPlan, buy: bool = False) -> str | None:
+    """좌석 조치안 실행 직전 재검증. 막을 이유가 없으면 None. buy=True면 좌석 부족은 막지 않는다(관리자 승인으로 추가 구매).
     ponytail: 검사와 반영 사이 잠금이 없어 동시 배정 2건이 마지막 1석을 함께 통과할 수 있다. 필요하면 contracts 행을 FOR UPDATE로 잠근다."""
     if p.type not in SEAT_SQL:
         return None
     for cid in {i["contract_id"] for i in p.items}:
-        c = db.one("SELECT c.seats_purchased, count(s.id) AS used FROM contracts c LEFT JOIN seat_assignments s ON s.contract_id = c.id AND s.status = 'assigned'"
-                   " WHERE c.id = :c GROUP BY c.id", c=cid)
-        if not c:
+        if not db.one("SELECT 1 AS x FROM contracts WHERE id = :c", c=cid):
             return f"계약 없음: {cid}"
-        adding = sum(1 for i in p.items if i["contract_id"] == cid) if p.type == PlanType.seat_assign else 0
-        if c["used"] + adding > c["seats_purchased"]:
-            return f"{cid} 남은 좌석 {c['seats_purchased'] - c['used']}석, 요청 {adding}석"
+    short = _seat_shortage(p)
+    if short and not buy:
+        cid, n = next(iter(short.items()))
+        adding = sum(1 for i in p.items if i["contract_id"] == cid)
+        return f"{cid} 남은 좌석 {adding - n}석, 요청 {adding}석"
     for i in p.items:
         e = db.one("SELECT status FROM employees WHERE id = :e", e=i["employee_id"])
         has = db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = :c AND employee_id = :e AND status = 'assigned'", c=i["contract_id"], e=i["employee_id"])
@@ -938,7 +1018,8 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
         raise ApiError(ErrorCode.forbidden, f"승인 상태가 아님: {p.status.value}")
     if p.risk_level == RiskLevel.high:
         raise ApiError(ErrorCode.forbidden, "높은 위험도 조치는 MVP에서 실행하지 않습니다 (요청만 생성)")
-    why = "승인 뒤 대상 상태가 바뀌었습니다" if any(i.get("_stale") for i in p.items) else _seat_blocker(p) or _project_blocker(p)
+    buy = _seat_shortage(p) if p.approver_id not in (None, "sys") else {}  # 관리자 승인 = 모자란 좌석 추가 구매 승인. 자동 승인은 사지 않는다
+    why = "승인 뒤 대상 상태가 바뀌었습니다" if any(i.get("_stale") for i in p.items) else _seat_blocker(p, buy=bool(buy)) or _project_blocker(p) or _access_blocker(p)
     if why:  # 재검증 실패: 조치안을 failed로 남기고 멈춘다 (좌석·절감 기록은 건드리지 않음)
         with db.tx() as c:
             c.execute(db.text("UPDATE action_plans SET status = 'failed', result = CAST(:r AS jsonb) WHERE id = :id AND status = 'approved'"),
@@ -946,7 +1027,13 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
             _audit(c, user, "plan.fail", p.id, {"status": "approved"}, {"status": "failed", "reason": why})
         raise ApiError(ErrorCode.stale, f"실행 전 재검증 실패: {why}", {"plan_id": p.id})
     result = {"vendor": "mock", "ok": True, "items": p.items}
+    if buy:
+        result["purchased_seats"] = buy
     with db.tx() as c:
+        for cid, n in buy.items():  # Mock 벤더에 좌석 추가 구매
+            c.execute(db.text("UPDATE contracts SET seats_purchased = seats_purchased + :n WHERE id = :c"), dict(n=n, c=cid))
+        if p.type == PlanType.api_access:
+            result["handoffs"] = [_grant_api_access(c, p, i) for i in p.items]
         n = c.execute(db.text("UPDATE action_plans SET status = 'executed', executed_at = now(), execution_key = :k, result = CAST(:r AS jsonb)"
                               " WHERE id = :id AND status = 'approved'"), dict(k=idempotency_key, r=db.js(result), id=p.id)).rowcount
         if n == 0:  # 그 사이 다른 요청이 실행했다
@@ -960,11 +1047,64 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
         for i in p.items if p.type == PlanType.budget_review else []:
             c.execute(db.text("UPDATE projects SET monthly_budget_krw = :to WHERE id = :p AND monthly_budget_krw = :fr"),
                       dict(to=i["proposed_budget_krw"], p=i["project_id"], fr=i["current_budget_krw"]))
-        if p.type == PlanType.seat_assign:
+        if p.type == PlanType.seat_assign and not buy:
             c.execute(db.text("INSERT INTO savings_ledger (id, plan_id, kind, amount_krw, basis) VALUES (:id, :p, 'purchase_avoided', 90000,"
                               " '미배정 좌석 배정으로 추가 구매 회피 (월 45,000원 × 남은 2개월)')"), dict(id=_new_id("sav"), p=p.id))
         _audit(c, user, "plan.execute", p.id, {"status": "approved"}, {"status": "executed", "key": idempotency_key})
     return _exec_response(_plan(p.id))
+
+
+def _access_model(i: dict) -> str | None:
+    """API 사용 신청에 쓸 모델: 요청한 모델이 그 제품의 승인 모델이면 그것, 아니면 그 제품의 첫 승인 모델."""
+    rows = [r["id"] for r in db.rows("SELECT id FROM models WHERE tool_id = :t AND approved ORDER BY id", t=i["tool_id"])]
+    return i.get("model_id") if i.get("model_id") in rows else (rows[0] if rows else None)
+
+
+def _access_blocker(p: ActionPlan) -> str | None:
+    for i in p.items if p.type == PlanType.api_access else []:
+        if not _access_model(i):
+            return f"{i['tool_id']}에 승인된 모델이 없습니다"
+    if p.type == PlanType.api_access and not db.one("SELECT 1 AS x FROM employees WHERE id = :e AND status = 'active'", e=p.requested_by):
+        return f"요청자 {p.requested_by}가 재직 중이 아닙니다"
+    return None
+
+
+KEY_TTL = timedelta(hours=24)
+
+
+def _grant_api_access(c, p: ActionPlan, i: dict) -> dict:
+    """API 사용 승인: 요청자 이름의 테스트 프로젝트와 키를 만들고, 키는 본인만 한 번 볼 수 있는 링크로 넘긴다 (Mock 벤더)."""
+    emp = db.one("SELECT name, dept_id FROM employees WHERE id = :e", c, e=p.requested_by)
+    product = db.one("SELECT product FROM tools WHERE id = :t", c, t=i["tool_id"])["product"]
+    prj, key, hid = _new_id("prj"), _new_id("key"), "kh_" + secrets.token_urlsafe(24)
+    secret = f"sk-mock-{secrets.token_urlsafe(32)}"
+    c.execute(db.text("INSERT INTO projects (id, name, dept_id, owner_id, purpose, model_id, environment, monthly_budget_krw)"
+                      " VALUES (:id, :n, :d, :o, :pu, :m, CAST(:env AS environment), 0)"),
+              dict(id=prj, n=f"{emp['name']} {product}", d=emp["dept_id"], o=p.requested_by, pu=i["purpose"], m=_access_model(i), env=i.get("environment", "test")))
+    c.execute(db.text("INSERT INTO api_keys (id, project_id, label, vendor_key_ref, created_at) VALUES (:id, :p, :l, :r, now())"),
+              dict(id=key, p=prj, l=f"{emp['name']} 키", r=f"vk_{key}"))
+    c.execute(db.text("INSERT INTO key_handoffs (id, api_key_id, employee_id, key_prefix, secret, expires_at) VALUES (:id, :k, :e, :px, :s, :x)"),
+              dict(id=hid, k=key, e=p.requested_by, px=secret[:12], s=secret, x=_now() + KEY_TTL))
+    return {"handoff_id": hid, "key_prefix": secret[:12], "project_id": prj, "tool_id": i["tool_id"]}
+
+
+@app.post("/keys/handoff/{handoff_id}/reveal", response_model=Envelope[KeyReveal], tags=["F4"])
+def reveal_key(handoff_id: str, user: Employee = Depends(require(Role.employee, Role.admin))):
+    """본인만, 한 번만, 24시간 안에. 열면 서버에서 키 값을 지운다."""
+    with db.tx() as c:
+        h = db.one("SELECT h.employee_id, h.key_prefix, h.secret, h.expires_at, h.viewed_at, p.name AS project_name, t.product"
+                   " FROM key_handoffs h JOIN api_keys k ON k.id = h.api_key_id JOIN projects p ON p.id = k.project_id"
+                   " JOIN models m ON m.id = p.model_id JOIN tools t ON t.id = m.tool_id WHERE h.id = :id FOR UPDATE OF h", c, id=handoff_id)
+        if not h or h["employee_id"] != user.id:
+            raise ApiError(ErrorCode.not_found, "없는 링크이거나 본인 키가 아닙니다")
+        if h["viewed_at"]:
+            raise ApiError(ErrorCode.conflict, "이미 한 번 확인한 키예요. 다시 필요하면 관리자에게 재발급을 요청해 주세요")
+        if h["expires_at"] <= _now():
+            c.execute(db.text("UPDATE key_handoffs SET secret = NULL WHERE id = :id"), dict(id=handoff_id))
+            raise ApiError(ErrorCode.stale, "링크가 만료됐어요 (24시간). 관리자에게 재발급을 요청해 주세요")
+        c.execute(db.text("UPDATE key_handoffs SET secret = NULL, viewed_at = now() WHERE id = :id"), dict(id=handoff_id))
+        _audit(c, user, "key.reveal", handoff_id, None, {"key_prefix": h["key_prefix"]})
+    return ok(KeyReveal(product=h["product"], project_name=h["project_name"], key_prefix=h["key_prefix"], secret=h["secret"], expires_at=h["expires_at"]))
 
 
 @app.post("/plans/{plan_id}/execute", response_model=Envelope[PlanExecuteResponse], tags=["plans"])
@@ -1103,6 +1243,41 @@ def _job_collect_usage(now: datetime) -> dict:
     return {"records": len(rows), "seats": len(seats)}
 
 
+def _vendor_model_list(simulate: bool) -> list[dict]:
+    """Mock 공급사 모델 목록 API. 회사가 승인한 공급사만 본다. simulate면 아직 안 나온 새 모델 하나가 목록에 나타난다.
+    ponytail: Mock. 실제로는 공급사별 GET /v1/models를 부르고 응답을 MOCK_RELEASES와 같은 모양으로 바꾼다."""
+    approved = {r["vendor"] for r in db.rows("SELECT DISTINCT vendor FROM tools WHERE approval_status = 'approved'")}
+    known = {r["id"] for r in db.rows("SELECT id FROM models")}
+    listed = [{"model": m, "known": True} for m in MODEL_CATALOG.values() if m.vendor in approved]
+    nxt = next((r for r in MOCK_RELEASES if r["model"].vendor in approved and r["model"].id not in known), None)
+    return listed + ([{**nxt, "known": False}] if simulate and nxt else [])
+
+
+def _job_collect_release_notes(now: datetime, simulate: bool = False) -> dict:
+    """새 모델 감지: 공급사 모델 목록을 폴링해 DB models에 없는 모델을 찾는다 → 모델 등록(사내 승인 전) + '새 모델 출시' 업데이트.
+    카드 뉴스(핵심 기능 3개 + 직무별 활용)는 에이전트 review_update가 업데이트마다 만든다."""
+    known = {r["id"] for r in db.rows("SELECT id FROM models")}
+    found = []
+    for r in _vendor_model_list(simulate):
+        m = r["model"]
+        if m.id in known or "url" not in r:
+            continue
+        with db.tx() as c:
+            src = db.one("SELECT id FROM vendor_sources WHERE vendor = :v ORDER BY id LIMIT 1", c, v=m.vendor)
+            sid = src["id"] if src else f"src_{m.vendor.lower()}_models"
+            if not src:
+                c.execute(db.text("INSERT INTO vendor_sources (id, vendor, url, kind) VALUES (:id, :v, :u, 'docs')"), dict(id=sid, v=m.vendor, u=r["url"].rsplit("/", 2)[0]))
+            c.execute(db.text("INSERT INTO models (id, tool_id, vendor, name, capabilities, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class)"
+                              " VALUES (:id, :t, :v, :n, :cap, :i, :o, false, CAST(:dc AS data_class))"),
+                      dict(id=m.id, t=r["tool_id"], v=m.vendor, n=m.name, cap=m.capabilities, i=m.input_usd_per_mtok, o=m.output_usd_per_mtok, dc=m.allowed_data_class.value))
+            uid = "upd_model_" + m.id.split(":")[1].replace(".", "_").replace("-", "_")
+            c.execute(db.text("INSERT INTO vendor_updates (id, source_id, vendor, published_at, title, summary, url, affected_plans, fetched_at)"
+                              " VALUES (:id, :s, :v, :p, :t, :sm, :u, :pl, :p)"),
+                      dict(id=uid, s=sid, v=m.vendor, p=now, t=f"새 모델 출시: {m.name}", sm=r["summary"], u=r["url"], pl=r["plans"]))
+        found.append({"model_id": m.id, "update_id": uid})
+    return {"new_models": found} if found else {"new_models": [], "note": "새 모델 없음" + (" (시뮬레이션할 모델도 모두 공개됨)" if simulate else "")}
+
+
 def _in_business_hours(now: datetime) -> bool:
     k = now + KST
     return k.weekday() < 5 and 9 <= k.hour < 18
@@ -1115,9 +1290,9 @@ def _job_send_suggestions(now: datetime) -> dict:
     week_ago = now - timedelta(days=7)
     sent, held = [], []
     rs = db.rows("SELECT g.id, g.update_id, g.body, coalesce(g.target_dept_id, e.dept_id) AS dept_id, g.target_employee_id,"
-                 " d.suggestions_enabled, d.slack_channel_id, e.slack_user_id FROM suggestions g"
+                 " coalesce(d.suggestions_enabled, true) AS suggestions_enabled, d.slack_channel_id, e.slack_user_id FROM suggestions g"
                  " LEFT JOIN employees e ON e.id = g.target_employee_id"
-                 " JOIN departments d ON d.id = coalesce(g.target_dept_id, e.dept_id)"
+                 " LEFT JOIN departments d ON d.id = coalesce(g.target_dept_id, e.dept_id)"
                  " WHERE g.status IN ('draft', 'pending_approval') ORDER BY g.created_at")
     with db.tx() as c:
         for g in rs:
@@ -1130,7 +1305,7 @@ def _job_send_suggestions(now: datetime) -> dict:
                 reason = "팀 자동 발송 꺼짐"
             elif hold:
                 reason = f"관련 없음 2회 연속으로 {hold['hold_until']:%Y-%m-%d}까지 보류"
-            elif n_week >= WEEKLY_CAP:
+            elif n_week >= WEEKLY_CAP and g["dept_id"]:  # 전사 새 모델 카드는 팀 상한에 넣지 않는다
                 reason = f"팀당 주 {WEEKLY_CAP}건 상한 도달"
             if reason:
                 c.execute(db.text("UPDATE suggestions SET status = 'on_hold', hold_reason = :r WHERE id = :id"), dict(r=reason, id=g["id"]))
@@ -1146,12 +1321,14 @@ def _job_send_suggestions(now: datetime) -> dict:
             by_update.setdefault(db.one("SELECT update_id FROM suggestions WHERE id = :id", c, id=x["suggestion_id"])["update_id"], []).append(x)
         for upd, xs in by_update.items():
             c.execute(db.text("INSERT INTO review_runs (id, update_id, ran_at, sent_dept_ids, held) VALUES (:id, :u, :n, :s, CAST(:h AS jsonb))"),
-                      dict(id=_new_id("rr"), u=upd, n=now, s=sorted({x["dept_id"] for x in xs if "to" in x}), h=db.js([x for x in xs if "reason" in x])))
+                      dict(id=_new_id("rr"), u=upd, n=now, s=sorted({x["dept_id"] or "all" for x in xs if "to" in x}), h=db.js([x for x in xs if "reason" in x])))
     return {"sent": sent, "held": held}
 
 
 @app.post("/internal/jobs/{job_name}/run", response_model=Envelope[JobRunResponse], tags=["internal"])
-def run_job(job_name: str, now: datetime | None = Query(None, description="시연·테스트용 기준 시각. 비우면 현재"), user: Employee = Depends(require(Role.system, Role.admin))):
+def run_job(job_name: str, now: datetime | None = Query(None, description="시연·테스트용 기준 시각. 비우면 현재"),
+            simulate: bool = Query(False, description="collect_release_notes 전용: Mock 공급사 목록에 새 모델 하나를 공개 (출시 시뮬레이션)"),
+            user: Employee = Depends(require(Role.system, Role.admin))):
     if job_name not in JOBS:
         raise ApiError(ErrorCode.not_found, f"배치 없음. 가능: {sorted(JOBS)}")
     t, now = _now(), now or _now()
@@ -1161,8 +1338,8 @@ def run_job(job_name: str, now: datetime | None = Query(None, description="시�
         result = _job_collect_usage(now)
     elif job_name == "send_suggestions":
         result = _job_send_suggestions(now)
-    else:  # 수집 배치는 mock_vendor가 생기면 연결한다
-        result = {"stub": True, "reason": "mock_vendor 미구현. 시드 데이터로 대신함"}
+    else:
+        result = _job_collect_release_notes(now, simulate)
     with db.tx() as c:
         c.execute(db.text("INSERT INTO job_runs (id, name, queue, status, attempt, idempotency_key, payload, created_at, finished_at)"
                           " VALUES (:id, :n, 'batch', 'done', 1, :k, CAST(:p AS jsonb), :t, now())"),
