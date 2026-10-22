@@ -1,12 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { getSummary, getAnomalies, getPlans, getProducts, getMe, getModelCostMonths } from '../api.js'
+import { getSummary, getSeatPaces, getPlans, getProducts, getMe, getModelCostMonths } from '../api.js'
 import { RISK, won, pct } from '../labels.js'
 import ModelCostDonut from '../components/ModelCostDonut.vue'
 import ProductLogo from '../components/ProductLogo.vue'
 
 const s = ref(null)
-const anomalies = ref([])
+const heavy = ref([]) // 오늘 소비 속도 2배 이상 좌석
 const plans = ref([])
 const products = ref([])
 const months = ref([])
@@ -14,7 +14,7 @@ const me = ref({ name: '' })
 getMe().then((v) => (me.value = v)).catch(() => {})
 
 async function load() {
-  ;[s.value, anomalies.value, plans.value, products.value, months.value] = await Promise.all([getSummary(), getAnomalies(), getPlans(), getProducts(), getModelCostMonths().catch(() => [])])
+  ;[s.value, heavy.value, plans.value, products.value, months.value] = await Promise.all([getSummary(), getSeatPaces().then((m) => Object.values(m).filter((p) => p.level === 'over')).catch(() => []), getPlans(), getProducts(), getModelCostMonths().catch(() => [])])
 }
 onMounted(() => {
   load()
@@ -69,13 +69,12 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
         <div class="card-head" style="padding-bottom: 12px">
           <h2 id="todo-h">지금 확인할 일</h2>
         </div>
-        <RouterLink v-for="a in anomalies.filter((x) => x.status === 'open')" :key="a.id" to="/cost" class="feed-item">
-          <span class="pill pill-alert">비용 급증 알림</span>
+        <RouterLink v-for="p in heavy" :key="p.employee_id" :to="{ path: '/seats', query: { id: p.employee_id } }" class="feed-item">
+          <span class="pill pill-alert">토큰 과사용</span>
           <div class="feed-body">
-            <span class="feed-title">{{ a.scopeName }} 프로젝트 · 하루 비용이 기준의 {{ a.ratio }}배</span>
-            <span class="small muted">{{ won(a.observed) }} / 기준 {{ won(a.baseline) }} · 원인 조사는 비용·사용량에서 실행</span>
+            <span class="feed-title">{{ p.employee_name }} · {{ p.product }} · 오늘 소비 속도가 평균의 {{ p.ratio }}배</span>
+            <span class="small muted">오늘 예상 {{ p.projected_today.toLocaleString('ko-KR') }} 토큰 · 본인에게 Slack으로 모델 변경을 안내했습니다</span>
           </div>
-          <span class="small muted nowrap">{{ a.detectedAt }}</span>
         </RouterLink>
         <RouterLink v-for="p in pending" :key="p.id" :to="{ path: '/inbox', query: { id: p.id } }" class="feed-item">
           <span class="pill" :class="`pill-${RISK[p.risk].tone}`">{{ RISK[p.risk].label }}</span>
@@ -92,7 +91,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
             <span class="small muted">장기 미사용·휴직 등 · 묻기 전에는 회수하지 않습니다</span>
           </div>
         </RouterLink>
-        <p v-if="!pending.length && !s.seatsToCheck && !anomalies.some((x) => x.status === 'open')" class="small muted">지금 확인할 일이 없습니다.</p>
+        <p v-if="!pending.length && !s.seatsToCheck && !heavy.length" class="small muted">지금 확인할 일이 없습니다.</p>
       </section>
 
       <ModelCostDonut v-if="months.length" class="col-2" :months="months" />

@@ -272,3 +272,11 @@ def test_identity_single_user_fallback(monkeypatch):
     assert identity._user_map() == {"U_ME": "emp_cs_01"} and identity.admin_slack_ids() == ["U_ME"]
     monkeypatch.setenv("SLACK_USER_MAP", '{"U_X": "emp_mkt_01"}')
     assert identity._user_map() == {"U_X": "emp_mkt_01"}  # 매핑이 있으면 매핑이 우선
+
+
+def test_seat_alert_dm_has_analyze_button():
+    blocks = send.build_seat_alert({"scope_id": "emp_md_01", "observed": 312000.4, "baseline": 30000, "ratio": 10.4})
+    text = blocks[0]["text"]["text"]
+    assert "토큰 사용량이 많은 작업 중이에요" in text and "312,000" in text and "10.4배" in text
+    button = blocks[-1]["elements"][0]
+    assert button["action_id"] == "seat_analyze" and button["value"] == "emp_md_01"

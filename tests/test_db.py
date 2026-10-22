@@ -72,14 +72,15 @@ def test_two_irrelevant_holds_team():
     assert any(x["dept_id"] == "dept_cs" and "보류" in x["reason"] for x in held)
 
 
-def test_threshold_job_finds_seeded_spikes():
-    with db.tx() as c:  # 시드 경보를 지우고 배치가 다시 찾는지 본다
-        c.execute(db.text("DELETE FROM anomalies"))
-    made = run("check_thresholds", "2026-10-20T00:00:00Z")["new_anomalies"]
-    rows = client.get("/anomalies", headers=ADMIN).json()["data"]
-    # 시드의 급증 두 건: 견적서 요약(긴 PDF)·캠페인 카피(요청 4배, 페르소나 서연 시나리오)
-    assert len(made) == 2 and {r["scope_id"] for r in rows} == {"prj_quote_summary", "prj_mkt_copy"} and all(r["ratio"] > 3 for r in rows)
-    assert run("check_thresholds", "2026-10-20T00:00:00Z")["new_anomalies"] == []   # 같은 날 중복 경보 없음
+def test_seat_pace_alerts_only_heavy_seats():
+    now = "2026-10-21T06:00:00Z"  # 수요일 15:00 KST
+    run("collect_usage", now)       # 더미 수집: 지난 평일 + 오늘 업무 시간. 시연용 과사용 좌석(emp_md_01·emp_cs_01)은 3.5배
+    run("collect_usage", now)       # 다시 돌려도 같은 행을 덮어쓴다
+    made = run("check_thresholds", now)["new_anomalies"]
+    rows = [r for r in client.get("/anomalies", headers=ADMIN).json()["data"] if r["id"] in made]
+    assert {r["scope_id"] for r in rows} == {"emp_md_01", "emp_cs_01"}
+    assert all(r["rule"] == "seat_pace_2x" and r["ratio"] >= 2 and r["observed"] > r["baseline"] for r in rows)
+    assert run("check_thresholds", now)["new_anomalies"] == []   # 같은 사람 같은 날 중복 경보 없음
 
 
 def tools_of(emp: str) -> set[str]:

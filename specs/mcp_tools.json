@@ -1820,7 +1820,7 @@
                   "title": "Scope Name"
                 },
                 "rule": {
-                  "description": "예: daily_cost_gt_3x_baseline",
+                  "description": "예: seat_pace_2x (좌석 토큰 소비 속도가 평균의 2배 이상)",
                   "title": "Rule",
                   "type": "string"
                 },
@@ -1927,109 +1927,24 @@
         "x-backend": "GET /anomalies"
       },
       {
-        "name": "get_anomaly_detail",
-        "description": "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.",
+        "name": "get_seat_usage",
+        "description": "좌석 한 명의 오늘 토큰 소비 속도(예상·평균 대비·한도 대비)와 시간대·입력 길이·모델별 분포. 직원은 본인만.",
         "inputSchema": {
           "properties": {
-            "anomaly_id": {
-              "title": "Anomaly Id",
+            "employee_id": {
+              "description": "직원은 본인 id만",
+              "title": "Employee Id",
               "type": "string"
             }
           },
           "required": [
-            "anomaly_id"
+            "employee_id"
           ],
-          "title": "GetAnomalyDetailIn",
+          "title": "GetSeatUsageIn",
           "type": "object"
         },
         "outputSchema": {
           "$defs": {
-            "Anomaly": {
-              "properties": {
-                "id": {
-                  "title": "Id",
-                  "type": "string"
-                },
-                "scope_type": {
-                  "title": "Scope Type",
-                  "type": "string"
-                },
-                "scope_id": {
-                  "title": "Scope Id",
-                  "type": "string"
-                },
-                "scope_name": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "title": "Scope Name"
-                },
-                "rule": {
-                  "description": "예: daily_cost_gt_3x_baseline",
-                  "title": "Rule",
-                  "type": "string"
-                },
-                "baseline": {
-                  "title": "Baseline",
-                  "type": "number"
-                },
-                "observed": {
-                  "title": "Observed",
-                  "type": "number"
-                },
-                "ratio": {
-                  "title": "Ratio",
-                  "type": "number"
-                },
-                "projected_monthly_cost": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/Money"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
-                },
-                "status": {
-                  "$ref": "#/$defs/AnomalyStatus"
-                },
-                "created_at": {
-                  "format": "date-time",
-                  "title": "Created At",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "id",
-                "scope_type",
-                "scope_id",
-                "rule",
-                "baseline",
-                "observed",
-                "ratio",
-                "status",
-                "created_at"
-              ],
-              "title": "Anomaly",
-              "type": "object"
-            },
-            "AnomalyStatus": {
-              "enum": [
-                "open",
-                "investigating",
-                "resolved"
-              ],
-              "title": "AnomalyStatus",
-              "type": "string"
-            },
             "BreakdownRow": {
               "properties": {
                 "key": {
@@ -2069,14 +1984,6 @@
               "title": "BreakdownRow",
               "type": "object"
             },
-            "Environment": {
-              "enum": [
-                "test",
-                "prod"
-              ],
-              "title": "Environment",
-              "type": "string"
-            },
             "Money": {
               "properties": {
                 "krw": {
@@ -2097,131 +2004,139 @@
               "title": "Money",
               "type": "object"
             },
-            "Project": {
-              "properties": {
-                "id": {
-                  "title": "Id",
-                  "type": "string"
-                },
-                "name": {
-                  "title": "Name",
-                  "type": "string"
-                },
-                "dept_id": {
-                  "title": "Dept Id",
-                  "type": "string"
-                },
-                "owner_id": {
-                  "title": "Owner Id",
-                  "type": "string"
-                },
-                "purpose": {
-                  "title": "Purpose",
-                  "type": "string"
-                },
-                "model_id": {
-                  "title": "Model Id",
-                  "type": "string"
-                },
-                "environment": {
-                  "$ref": "#/$defs/Environment"
-                },
-                "monthly_budget_krw": {
-                  "title": "Monthly Budget Krw",
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "id",
-                "name",
-                "dept_id",
-                "owner_id",
-                "purpose",
-                "model_id",
-                "environment",
-                "monthly_budget_krw"
+            "PaceLevel": {
+              "description": "좌석 토큰 소비 속도: 오늘 예상량 ÷ 같은 제품 좌석 평균 하루 사용량",
+              "enum": [
+                "normal",
+                "caution",
+                "over"
               ],
-              "title": "Project",
-              "type": "object"
+              "title": "PaceLevel",
+              "type": "string"
             },
-            "UsagePoint": {
+            "SeatPace": {
+              "description": "예상 = 오늘 사용 ÷ 업무 시간(09~18시 KST) 경과 비율. 평균 = 같은 제품 좌석들의 최근 14일 하루 사용량 평균.",
               "properties": {
-                "period_start": {
-                  "format": "date-time",
-                  "title": "Period Start",
+                "employee_id": {
+                  "title": "Employee Id",
                   "type": "string"
                 },
-                "requests": {
-                  "title": "Requests",
+                "employee_name": {
+                  "title": "Employee Name",
+                  "type": "string"
+                },
+                "dept_name": {
+                  "title": "Dept Name",
+                  "type": "string"
+                },
+                "contract_id": {
+                  "title": "Contract Id",
+                  "type": "string"
+                },
+                "product": {
+                  "title": "Product",
+                  "type": "string"
+                },
+                "tokens_today": {
+                  "title": "Tokens Today",
                   "type": "integer"
                 },
-                "input_tokens": {
-                  "title": "Input Tokens",
+                "projected_today": {
+                  "title": "Projected Today",
                   "type": "integer"
                 },
-                "output_tokens": {
-                  "title": "Output Tokens",
+                "peer_avg_daily": {
+                  "title": "Peer Avg Daily",
                   "type": "integer"
                 },
-                "cost": {
-                  "$ref": "#/$defs/Money"
+                "daily_quota": {
+                  "description": "좌석당 하루 토큰 한도 (contracts.daily_token_quota)",
+                  "title": "Daily Quota",
+                  "type": "integer"
+                },
+                "quota_used_pct": {
+                  "title": "Quota Used Pct",
+                  "type": "number"
+                },
+                "projected_quota_pct": {
+                  "title": "Projected Quota Pct",
+                  "type": "number"
+                },
+                "ratio": {
+                  "description": "예상 ÷ 평균",
+                  "title": "Ratio",
+                  "type": "number"
+                },
+                "level": {
+                  "$ref": "#/$defs/PaceLevel"
+                },
+                "last_activity_at": {
+                  "anyOf": [
+                    {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Last Activity At"
                 }
               },
               "required": [
-                "period_start",
-                "requests",
-                "input_tokens",
-                "output_tokens",
-                "cost"
+                "employee_id",
+                "employee_name",
+                "dept_name",
+                "contract_id",
+                "product",
+                "tokens_today",
+                "projected_today",
+                "peer_avg_daily",
+                "daily_quota",
+                "quota_used_pct",
+                "projected_quota_pct",
+                "ratio",
+                "level"
               ],
-              "title": "UsagePoint",
+              "title": "SeatPace",
               "type": "object"
             }
           },
           "properties": {
-            "anomaly": {
-              "$ref": "#/$defs/Anomaly"
+            "pace": {
+              "$ref": "#/$defs/SeatPace"
             },
-            "project": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/Project"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "series": {
+            "by_hour": {
+              "default": [],
+              "description": "오늘 시간대별 (key=KST 시, 예: 14)",
               "items": {
-                "$ref": "#/$defs/UsagePoint"
+                "$ref": "#/$defs/BreakdownRow"
               },
-              "title": "Series",
+              "title": "By Hour",
               "type": "array"
             },
-            "breakdown_by_model": {
+            "by_input_length": {
               "default": [],
               "items": {
                 "$ref": "#/$defs/BreakdownRow"
               },
-              "title": "Breakdown By Model",
+              "title": "By Input Length",
               "type": "array"
             },
-            "breakdown_by_input_length": {
+            "by_model": {
               "default": [],
               "items": {
                 "$ref": "#/$defs/BreakdownRow"
               },
-              "title": "Breakdown By Input Length",
+              "title": "By Model",
               "type": "array"
             }
           },
           "required": [
-            "anomaly",
-            "series"
+            "pace"
           ],
-          "title": "AnomalyDetail",
+          "title": "SeatPaceDetail",
           "type": "object"
         },
         "annotations": {
@@ -2230,10 +2145,11 @@
           "idempotentHint": false
         },
         "x-roles": [
+          "employee",
           "admin",
           "system"
         ],
-        "x-backend": "GET /anomalies/{id}"
+        "x-backend": "GET /usage/seats/{employee_id}"
       },
       {
         "name": "get_license_inventory",
@@ -4321,8 +4237,8 @@
     "recommend_model": [
       "task_description"
     ],
-    "investigate_anomaly": [
-      "anomaly_id"
+    "analyze_seat_usage": [
+      "employee_id"
     ],
     "review_seat_request": [
       "plan_id"

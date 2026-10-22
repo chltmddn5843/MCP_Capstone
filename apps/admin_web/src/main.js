@@ -12,7 +12,6 @@ const routes = [
   { path: '/inbox', name: 'inbox', component: () => import('./views/InboxView.vue'), meta: { title: '승인 대기' } },
   { path: '/licenses', name: 'licenses', component: () => import('./views/LicensesView.vue'), meta: { title: '구독·이용권' } },
   { path: '/seats', name: 'seats', component: () => import('./views/SeatsView.vue'), meta: { title: '좌석 배치도' } },
-  { path: '/cost', name: 'cost', component: () => import('./views/CostView.vue'), meta: { title: '비용·사용량' } },
   { path: '/suggestions', name: 'suggestions', component: () => import('./views/SuggestionsView.vue'), meta: { title: '자동 제안 기록' } },
   { path: '/assistant', name: 'assistant', component: () => import('./views/AssistantView.vue'), meta: { title: 'AI 비서' } },
   { path: '/:pathMatch(.*)*', redirect: '/' },

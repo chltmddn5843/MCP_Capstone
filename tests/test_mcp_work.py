@@ -134,17 +134,14 @@ async def test_f2_eval_then_cost(monkeypatch):
 
 # ---------- F3 사용량 경보 ----------
 
-async def test_f3_anomaly_breakdown(monkeypatch):
+async def test_f3_seat_usage_admin_or_self(monkeypatch):
     async with connect(mcp, monkeypatch, "asset") as c:
-        anomalies = (await c.call_tool("get_anomalies", {"status": "open"})).structured_content["anomalies"]
-        project = anomalies[0]["scope_id"]
-        rows = (await c.call_tool("get_usage_breakdown", {"project_id": project, "period": PERIOD,
-                                                          "by": "input_length"})).structured_content["rows"]
-        summary = (await c.call_tool("get_usage_summary", {"scope": "project", "scope_id": project,
-                                                           "period": PERIOD})).structured_content
-    assert project == "prj_quote_summary" and anomalies[0]["ratio"] > 3
-    assert max(rows, key=lambda r: r["share"])["key"] == "8k+"
-    assert summary["cost"]["krw"] > 0
+        d = (await c.call_tool("get_seat_usage", {"employee_id": "emp_md_01"})).structured_content
+    assert d["pace"]["employee_id"] == "emp_md_01" and d["pace"]["level"] in ("normal", "caution", "over")
+    assert {"by_hour", "by_input_length", "by_model"} <= d.keys()
+    async with connect(mcp, monkeypatch, "employee") as c:
+        result = await c.call_tool("get_seat_usage", {"employee_id": "emp_md_01"}, raise_on_error=False)
+    assert error_of(result)["code"] == "forbidden"  # 직원은 본인 좌석만
 
 
 async def test_f3_employee_cannot_see_project_usage(monkeypatch):
@@ -199,14 +196,14 @@ async def test_resources_and_prompts_match_spec(monkeypatch):
         policy = (await c.read_resource("policy://ai-usage"))[0].text
         contract = (await c.read_resource("contract://ctr_chatgpt_2026/summary"))[0].text
         matrix = (await c.read_resource("policy://approval-matrix"))[0].text
-        rendered = await c.get_prompt("investigate_anomaly", {"anomaly_id": "anm_001"})
+        rendered = await c.get_prompt("analyze_seat_usage", {"employee_id": "emp_md_01"})
     assert uris == set(RESOURCES)
     assert prompts == PROMPTS
     assert "제5조 이용권 회수" in policy and "제8조 개인정보" in policy and '"unassigned": 2' in contract
     assert "| 테스트 환경 모델 변경 (model_change) | 담당자 승인 | 관리자 | 승인 후 실행 |" in matrix
     assert "본인 확인 응답 필수" in matrix and "(purchase_review) | 책임자 결정" in matrix
     text = rendered.messages[0].content.text
-    assert "anm_001" in text and "execute_approved_plan을 부르지 않는다" in text
+    assert "emp_md_01" in text and "인사평가에 쓰지 않는다" in text
 
 
 async def test_prompt_requires_arguments(monkeypatch):
@@ -227,12 +224,12 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
 
 
 @pytest.mark.parametrize("name, args, principle", [
-    ("investigate_anomaly", {"anomaly_id": "anm_001"}, "원인을 단정하지 말고"),
+    ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "추정하고 단정하지 않는다"),
     ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
     ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
     ("recommend_model", {"task_description": "문의 분류"}, "현재 모델도 estimate_task_cost로 계산"),
-    ("investigate_anomaly", {"anomaly_id": "anm_001"}, "get_anomaly_detail로 대상 프로젝트의 등록 목적"),
+    ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "list_approved_models에서 같은 좌석 안의 더 가벼운 모델"),
     ("review_seat_request", {"plan_id": "plan_002"}, "이미 executed면 다시 실행하지 말고"),
     ("review_seat_request", {"plan_id": "plan_002"}, "create_action_plan(seat_reclaim, items=[{employee_id, contract_id, confirmation_id"),
 ])

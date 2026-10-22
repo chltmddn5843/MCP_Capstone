@@ -167,6 +167,7 @@ Table contracts {
   term_start date [not null]
   term_end date [not null, note: 'CHECK term_end > term_start']
   mid_term_reduction boolean [not null, default: false]
+  daily_token_quota bigint [not null, default: 0, note: '좌석당 하루 토큰 한도. 0이면 추적 안 함 (F3)']
 }
 
 Table company {

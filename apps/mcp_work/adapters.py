@@ -111,9 +111,9 @@ async def get_anomalies(i: M.GetAnomaliesIn) -> dict:
     return {"anomalies": await call("GET", "/anomalies", params={"status": i.status and i.status.value})}
 
 
-@adapter("get_anomaly_detail")
-async def get_anomaly_detail(i: M.GetAnomalyDetailIn) -> dict:
-    return await call("GET", f"/anomalies/{i.anomaly_id}")
+@adapter("get_seat_usage")
+async def get_seat_usage(i: M.GetSeatUsageIn) -> dict:
+    return await call("GET", f"/usage/seats/{i.employee_id}")
 
 
 # ---------- F4 이용권 ----------
