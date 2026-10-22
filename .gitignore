@@ -46,3 +46,4 @@ logs/
 
 # node
 node_modules/
+.wrangler/
