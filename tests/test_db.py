@@ -175,3 +175,25 @@ def test_model_change_execute_applies_and_revalidates():
     assert db.one("SELECT model_id FROM projects WHERE id = 'prj_faq'")["model_id"] == "anthropic:claude-haiku-5-5"
     r = run("mc2")
     assert r.status_code == 409 and "이미" in r.json()["error"]["message"]
+
+
+def test_new_hire_registered_and_placed_on_desk():
+    """신입 등록(Slack 회원 ID 포함) → 빈 책상에 앉히기 → 옮기기. 남의 자리는 막고, 모자라면 책상을 붙인다."""
+    desks = client.get("/desks", headers=ADMIN).json()["data"]
+    mkt = [d for d in desks if d["dept_id"] == "dept_mkt"]
+    empty = [d["id"] for d in mkt if d["employee_id"] is None]
+    taken = next(d for d in mkt if d["employee_id"])
+    assert len(empty) >= 2 and all(d["floor"] == "4F" for d in mkt)
+    new = client.post("/employees", headers=ADMIN, json=[{"name": "신입", "email": "new.hire@hanbit.example", "dept_id": "dept_mkt",
+                                                         "job_title": "마케터", "slack_user_id": "U0NEWHIRE1"}]).json()["data"][0]
+    assert new["slack_user_id"] == "U0NEWHIRE1"
+    assert client.post("/employees", headers=ADMIN, json=[{"name": "중복", "email": "dup@hanbit.example", "dept_id": "dept_mkt",
+                                                          "job_title": "x", "slack_user_id": "U0NEWHIRE1"}]).status_code == 409
+    assert client.put(f"/desks/{empty[0]}", headers=ADMIN, json={"employee_id": new["id"]}).json()["data"]["employee_id"] == new["id"]
+    assert client.put(f"/desks/{taken['id']}", headers=ADMIN, json={"employee_id": new["id"]}).status_code == 409   # 남의 자리
+    client.put(f"/desks/{empty[1]}", headers=ADMIN, json={"employee_id": new["id"]})                                 # 옮기기
+    mine = [d["id"] for d in client.get("/desks", headers=ADMIN).json()["data"] if d["employee_id"] == new["id"]]
+    assert mine == [empty[1]]                                                                                         # 한 사람 한 자리
+    added = client.post("/desks", headers=ADMIN, json={"floor": "4F", "dept_id": "dept_mkt", "count": 6}).json()["data"]
+    assert [d["seq"] for d in added] == list(range(len(mkt) + 1, len(mkt) + 7))
+    assert client.put(f"/desks/{empty[1]}", headers={"Authorization": "Bearer dev.emp_mkt_01"}, json={"employee_id": None}).status_code == 403

@@ -93,6 +93,9 @@ from schemas.rest import (
     RelevantTaskCandidate,
     SeatPace,
     SeatPaceDetail,
+    Desk,
+    DeskAssign,
+    DeskCreate,
     KeyReveal,
     RelevantTasksResponse,
     SavingsSummary,
@@ -241,13 +244,62 @@ def create_employees(body: list[EmployeeCreate], user: Employee = Depends(requir
     depts = {r["id"] for r in db.rows("SELECT id FROM departments")}
     if bad := sorted({e.dept_id for e in body} - depts):
         raise ApiError(ErrorCode.invalid, f"없는 부서: {', '.join(bad)}")
+    slacks = [e.slack_user_id for e in body if e.slack_user_id]
+    if dup := {x for x in slacks if slacks.count(x) > 1} | {r["slack_user_id"] for r in db.rows("SELECT slack_user_id FROM employees WHERE slack_user_id = ANY(:s)", s=slacks)}:
+        raise ApiError(ErrorCode.conflict, f"이미 다른 직원에 연결된 Slack 회원 ID: {', '.join(sorted(dup))}")
     ids = [_new_id("emp") for _ in body]
     with db.tx() as c:
         for i, e in zip(ids, body):
-            c.execute(db.text("INSERT INTO employees (id, name, email, dept_id, role, job_title, status, hire_date) VALUES (:id, :n, :e, :d, :r, :t, 'active', :h)"),
-                      dict(id=i, n=e.name.strip(), e=e.email.strip().lower(), d=e.dept_id, r=e.role.value, t=e.job_title.strip(), h=e.hire_date))
+            c.execute(db.text("INSERT INTO employees (id, name, email, dept_id, role, job_title, status, hire_date, slack_user_id) VALUES (:id, :n, :e, :d, :r, :t, 'active', :h, :s)"),
+                      dict(id=i, n=e.name.strip(), e=e.email.strip().lower(), d=e.dept_id, r=e.role.value, t=e.job_title.strip(), h=e.hire_date, s=e.slack_user_id))
         _audit(c, user, "setup.employees", "employees", None, {"added": ids})
     return ok([Employee(**r) for r in db.rows(f"SELECT {EMP_COLS} FROM employees e JOIN departments d ON d.id = e.dept_id WHERE e.id = ANY(:ids) ORDER BY e.name", ids=ids)])
+
+
+# ---------- 책상 (좌석 배치도, F4 신입 배치) ----------
+DESK_COLS = "id, floor, dept_id, seq, employee_id"
+
+
+@app.get("/desks", response_model=Envelope[list[Desk]], tags=["F4"])
+def desks(user: Employee = Depends(require(Role.admin, Role.system))):
+    return ok([Desk(**r) for r in db.rows(f"SELECT {DESK_COLS} FROM desks ORDER BY floor DESC, dept_id, seq")])
+
+
+@app.put("/desks/{desk_id}", response_model=Envelope[Desk], tags=["F4"])
+def assign_desk(desk_id: str, body: DeskAssign, user: Employee = Depends(require(Role.admin))):
+    """직원을 앉힌다. 다른 자리에 있던 사람이면 옮긴다(예전 자리는 빈다). employee_id가 null이면 자리를 비운다."""
+    with db.tx() as c:
+        d = db.one(f"SELECT {DESK_COLS} FROM desks WHERE id = :id FOR UPDATE", c, id=desk_id)
+        if not d:
+            raise ApiError(ErrorCode.not_found, f"책상 없음: {desk_id}")
+        e = body.employee_id
+        if e:
+            emp = db.one("SELECT name, role, status FROM employees WHERE id = :e", c, e=e)
+            if not emp or emp["role"] == "system":
+                raise ApiError(ErrorCode.not_found, f"직원 없음: {e}")
+            if emp["status"] == "resigned":
+                raise ApiError(ErrorCode.invalid, f"{emp['name']} 님은 퇴사 처리돼 자리를 줄 수 없습니다")
+            if d["employee_id"] and d["employee_id"] != e:
+                who = db.one("SELECT name FROM employees WHERE id = :e", c, e=d["employee_id"])["name"]
+                raise ApiError(ErrorCode.conflict, f"{desk_id}에는 {who} 님이 앉아 있습니다. 먼저 옮기거나 비워 주세요")
+            c.execute(db.text("UPDATE desks SET employee_id = NULL WHERE employee_id = :e AND id <> :id"), dict(e=e, id=desk_id))
+        c.execute(db.text("UPDATE desks SET employee_id = :e WHERE id = :id"), dict(e=e, id=desk_id))
+        _audit(c, user, "desk.assign", desk_id, {"employee_id": d["employee_id"]}, {"employee_id": e})
+    return ok(Desk(**db.one(f"SELECT {DESK_COLS} FROM desks WHERE id = :id", id=desk_id)))
+
+
+@app.post("/desks", response_model=Envelope[list[Desk]], status_code=201, tags=["F4"])
+def add_desks(body: DeskCreate, user: Employee = Depends(require(Role.admin))):
+    """부서 구역 끝에 책상을 붙인다 (빈 자리가 모자랄 때)."""
+    if not db.one("SELECT 1 AS x FROM departments WHERE id = :d", d=body.dept_id):
+        raise ApiError(ErrorCode.invalid, f"없는 부서: {body.dept_id}")
+    with db.tx() as c:
+        last = db.one("SELECT coalesce(max(seq), 0) AS n FROM desks WHERE floor = :f AND dept_id = :d", c, f=body.floor, d=body.dept_id)["n"]
+        ids = [f"{body.floor}-{body.dept_id.removeprefix('dept_')}-{last + k + 1:02d}" for k in range(body.count)]
+        for k, i in enumerate(ids):
+            c.execute(db.text("INSERT INTO desks (id, floor, dept_id, seq) VALUES (:id, :f, :d, :s)"), dict(id=i, f=body.floor, d=body.dept_id, s=last + k + 1))
+        _audit(c, user, "desk.add", body.dept_id, None, {"floor": body.floor, "added": ids})
+    return ok([Desk(**r) for r in db.rows(f"SELECT {DESK_COLS} FROM desks WHERE id = ANY(:ids) ORDER BY seq", ids=ids)])
 
 
 @app.post("/contracts", response_model=Envelope[Contract], status_code=201, tags=["setup"])
