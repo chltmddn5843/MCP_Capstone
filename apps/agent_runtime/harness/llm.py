@@ -46,7 +46,7 @@ class ScriptedModel(BaseChatModel):
             from apps.agent_runtime.harness.intents import classify_by_keywords
             text = last_human.split("요청:")[-1].split("코드:")[0]
             return ChatResult(generations=[ChatGeneration(message=AIMessage(content=classify_by_keywords(text)))])
-        if "활용 제안을 만들어줘" in last_human:  # review_update (시스템 계정, F1)
+        if "활용 제안을 만들어줘" in last_human or "카드 뉴스를 만들어줘" in last_human:  # review_update · draft_model_card (F1)
             uid = re.search(r"upd_[A-Za-z0-9_]+", last_human).group(0)
             if not tools_done:
                 msg = AIMessage(content="", tool_calls=[{"name": "get_vendor_update", "args": {"update_id": uid}, "id": _cid()}])

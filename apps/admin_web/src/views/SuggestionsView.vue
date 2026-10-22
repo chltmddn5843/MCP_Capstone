@@ -12,7 +12,7 @@ const switches = ref([])
 const load = async () => { [updates.value, stats.value, switches.value] = await Promise.all([getUpdates(), getSuggestionStats(), getTeamSwitches()]) }
 onMounted(load)
 
-// [출시 시뮬레이션] 공급사가 새 모델을 냈다고 치고: 감지 → AI가 카드 뉴스 작성(review_update) → 발송 정책 → Slack
+// [출시 시뮬레이션] 공급사가 새 모델을 냈다고 치고: 감지 → AI가 카드 뉴스 작성(draft_model_card) → 발송 정책 → Slack
 const sim = ref({ busy: false, msg: '', taskId: '' })
 async function simulate() {
   sim.value = { busy: true, msg: '공급사 모델 목록을 확인하는 중…', taskId: '' }
@@ -20,7 +20,7 @@ async function simulate() {
     const r = await simulateRelease()
     const found = r.new_models?.[0]
     if (!found) { sim.value = { busy: false, msg: r.note ?? '새 모델이 없습니다.', taskId: '' }; return }
-    const t = await createTask(`업데이트 ${found.update_id}를 검토해 관련 업무에 활용 제안을 만들어줘`, { promptName: 'review_update', promptArgs: { update_id: found.update_id } })
+    const t = await createTask(`업데이트 ${found.update_id}로 새 모델 카드 뉴스를 만들어줘`, { promptName: 'draft_model_card', promptArgs: { update_id: found.update_id } })
     sim.value = { busy: true, msg: `새 모델 감지: ${found.model_id}. AI가 카드 뉴스를 쓰고 있어요…`, taskId: t.task_id }
   } catch (e) { sim.value = { busy: false, msg: `실패: ${e.message}`, taskId: '' } }
 }

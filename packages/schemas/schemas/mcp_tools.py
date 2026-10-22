@@ -341,6 +341,7 @@ RESOURCES: dict[str, str] = {
 
 PROMPTS: dict[str, list[str]] = {
     "review_update": ["update_id"],
+    "draft_model_card": ["update_id"],
     "recommend_model": ["task_description"],
     "analyze_seat_usage": ["employee_id"],
     "review_seat_request": ["plan_id"],
