@@ -2,6 +2,7 @@
 # 개발·시연용: 백엔드, 업무 MCP, 문서 MCP, 에이전트, Vue 관리자 화면을 한 번에 띄운다. Ctrl+C로 전부 종료.
 # 사용: scripts/run_all.sh            (MCP 모드: 에이전트가 MCP 서버를 거쳐 도구 호출)
 #       MCP=0 scripts/run_all.sh      (로컬 모드: 에이전트가 백엔드 REST 직접 호출, MCP 서버 안 띄움)
+#       SLACK=1 TUNNEL=1 …            (Slack 봇·외부 공개 터널까지. 보통은 scripts/run_public.sh 로 부른다)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] || { cp .env.example .env; echo ".env 생성됨. OPENAI_API_KEY 등을 채우세요 (키 없으면 LLM_MODEL=fake)."; }
@@ -12,7 +13,7 @@ TUNNEL="${TUNNEL:-0}"
 app_env="${APP_ENV:-$(awk -F= '$1=="APP_ENV"{sub(/[ \t]*#.*$/, "", $2); gsub(/[ \t]/, "", $2); print $2}' .env)}"
 if [ "$TUNNEL" = "1" ] && [ "$app_env" != "prod" ]; then
   echo "TUNNEL=1(외부 공개)은 APP_ENV=prod에서만 켭니다. dev면 누구나 dev-login으로 관리자 토큰을 받습니다."
-  echo "scripts/setup_local.sh 를 먼저 실행하거나 .env의 APP_ENV·JWT_SECRET·SYSTEM_TOKEN을 맞추세요 (README 로그인 절)."
+  echo "scripts/run_public.sh 로 실행하면 .env를 운영 모드(APP_ENV·JWT_SECRET·SYSTEM_TOKEN)로 맞춰 준다."
   exit 1
 fi
 ports=(8000 8002 5173); [ "$MCP" = "1" ] && ports+=(8010 8011)
@@ -61,12 +62,6 @@ if [ "$SLACK" = "1" ]; then
   echo "slack_bot  실행 중 (logs/slack_bot.log)"
 fi
 if [ "$TUNNEL" = "1" ]; then
-  cloudflared tunnel --url http://localhost:5173 >logs/cloudflare.log 2>&1 & pids+=($!)
-  for i in $(seq 1 30); do
-    tunnel_url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' logs/cloudflare.log 2>/dev/null | head -n 1 || true)
-    [ -n "$tunnel_url" ] && { echo "cloudflare $tunnel_url"; break; }
-    sleep 1
-  done
-  [ -n "${tunnel_url:-}" ] || echo "cloudflare 주소는 logs/cloudflare.log 에서 확인"
+  scripts/tunnel.sh & pids+=($!)   # 주소는 이 터미널에 찍힌다. 끊기면 tunnel.sh가 다시 연다
 fi
 wait
