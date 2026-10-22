@@ -20,12 +20,14 @@ TTL = 3600
 
 def _user_map() -> dict[str, str]:
     raw = os.getenv("SLACK_USER_MAP", "")
-    if not raw:
-        return {}
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return {}
+    if raw:
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return {}
+    slack_user_id = os.getenv("SLACK_USER_ID", "").strip()
+    employee_id = os.getenv("SLACK_EMPLOYEE_ID", "emp_mkt_01").strip()
+    return {slack_user_id: employee_id} if slack_user_id and employee_id else {}
 
 
 def resolve(slack_user_id: str) -> tuple[str, dict]:
@@ -40,4 +42,5 @@ def resolve(slack_user_id: str) -> tuple[str, dict]:
 
 def admin_slack_ids() -> list[str]:
     """관리자 알림을 받을 Slack 사용자. SLACK_ADMIN_USER_IDS(쉼표 구분)."""
-    return [s.strip() for s in os.getenv("SLACK_ADMIN_USER_IDS", "").split(",") if s.strip()]
+    configured = [s.strip() for s in os.getenv("SLACK_ADMIN_USER_IDS", "").split(",") if s.strip()]
+    return configured or ([os.getenv("SLACK_USER_ID", "").strip()] if os.getenv("SLACK_USER_ID", "").strip() else [])

@@ -56,8 +56,7 @@ uv run pytest -q                       # 전부
 uv run pytest tests/test_agent.py -q   # 에이전트만 (test_agent_mcp.py: MCP 경유, test_relay.py: backend 중계)
 ```
 
-> ⚠️ 테스트는 로컬 DB를 쓴다. `app` 스키마를 시드로 되돌리고 `agent` 스키마(작업 이력)를 지운다.
-> 서버가 떠 있었다면 테스트 뒤 `scripts/run_all.sh`를 다시 켠다 (에이전트가 기동 때 `agent` 스키마를 만든다).
+> 테스트는 별도 DB `capstone_test`를 쓴다(없으면 만든다). 서버가 떠 있어도 개발 DB(`capstone`)와 Slack 봇은 영향이 없다.
 
 **2. API 직접 호출**: 화면과 같은 경로(`:5173/api` → backend)로 부른다.
 
@@ -87,7 +86,7 @@ tail -f logs/agent.log                        # LLM·키 오류는 여기
 
 ```bash
 db/reset.sh        # postgres 컨테이너 기동 → db/schema.sql → 시드 적재 (DBeaver: localhost:5432 capstone/capstone, 스키마 app)
-uv run pytest      # 테스트도 이 DB를 쓴다. 테스트마다 스키마·시드를 다시 넣는다
+uv run pytest      # 테스트는 같은 서버의 별도 DB capstone_test를 쓴다. 테스트마다 스키마·시드를 다시 넣는다
 ```
 ERD 원본은 `db/schema.dbml`(dbdiagram.io), 점검 결과는 `db/README.md`.
 

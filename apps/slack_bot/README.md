@@ -15,9 +15,13 @@
 ```
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
+SLACK_USER_ID=U0XXXX                                             # 팀원 본인의 Slack 프로필 ID
+SLACK_EMPLOYEE_ID=emp_mkt_01                                     # 연결할 시드 직원 ID
 SLACK_USER_MAP={"U0XXXX":"emp_mkt_01","U0YYYY":"emp_asset_01"}   # Slack 사용자 id → 직원 id (시드의 slack_user_id는 가짜라 이 매핑이 우선)
 SLACK_ADMIN_USER_IDS=U0YYYY                                        # 처리 확인 DM을 받을 관리자
 ```
+
+`scripts/run_public.sh`를 처음 실행하면 위 값을 터미널에서 입력한다. `SLACK_USER_MAP`이 비어 있을 때만 `SLACK_USER_ID`가 쓰인다(있으면 매핑이 우선, 스크립트가 지우지 않는다).
 Slack 앱 설정: Socket Mode, Bot scopes(chat:write, im:history, im:read, im:write, app_mentions:read, channels:read, channels:join, channels:history, users:read), Events(message.im, app_mention, message.channels), Interactivity On, App Home의 Messages Tab On.
 
 ## 실행
@@ -26,6 +30,14 @@ uv run python -m apps.slack_bot --check   # 토큰·채널·매핑 점검
 uv run python -m apps.slack_bot           # 백엔드(8000)·에이전트(8002)가 떠 있어야 한다
 uv run python -m apps.slack_bot --run-f1  # F1 한 바퀴만 돌리고 종료 (시연용). F1_INTERVAL_MIN=30 이면 봇이 30분마다 자동
 ```
+
+로컬 DB와 외부 웹 주소를 함께 여는 시연:
+
+```bash
+scripts/run_public.sh
+```
+
+Cloudflare 주소는 `logs/cloudflare.log`의 `trycloudflare.com` 주소다. Slack 요청은 로컬 PostgreSQL의 `agent.tasks`에 저장되고, 같은 주소의 관리자 화면 **AI 비서 → 내 요청**에서 로그인한 직원 본인의 요청으로 확인한다 (`docs/로컬실행.md` 6절).
 Slack 대상은 `SLACK_USER_MAP` 역매핑으로 찾는다 (시드의 `slack_user_id`는 가짜). 매핑에 없는 직원에게는 보내지 않고 보류한다.
 보낸 확인 요청은 `logs/slack_worker_state.json`에 기록해 재시작해도 두 번 보내지 않는다.
 

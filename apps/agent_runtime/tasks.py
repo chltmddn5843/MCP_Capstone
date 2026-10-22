@@ -24,25 +24,58 @@ from apps.agent_runtime.harness.instructions import build_system_prompt
 from apps.agent_runtime.harness.llm import get_models
 from apps.agent_runtime.harness.observability import new_trace_id, record
 from apps.agent_runtime.harness.tools import load_tools
+from schemas.mcp_tools import TOOLS
 from schemas.agent import ApprovalCard, EventType, Task, TaskEvent, TaskResult, TaskStatus, ToolCall
 from schemas.common import Evidence, Role
 
 log = logging.getLogger("agent.runner")
 TOKENS: dict[str, str] = {}  # task_id -> 요청자 토큰. 승인 뒤 재개할 때 같은 역할의 도구를 다시 만들기 위해 메모리에만 둔다.
 TERMINAL = {EventType.DONE, EventType.FAILED, EventType.APPROVAL_REQUIRED}
+FEATURES_BY_TOOL = {tool.name: tool.features for tool in TOOLS}
+
+
+def _route(task: Task, intent: str | None = None) -> None:
+    task.intent = intent or task.intent
+    features = {feature for call in task.tool_calls for feature in FEATURES_BY_TOOL.get(call.name, [])}
+    task.feature_route = sorted((feature for feature in features if feature in {"F1", "F2", "F3", "F4"}), key=lambda feature: int(feature[1:]))
+    task.workflow = [
+        "classify_intent",
+        *(f"tools:{call.name}" for call in task.tool_calls),
+        "approval_gate" if task.approval else "finalize",
+    ]
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
+# DBeaver에서 body를 펼치지 않고 보도록 body에서 뽑은 열. 바꾸려면 열을 DROP한 뒤 다시 띄운다 (ADD COLUMN IF NOT EXISTS라 식만 바꾸면 반영 안 됨)
+READABLE_COLUMNS = {
+    "status": "body->>'status'",
+    "channel": "body->>'channel'",
+    "requester_role": "body->>'requester_role'",
+    "input": "body->>'input'",
+    "answer": "body->'result'->>'answer'",
+    "tools": "jsonb_path_query_array(body, '$.tool_calls[*].name')::text",
+    "plan_id": "coalesce(body->'result'->>'plan_id', body->'approval'->>'plan_id')",
+    "approval": "body->'approval'->>'summary'",
+    "error": "body->>'error'",
+    "intent": "body->>'intent'",
+    "feature_route": "(body->'feature_route')::text",
+    "workflow": "(body->'workflow')::text",
+    "trace_id": "body->>'trace_id'",
+}
+
+
 class TaskStore:
-    """agent.tasks (PostgreSQL). body는 Task JSON 전체라 DBeaver에서 body->>'status' 처럼 바로 조회할 수 있다."""
+    """agent.tasks (PostgreSQL). body는 Task JSON 전체, 나머지 열(READABLE_COLUMNS)은 body에서 자동 계산된다."""
 
     def __init__(self, url: str):
         self.conn = psycopg.connect(url, autocommit=True)  # ponytail: 연결 1개를 공유(psycopg 내부 잠금). 동시 요청이 많아지면 psycopg_pool로
         self.conn.execute("CREATE SCHEMA IF NOT EXISTS agent")
         self.conn.execute("CREATE TABLE IF NOT EXISTS agent.tasks (task_id TEXT PRIMARY KEY, requester_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, body JSONB NOT NULL)")
+        for col, expr in READABLE_COLUMNS.items():  # body에서 자동 계산되는 열. 저장 코드는 body만 쓰면 된다
+            self.conn.execute(f"ALTER TABLE agent.tasks ADD COLUMN IF NOT EXISTS {col} TEXT GENERATED ALWAYS AS ({expr}) STORED")
 
     def save(self, t: Task) -> None:
         self.conn.execute("INSERT INTO agent.tasks VALUES (%s,%s,%s,%s) ON CONFLICT (task_id) DO UPDATE SET body = EXCLUDED.body",
@@ -152,6 +185,7 @@ class Runner:
             record(parent.trace_id, "review.error", plan_id=plan_id, error=str(exc)[:160])
 
     def _save(self, task: Task) -> None:
+        _route(task)
         task.updated_at = _now()
         self.store.save(task)
 
@@ -191,6 +225,7 @@ class Runner:
                 return  # 실행 문맥(RUNTIMES)은 재개를 위해 남긴다
             state = await self.graph.aget_state(config)
             v = state.values
+            _route(task, v.get("intent"))
             task.turns = v.get("turn", 0)
             task.result = TaskResult(answer=v.get("answer") or "", evidence=[Evidence(**e) for e in v.get("evidence", [])], plan_id=v.get("plan_id"))
             task.status = TaskStatus.done

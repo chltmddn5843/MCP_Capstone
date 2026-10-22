@@ -261,3 +261,14 @@ def test_outcome_messages_cover_reclaim_holder_and_requester():
     assert "반납 처리됐어요" in m["emp_gen_052"] and "반납 처리가 끝났어요" in m["emp_asset_01"]
     m = worker.outcome_messages({"type": "seat_assign", "status": "failed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]}, names)
     assert "관리자가 다시 확인" in m["emp_md_01"]
+
+
+def test_identity_single_user_fallback(monkeypatch):
+    """SLACK_USER_MAP이 비어 있으면 SLACK_USER_ID → SLACK_EMPLOYEE_ID 한 명으로 연결한다 (scripts/setup_local.sh)."""
+    monkeypatch.setenv("SLACK_USER_MAP", "")
+    monkeypatch.setenv("SLACK_USER_ID", "U_ME")
+    monkeypatch.setenv("SLACK_EMPLOYEE_ID", "emp_cs_01")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "")
+    assert identity._user_map() == {"U_ME": "emp_cs_01"} and identity.admin_slack_ids() == ["U_ME"]
+    monkeypatch.setenv("SLACK_USER_MAP", '{"U_X": "emp_mkt_01"}')
+    assert identity._user_map() == {"U_X": "emp_mkt_01"}  # 매핑이 있으면 매핑이 우선
