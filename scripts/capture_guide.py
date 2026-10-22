@@ -119,7 +119,7 @@ with sync_playwright() as p:
     for sc in SCREENS:
         if only and sc["id"] not in only:
             continue
-        ctx = b.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
+        ctx = b.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=2)
         pg = ctx.new_page()
         pg.goto(BASE + "/login")
         if not sc.get("logout"):
