@@ -264,7 +264,7 @@ def test_outcome_messages_cover_reclaim_holder_and_requester():
 
 
 def test_identity_single_user_fallback(monkeypatch):
-    """SLACK_USER_MAP이 비어 있으면 SLACK_USER_ID → SLACK_EMPLOYEE_ID 한 명으로 연결한다 (scripts/setup_local.sh)."""
+    """SLACK_USER_MAP이 비어 있으면 SLACK_USER_ID → SLACK_EMPLOYEE_ID 한 명으로 연결한다 (scripts/run_public.sh)."""
     monkeypatch.setenv("SLACK_USER_MAP", "")
     monkeypatch.setenv("SLACK_USER_ID", "U_ME")
     monkeypatch.setenv("SLACK_EMPLOYEE_ID", "emp_cs_01")
