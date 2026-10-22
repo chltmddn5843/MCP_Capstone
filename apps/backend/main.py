@@ -339,7 +339,7 @@ def set_budgets(body: BudgetSet, user: Employee = Depends(require(Role.admin))):
 
 
 TASK_COLS = "id, employee_id, title, description, frequency, tools_used, source, updated_at"
-FX = 1380.0  # 원/달러. 수집 배치가 붙으면 usage_records.fx_rate를 쓴다
+FX = 1380.0  # 원/달러 고정 환율. usage_records.cost_krw도 이 값으로 환산해 넣는다
 KST = timedelta(hours=9)
 
 
@@ -686,7 +686,7 @@ def inventory(contract_id: str | None = None, user: Employee = Depends(require(R
         " FROM contracts c JOIN tools t ON t.id = c.tool_id"
         " LEFT JOIN seat_assignments s ON s.contract_id = c.id AND s.status = 'assigned'"
         " WHERE c.seats_purchased > 0 AND (CAST(:cid AS varchar) IS NULL OR c.id = :cid)"
-        " GROUP BY c.id, t.product, t.kind ORDER BY t.kind, c.id", cid=contract_id)
+        " GROUP BY c.id, t.product, t.kind ORDER BY t.kind, c.seats_purchased DESC, c.id", cid=contract_id)  # 큰 계약 먼저 (화면 첫 탭)
     cands = db.rows(
         "SELECT s.contract_id, s.employee_id, e.name AS employee_name, d.name AS dept_name, s.last_activity_at, s.flag"
         " FROM seat_assignments s JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.dept_id"

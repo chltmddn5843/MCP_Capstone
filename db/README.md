@@ -15,6 +15,7 @@ db/reset.sh        # postgres 컨테이너 기동 → schema.sql 적용 → seed
 ```
 
 DBeaver 접속: PostgreSQL · Host `localhost` · Port `5432` · DB `capstone` · User `capstone` · Password `capstone`(개발용, `.env`로 변경 가능) → 스키마 `app`.
+사용량을 ID 대신 이름(제품·직원·부서·프로젝트·모델)으로 보려면 뷰 `app.usage_records_named`를 연다.
 `reset.sh`는 매번 `app` 스키마를 지우고 다시 만든다. `uv run pytest`도 이 DB를 쓴다(`tests/conftest.py`가 테스트마다 스키마·시드를 다시 넣는다). postgres가 떠 있어야 한다. 더미는 `random.seed(7)`라 매번 같다.
 
 규칙: id는 문자열(`emp_…`), enum 값은 `schemas.common`의 영어 값, 시각은 `timestamptz`(UTC), 금액은 원화 `int` + 달러 `numeric`.

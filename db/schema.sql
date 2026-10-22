@@ -229,12 +229,22 @@ CREATE TABLE usage_records (
   input_tokens bigint NOT NULL,
   output_tokens bigint NOT NULL,
   cost_usd numeric(12,4) NOT NULL,
-  fx_rate numeric(10,2) NOT NULL,
   cost_krw int NOT NULL
 );
 CREATE INDEX ON usage_records (project_id, period_start);
 CREATE INDEX ON usage_records (employee_id, period_start);
 CREATE INDEX ON usage_records (contract_id, period_start);
+-- DBeaver 조회용: ID 대신 제품·직원·부서·프로젝트·모델 이름으로 본다 (코드에서는 쓰지 않는다)
+CREATE VIEW usage_records_named AS
+SELECT u.id, u.period_start, t.product, c.plan_name, e.name AS employee_name, d.name AS dept_name, p.name AS project_name,
+       m.name AS model_name, u.input_length_bucket, u.requests, u.input_tokens, u.output_tokens, u.cost_usd, u.cost_krw
+FROM usage_records u
+JOIN contracts c ON c.id = u.contract_id
+JOIN tools t ON t.id = c.tool_id
+LEFT JOIN employees e ON e.id = u.employee_id
+LEFT JOIN projects p ON p.id = u.project_id
+LEFT JOIN departments d ON d.id = coalesce(e.dept_id, p.dept_id)
+LEFT JOIN models m ON m.id = u.model_id;
 
 CREATE TABLE anomalies (
   id varchar PRIMARY KEY,

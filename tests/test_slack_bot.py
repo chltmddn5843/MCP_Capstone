@@ -152,9 +152,9 @@ def _fake_backend(calls, outbox_delivered):
         if path == "/confirmations":
             return [{"id": "cfm_9", "plan_id": "plan_9", "employee_id": "emp_gen_052", "question": "계속 쓰시나요?", "answer": None, "due_at": "2026-10-28T00:00:00Z", "answered_at": None}]
         if path == "/inventory":
-            return [{"contract": {"id": "ctr_ai_a_2026"}, "tool_name": "ChatGPT Enterprise", "low_usage_candidates": [{"employee_id": "emp_gen_052", "last_activity_at": None}]}]
+            return [{"contract": {"id": "ctr_chatgpt_2026"}, "tool_name": "ChatGPT Enterprise", "low_usage_candidates": [{"employee_id": "emp_gen_052", "last_activity_at": None}]}]
         if path == "/plans/plan_9":
-            return {"id": "plan_9", "type": "seat_reclaim", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_ai_a_2026"}]}
+            return {"id": "plan_9", "type": "seat_reclaim", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_chatgpt_2026"}]}
         if path.startswith("/employees/"):
             return {"employee": emp, "tasks": [{"id": "task_1", "title": "캠페인 카피 초안"}], "products": []}
         if path == "/notify-outbox":
@@ -228,14 +228,14 @@ def test_run_f1_reviews_only_unreviewed_updates_then_sends(monkeypatch, tmp_path
 def test_worker_notifies_requester_after_web_decision(monkeypatch):
     """직원이 낸 처리 요청이 웹에서 승인·실행/반려되면 요청자 DM. 봇 기동 전 건은 알리지 않고, 같은 건은 한 번만."""
     from apps.slack_bot import worker
-    plans = [{"id": "plan_old", "type": "seat_assign", "status": "executed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]},
-             {"id": "plan_new", "type": "seat_assign", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]},
-             {"id": "plan_rej", "type": "api_access", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"tool_id": "tool_ai_b", "purpose": "x"}]}]
+    plans = [{"id": "plan_old", "type": "seat_assign", "status": "executed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]},
+             {"id": "plan_new", "type": "seat_assign", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]},
+             {"id": "plan_rej", "type": "api_access", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"tool_id": "tool_claude", "purpose": "x"}]}]
     def backend(method, path, token, **kw):
         if path == "/plans":
             return {"items": [dict(p) for p in plans]}
         if path == "/tools":
-            return [{"id": "tool_ai_a", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_ai_a_2026"}}, {"id": "tool_ai_b", "product": "Claude API", "contract": None}]
+            return [{"id": "tool_chatgpt", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_chatgpt_2026"}}, {"id": "tool_claude", "product": "Claude API", "contract": None}]
         if path == "/employees/emp_md_01":
             return {"employee": {"id": "emp_md_01", "name": "정서진", "role": "employee", "slack_user_id": "U_MD01"}, "tasks": [], "products": []}
         raise AssertionError(path)
@@ -256,10 +256,10 @@ def test_worker_notifies_requester_after_web_decision(monkeypatch):
 
 def test_outcome_messages_cover_reclaim_holder_and_requester():
     from apps.slack_bot import worker
-    names = {"ctr_ai_a_2026": "ChatGPT Enterprise"}
-    m = worker.outcome_messages({"type": "seat_reclaim", "status": "executed", "requested_by": "emp_asset_01", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_ai_a_2026"}]}, names)
+    names = {"ctr_chatgpt_2026": "ChatGPT Enterprise"}
+    m = worker.outcome_messages({"type": "seat_reclaim", "status": "executed", "requested_by": "emp_asset_01", "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_chatgpt_2026"}]}, names)
     assert "반납 처리됐어요" in m["emp_gen_052"] and "반납 처리가 끝났어요" in m["emp_asset_01"]
-    m = worker.outcome_messages({"type": "seat_assign", "status": "failed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]}, names)
+    m = worker.outcome_messages({"type": "seat_assign", "status": "failed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]}, names)
     assert "관리자가 다시 확인" in m["emp_md_01"]
 
 

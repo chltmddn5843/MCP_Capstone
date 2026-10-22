@@ -78,7 +78,7 @@ def test_release_and_api_access_intents_create_plans(client):
     from apps.backend.main import app as backend_app
     from fastapi.testclient import TestClient as BackendClient
     bc = BackendClient(backend_app)
-    r = bc.post("/plans", json={"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "t", "evidence": []}, headers=EMP).json()
+    r = bc.post("/plans", json={"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], "rationale": "t", "evidence": []}, headers=EMP).json()
     if "data" in r:
         pid = r["data"]["id"]
         bc.post(f"/plans/{pid}/approve", json={"reason": "t"}, headers=ASSET)

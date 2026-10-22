@@ -9,13 +9,13 @@ import acrobat from '../assets/logos/adobeacrobatreader.svg'
 
 const props = defineProps({ toolId: { type: String, required: true }, name: { type: String, default: '' }, size: { type: Number, default: 32 } })
 const LOGOS = {
-  tool_ai_a: { src: openai, bg: '#000000' },
-  tool_ai_b: { src: claude, bg: '#D97757' },
+  tool_chatgpt: { src: openai, bg: '#000000' },
+  tool_claude: { src: claude, bg: '#D97757' },
   tool_canva: { src: canva, bg: '#00C4CC' },
   tool_adobe: { src: acrobat, bg: '#EC1C24' },
 }
 // 마법사에서 새로 등록한 제품은 id가 새로 생기므로 제품명으로도 찾는다
-const BY_NAME = [[/chatgpt|openai/i, 'tool_ai_a'], [/claude|anthropic/i, 'tool_ai_b'], [/canva/i, 'tool_canva'], [/acrobat|adobe/i, 'tool_adobe']]
+const BY_NAME = [[/chatgpt|openai/i, 'tool_chatgpt'], [/claude|anthropic/i, 'tool_claude'], [/canva/i, 'tool_canva'], [/acrobat|adobe/i, 'tool_adobe']]
 const logo = computed(() => LOGOS[props.toolId] ?? LOGOS[BY_NAME.find(([re]) => re.test(props.name))?.[1]])
 </script>
 

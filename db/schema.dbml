@@ -152,7 +152,7 @@ Table employees {
 
 // ───────── 제품·계약·모델 ─────────
 Table tools {
-  id varchar [pk, note: 'tool_ai_a']
+  id varchar [pk, note: 'tool_chatgpt']
   kind tool_kind [not null, default: 'ai', note: 'v2: AI 외 구독 SW(Adobe 등)']
   vendor varchar [not null]
   product varchar [not null]
@@ -163,7 +163,7 @@ Table tools {
 }
 
 Table contracts {
-  id varchar [pk, note: 'ctr_ai_a_2026']
+  id varchar [pk, note: 'ctr_chatgpt_2026']
   tool_id varchar [not null, ref: > tools.id]
   plan_name varchar [not null]
   billing_type billing_type [not null]
@@ -231,7 +231,7 @@ Table registered_tasks {
 
 // ───────── F1 업데이트 기반 제안 ─────────
 Table vendor_sources {
-  id varchar [pk, note: 'src_ai_a_rn']
+  id varchar [pk, note: 'src_chatgpt_rn']
   vendor varchar [not null]
   url varchar [not null, unique]
   kind source_kind [not null]
@@ -329,7 +329,6 @@ Table usage_records {
   input_tokens bigint [not null]
   output_tokens bigint [not null]
   cost_usd numeric(12,4) [not null]
-  fx_rate numeric(10,2) [not null, note: '수집 시점 환율']
   cost_krw int [not null]
   indexes {
     (project_id, period_start)

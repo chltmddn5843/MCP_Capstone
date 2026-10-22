@@ -37,21 +37,21 @@ EMPLOYEES = {e.id: e for e in [
 ]}
 
 TOOLS = {t.id: t for t in [
-    Tool(id="tool_ai_a", vendor="OpenAI", product="ChatGPT Enterprise", category="chat_assistant", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="기업용 워크스페이스·관리 기능 제공. 고객 개인정보는 승인된 업무에만 입력"),
-    Tool(id="tool_ai_b", vendor="Anthropic", product="Claude API", category="llm_api", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="긴 문서 분석과 요약에 적합. 민감정보는 사내 정책 준수"),
-    Tool(id="tool_cand_x", vendor="xAI", product="Grok API", category="llm_api", approval_status=ToolApprovalStatus.under_review, allowed_data_class=DataClass.public, policy_note="실시간 검색 도구 연동 후보. 기업 계약 전 검토 필요"),
+    Tool(id="tool_chatgpt", vendor="OpenAI", product="ChatGPT Enterprise", category="chat_assistant", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="기업용 워크스페이스·관리 기능 제공. 고객 개인정보는 승인된 업무에만 입력"),
+    Tool(id="tool_claude", vendor="Anthropic", product="Claude API", category="llm_api", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="긴 문서 분석과 요약에 적합. 민감정보는 사내 정책 준수"),
+    Tool(id="tool_grok", vendor="xAI", product="Grok API", category="llm_api", approval_status=ToolApprovalStatus.under_review, allowed_data_class=DataClass.public, policy_note="실시간 검색 도구 연동 후보. 기업 계약 전 검토 필요"),
     Tool(id="tool_canva", vendor="Canva", product="Canva Enterprise", category="design_collaboration", approval_status=ToolApprovalStatus.approved, allowed_data_class=DataClass.internal, policy_note="브랜드 키트·디자인 협업·AI 디자인 기능"),
 ]}
 
 CONTRACTS = {c.id: c for c in [
-    Contract(id="ctr_ai_a_2026", tool_id="tool_ai_a", plan_name="Enterprise (seat + usage)", billing_type=BillingType.seat_plus_usage, seats_purchased=60, seat_price_krw=45000, term_start=datetime(2026, 1, 1, tzinfo=UTC), term_end=datetime(2026, 12, 31, tzinfo=UTC)),
-    Contract(id="ctr_ai_b_2026", tool_id="tool_ai_b", plan_name="API pay-as-you-go", billing_type=BillingType.api_usage, seats_purchased=0, seat_price_krw=0, term_start=datetime(2026, 1, 1, tzinfo=UTC), term_end=datetime(2026, 12, 31, tzinfo=UTC)),
+    Contract(id="ctr_chatgpt_2026", tool_id="tool_chatgpt", plan_name="Enterprise (seat + usage)", billing_type=BillingType.seat_plus_usage, seats_purchased=60, seat_price_krw=45000, term_start=datetime(2026, 1, 1, tzinfo=UTC), term_end=datetime(2026, 12, 31, tzinfo=UTC)),
+    Contract(id="ctr_claude_2026", tool_id="tool_claude", plan_name="API pay-as-you-go", billing_type=BillingType.api_usage, seats_purchased=0, seat_price_krw=0, term_start=datetime(2026, 1, 1, tzinfo=UTC), term_end=datetime(2026, 12, 31, tzinfo=UTC)),
 ]}
 
 TOOLS_WITH_PLAN = [
-    ToolWithPlan(**TOOLS["tool_ai_a"].model_dump(), contract=CONTRACTS["ctr_ai_a_2026"]),
-    ToolWithPlan(**TOOLS["tool_ai_b"].model_dump(), contract=CONTRACTS["ctr_ai_b_2026"]),
-    ToolWithPlan(**TOOLS["tool_cand_x"].model_dump()),
+    ToolWithPlan(**TOOLS["tool_chatgpt"].model_dump(), contract=CONTRACTS["ctr_chatgpt_2026"]),
+    ToolWithPlan(**TOOLS["tool_claude"].model_dump(), contract=CONTRACTS["ctr_claude_2026"]),
+    ToolWithPlan(**TOOLS["tool_grok"].model_dump()),
 ]
 
 MODELS = {m.id: m for m in [  # id = "공급사:API 모델명" = 에이전트 LLM_MODEL 값과 같은 키. 단가는 공식 가격표(2026-10-21) 기준
@@ -63,19 +63,19 @@ MODELS = {m.id: m for m in [  # id = "공급사:API 모델명" = 에이전트 LL
 ]}
 
 TASKS = {t.id: t for t in [
-    RegisteredTask(id="task_hrd_survey", employee_id="emp_hrd_01", title="교육 과정별 설문 결과 비교", description="과정별 만족도 설문 파일을 비교해 공통 개선점과 과정별 차이를 정리", frequency="monthly", tools_used=["tool_ai_a"], updated_at=NOW - timedelta(days=10)),
-    RegisteredTask(id="task_mkt_copy", employee_id="emp_mkt_01", title="캠페인 카피 초안 작성", description="제품 소개 문구 3안 작성", frequency="weekly", tools_used=["tool_ai_a"], updated_at=NOW - timedelta(days=3)),
-    RegisteredTask(id="task_cs_classify", employee_id="emp_cs_01", title="고객 문의 유형 분류", description="하루 1,000건 문의를 10개 유형으로 분류 (API)", frequency="daily", tools_used=["tool_ai_b"], updated_at=NOW - timedelta(days=30)),
+    RegisteredTask(id="task_hrd_survey", employee_id="emp_hrd_01", title="교육 과정별 설문 결과 비교", description="과정별 만족도 설문 파일을 비교해 공통 개선점과 과정별 차이를 정리", frequency="monthly", tools_used=["tool_chatgpt"], updated_at=NOW - timedelta(days=10)),
+    RegisteredTask(id="task_mkt_copy", employee_id="emp_mkt_01", title="캠페인 카피 초안 작성", description="제품 소개 문구 3안 작성", frequency="weekly", tools_used=["tool_chatgpt"], updated_at=NOW - timedelta(days=3)),
+    RegisteredTask(id="task_cs_classify", employee_id="emp_cs_01", title="고객 문의 유형 분류", description="하루 1,000건 문의를 10개 유형으로 분류 (API)", frequency="daily", tools_used=["tool_claude"], updated_at=NOW - timedelta(days=30)),
 ]}
 
 UPDATES = {u.id: u for u in [
-    VendorUpdate(id="upd_ai_a_doc_compare", source_id="src_ai_a_rn", vendor="OpenAI", published_at=NOW - timedelta(days=1), title="ChatGPT Enterprise 문서 비교 기능", summary="여러 파일을 함께 올리고 차이점과 공통점을 표로 정리할 수 있다. Enterprise 플랜부터 제공.", url="https://openai.com/business/chatgpt-pricing/", affected_plans=["Enterprise"], fetched_at=NOW),
-    VendorUpdate(id="upd_ai_b_price", source_id="src_ai_b_rn", vendor="Anthropic", published_at=NOW - timedelta(days=5), title="Claude API 가격·모델 업데이트", summary="Claude Opus 5.5(입력 $4·출력 $20/MTok), Sonnet 5.5($2·$10), Haiku 5.5($0.10·$0.50) 가격표. 분류처럼 짧은 작업은 하위 모델로 비용을 줄일 수 있다.", url="https://platform.claude.com/docs/en/about-claude/pricing", affected_plans=["API"], fetched_at=NOW),
-    VendorUpdate(id="upd_ai_a_data_analysis", source_id="src_ai_a_rn", vendor="OpenAI", published_at=NOW - timedelta(hours=6), title="ChatGPT Enterprise 데이터 분석 강화: 파일을 올리면 표·차트로 정리", summary="CSV·엑셀·텍스트 파일을 올리면 항목별 집계와 차트를 바로 만들고, 리뷰·설문처럼 자유 서술 데이터는 주제별로 묶어 요약한다. Enterprise 플랜에서 사용 가능.", url="https://help.openai.com/en/articles/8437071-data-analysis-with-chatgpt", affected_plans=["Enterprise"], fetched_at=NOW),
+    VendorUpdate(id="upd_chatgpt_doc_compare", source_id="src_chatgpt_rn", vendor="OpenAI", published_at=NOW - timedelta(days=1), title="ChatGPT Enterprise 문서 비교 기능", summary="여러 파일을 함께 올리고 차이점과 공통점을 표로 정리할 수 있다. Enterprise 플랜부터 제공.", url="https://openai.com/business/chatgpt-pricing/", affected_plans=["Enterprise"], fetched_at=NOW),
+    VendorUpdate(id="upd_claude_price", source_id="src_claude_rn", vendor="Anthropic", published_at=NOW - timedelta(days=5), title="Claude API 가격·모델 업데이트", summary="Claude Opus 5.5(입력 $4·출력 $20/MTok), Sonnet 5.5($2·$10), Haiku 5.5($0.10·$0.50) 가격표. 분류처럼 짧은 작업은 하위 모델로 비용을 줄일 수 있다.", url="https://platform.claude.com/docs/en/about-claude/pricing", affected_plans=["API"], fetched_at=NOW),
+    VendorUpdate(id="upd_chatgpt_data_analysis", source_id="src_chatgpt_rn", vendor="OpenAI", published_at=NOW - timedelta(hours=6), title="ChatGPT Enterprise 데이터 분석 강화: 파일을 올리면 표·차트로 정리", summary="CSV·엑셀·텍스트 파일을 올리면 항목별 집계와 차트를 바로 만들고, 리뷰·설문처럼 자유 서술 데이터는 주제별로 묶어 요약한다. Enterprise 플랜에서 사용 가능.", url="https://help.openai.com/en/articles/8437071-data-analysis-with-chatgpt", affected_plans=["Enterprise"], fetched_at=NOW),
 ]}
 
 SUGGESTIONS = {s.id: s for s in [
-    Suggestion(id="sug_001", update_id="upd_ai_a_doc_compare", target_type=TargetType.employee, target_id="emp_hrd_01", task_id="task_hrd_survey", relevance="등록 업무 '교육 과정별 설문 결과 비교'가 여러 파일 비교를 필요로 함", body="등록하신 '교육 과정별 설문 결과 비교' 업무에 쓸 수 있는 기능이 추가됐어요. ...", status=SuggestionStatus.draft),
+    Suggestion(id="sug_001", update_id="upd_chatgpt_doc_compare", target_type=TargetType.employee, target_id="emp_hrd_01", task_id="task_hrd_survey", relevance="등록 업무 '교육 과정별 설문 결과 비교'가 여러 파일 비교를 필요로 함", body="등록하신 '교육 과정별 설문 결과 비교' 업무에 쓸 수 있는 기능이 추가됐어요. ...", status=SuggestionStatus.draft),
 ]}
 
 EVAL_RESULTS = [
@@ -96,8 +96,8 @@ ANOMALIES = {a.id: a for a in [
 ]}
 
 PLANS = {p.id: p for p in [
-    ActionPlan(id="plan_001", type=PlanType.seat_assign, risk_level=RiskLevel.low, status=PlanStatus.approved, items=[{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], rationale="미배정 좌석 2석 중 1석 배정", evidence=[Evidence(source="inventory", ref="ctr_ai_a_2026", value={"unassigned": 2})], requested_by="emp_mkt_01", approver_id=None, created_at=NOW - timedelta(minutes=30)),
-    ActionPlan(id="plan_002", type=PlanType.seat_reclaim, risk_level=RiskLevel.medium, status=PlanStatus.pending_approval, items=[{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026"}], rationale="휴직 중, 본인 확인 응답: 반납", evidence=[Evidence(source="confirmations", ref="cfm_001", value="return_seat")], requested_by="emp_asset_01", created_at=NOW - timedelta(minutes=10)),
+    ActionPlan(id="plan_001", type=PlanType.seat_assign, risk_level=RiskLevel.low, status=PlanStatus.approved, items=[{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], rationale="미배정 좌석 2석 중 1석 배정", evidence=[Evidence(source="inventory", ref="ctr_chatgpt_2026", value={"unassigned": 2})], requested_by="emp_mkt_01", approver_id=None, created_at=NOW - timedelta(minutes=30)),
+    ActionPlan(id="plan_002", type=PlanType.seat_reclaim, risk_level=RiskLevel.medium, status=PlanStatus.pending_approval, items=[{"employee_id": "emp_sales_02", "contract_id": "ctr_chatgpt_2026"}], rationale="휴직 중, 본인 확인 응답: 반납", evidence=[Evidence(source="confirmations", ref="cfm_001", value="return_seat")], requested_by="emp_asset_01", created_at=NOW - timedelta(minutes=10)),
 ]}
 
 CONFIRMATIONS = {c.id: c for c in [
