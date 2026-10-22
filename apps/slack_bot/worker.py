@@ -3,6 +3,7 @@
 1) 사용 의사 확인 요청(미응답) → 직원 DM (계속 필요·반납·휴직 버튼)               [F4]
 2) 발송함(notify_outbox, 미전달) → 직원 DM 또는 부서원 DM (활용 제안 + 반응 버튼)   [F1]
 3) 처리 요청 결과 → 요청자 DM: 봇이 뜬 뒤 상태가 executed·rejected·failed로 바뀐 건만 (과거 건은 재알림 없음)   [F4]
+5) F3 좌석 토큰 경보: 사용량 수집 → 소비 속도 경보 배치 → 새 경보를 본인 DM (현재 작업 분석 버튼). F3_INTERVAL_MIN(기본 5분)마다
 4) F1 체인 한 바퀴: 수집 배치 → 검토 안 된 업데이트마다 에이전트 review_update(시스템 계정)
    → 발송 정책 배치(팀당 주 2건·업무 시간·보류) → 2)
    수동: uv run python -m apps.slack_bot --run-f1     자동: F1_INTERVAL_MIN>0 이면 그 주기로
@@ -24,7 +25,7 @@ from pathlib import Path
 
 from apps.slack_bot import client as api
 from apps.slack_bot import identity
-from apps.slack_bot.send import send_confirmation, send_suggestion
+from apps.slack_bot.send import send_confirmation, send_seat_alert, send_suggestion
 
 log = logging.getLogger("slack_bot.worker")
 SYSTEM_TOKEN = os.getenv("SYSTEM_TOKEN", "dev.sys")
@@ -261,11 +262,35 @@ def notify_plan_outcomes(client, baseline: bool = False) -> list[str]:
             log.warning("처리 결과 %s 알림 실패: %s", plan["id"], exc)
     return sent
 
+# ---------- 5) F3 좌석 토큰 경보 ----------
+def run_f3(client, state: dict) -> list[str]:
+    """사용량 수집(지금은 더미) → 경보 배치 → 아직 안 보낸 경보를 본인에게 DM."""
+    api.backend("POST", "/internal/jobs/collect_usage/run", SYSTEM_TOKEN)
+    api.backend("POST", "/internal/jobs/check_thresholds/run", SYSTEM_TOKEN)
+    sent = []
+    for a in api.backend("GET", "/anomalies", SYSTEM_TOKEN, params={"status": "open"}):
+        if a["scope_type"] != "employee" or a["id"] in state.setdefault("anomalies", []):
+            continue
+        try:
+            slack_id = slack_id_for(employee(a["scope_id"]))
+            if slack_id:
+                send_seat_alert(client, _dm(client, slack_id), a)
+                log.info("좌석 토큰 경보 DM: %s → %s", a["id"], a.get("scope_name"))
+            state["anomalies"].append(a["id"])  # Slack 미연결 직원도 다시 시도하지 않는다 (웹 좌석 배치도에서 보임)
+            sent.append(a["id"])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("경보 %s 발송 실패: %s", a["id"], exc)
+    if sent:
+        save_state(state)
+    return sent
+
+
 # ---------- 루프 ----------
 def loop(client, interval: float = 10.0, once: bool = False) -> None:
     state = load_state()
     f1_every = float(os.getenv("F1_INTERVAL_MIN", "0") or 0) * 60
-    last_f1 = 0.0
+    f3_every = float(os.getenv("F3_INTERVAL_MIN", "5") or 0) * 60
+    last_f1 = last_f3 = 0.0
     try:
         notify_plan_outcomes(client, baseline=True)  # 봇이 뜬 시점의 상태를 기준선으로
     except Exception as exc:  # noqa: BLE001
@@ -275,6 +300,9 @@ def loop(client, interval: float = 10.0, once: bool = False) -> None:
             deliver_confirmations(client, state)
             deliver_outbox(client)
             notify_plan_outcomes(client)
+            if f3_every > 0 and time.time() - last_f3 >= f3_every:
+                last_f3 = time.time()
+                run_f3(client, state)
             if f1_every > 0 and time.time() - last_f1 >= f1_every:
                 last_f1 = time.time()
                 log.info("F1 자동 실행: %s", run_f1(client))

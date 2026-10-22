@@ -71,7 +71,8 @@ CREATE TABLE contracts (
   seat_price_krw int NOT NULL DEFAULT 0,
   term_start date NOT NULL,
   term_end date NOT NULL CHECK (term_end > term_start),
-  mid_term_reduction boolean NOT NULL DEFAULT false
+  mid_term_reduction boolean NOT NULL DEFAULT false,
+  daily_token_quota bigint NOT NULL DEFAULT 0  -- 좌석당 하루 토큰 한도. 0이면 좌석 사용량을 추적하지 않는다 (F3)
 );
 
 -- 회사는 한 곳뿐(초기 설정 마법사로 만든다). 행이 없으면 아직 가입 전

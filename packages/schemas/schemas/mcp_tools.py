@@ -41,9 +41,9 @@ from schemas.entities import (
     VendorUpdate,
 )
 from schemas.rest import (
-    AnomalyDetail,
     ContractInventory,
     RelevantTaskCandidate,
+    SeatPaceDetail,
     TaskCostEstimateResponse,
     TeamAdoption,
 )
@@ -121,8 +121,8 @@ class GetAnomaliesIn(BaseModel):
     status: AnomalyStatus | None = None
 
 
-class GetAnomalyDetailIn(BaseModel):
-    anomaly_id: str
+class GetSeatUsageIn(BaseModel):
+    employee_id: str = Field(description="직원은 본인 id만")
 
 
 class GetLicenseInventoryIn(BaseModel):
@@ -311,7 +311,7 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_usage_summary", "범위별 요청 수, 토큰, 비용, 마지막 활동 시각. 직원은 본인만.", GetUsageSummaryIn, UsageSummary, [Role.employee, Role.admin, Role.system], backend="GET /usage", features=["F2", "F3", "F4"]),
     ToolSpec("get_usage_breakdown", "프로젝트 사용량을 모델·API 키·입력 길이 구간별로 나눈다.", GetUsageBreakdownIn, UsageBreakdownOut, [Role.admin, Role.system], backend="GET /usage?group_by=", features=["F3"]),
     ToolSpec("get_anomalies", "사용량 경보 목록.", GetAnomaliesIn, AnomaliesOut, [Role.admin, Role.system], backend="GET /anomalies", features=["F3"]),
-    ToolSpec("get_anomaly_detail", "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.", GetAnomalyDetailIn, AnomalyDetail, [Role.admin, Role.system], backend="GET /anomalies/{id}", features=["F3"]),
+    ToolSpec("get_seat_usage", "좌석 한 명의 오늘 토큰 소비 속도(예상·평균 대비·한도 대비)와 시간대·입력 길이·모델별 분포. 직원은 본인만.", GetSeatUsageIn, SeatPaceDetail, ALL, backend="GET /usage/seats/{employee_id}", features=["F3"]),
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.admin, Role.system], backend="GET /inventory", features=["F4"]),
     ToolSpec("get_employee_assets", "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.", GetEmployeeAssetsIn, MyProfileOut, [Role.admin, Role.system], backend="GET /employees/{id}/assets", features=["F4"]),
     ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.admin], read_only=False, backend="POST /confirmations", features=["F4"]),
@@ -342,7 +342,7 @@ RESOURCES: dict[str, str] = {
 PROMPTS: dict[str, list[str]] = {
     "review_update": ["update_id"],
     "recommend_model": ["task_description"],
-    "investigate_anomaly": ["anomaly_id"],
+    "analyze_seat_usage": ["employee_id"],
     "review_seat_request": ["plan_id"],
     "review_plan": ["plan_id"],
 }

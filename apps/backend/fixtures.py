@@ -60,6 +60,9 @@ MODELS = {m.id: m for m in [  # id = "공급사:API 모델명" = 에이전트 LL
     Model(id="anthropic:claude-haiku-5-5", vendor="Anthropic", name="Claude Haiku 5.5", capabilities="빠른 단순 분류·추출 (입력 10만 토큰 이하 단가)", input_usd_per_mtok=0.1, output_usd_per_mtok=0.5, allowed_data_class=DataClass.internal),
     Model(id="xai:grok-4.7", vendor="xAI", name="Grok 4.7", capabilities="빠른 범용 응답·실시간 검색 도구 연동", input_usd_per_mtok=2.0, output_usd_per_mtok=6.0, approved=False, allowed_data_class=DataClass.public),
     Model(id="xai:grok-4.3", vendor="xAI", name="Grok 4.3", capabilities="저비용 범용 응답", input_usd_per_mtok=1.25, output_usd_per_mtok=2.5, approved=False, allowed_data_class=DataClass.public),
+    # ChatGPT Enterprise 좌석 안에서 고르는 모델. 좌석 정액에 포함돼 토큰 단가가 없다 (F3 모델 변경 권장용)
+    Model(id="openai:gpt-5.5", vendor="OpenAI", name="GPT-5.5 (ChatGPT)", capabilities="깊은 추론·긴 문서 분석 · 토큰을 많이 쓴다", input_usd_per_mtok=0, output_usd_per_mtok=0, allowed_data_class=DataClass.internal),
+    Model(id="openai:gpt-5.5-mini", vendor="OpenAI", name="GPT-5.5 mini (ChatGPT)", capabilities="짧은 질의·초안·분류·요약 · 빠르고 가볍다", input_usd_per_mtok=0, output_usd_per_mtok=0, allowed_data_class=DataClass.internal),
 ]}
 
 TASKS = {t.id: t for t in [
@@ -89,10 +92,6 @@ PROJECTS = {p.id: p for p in [
     Project(id="prj_cs_classify", name="고객 문의 분류", dept_id="dept_cs", owner_id="emp_cs_01", purpose="문의 자동 분류", model_id="anthropic:claude-opus-5-5", environment=Environment.prod, monthly_budget_krw=600000),
     Project(id="prj_quote_summary", name="견적서 요약", dept_id="dept_sales", owner_id="emp_sales_02", purpose="견적서 PDF 요약", model_id="anthropic:claude-opus-5-5", environment=Environment.prod, monthly_budget_krw=800000),
     Project(id="prj_faq", name="사내 FAQ", dept_id="dept_mgmt", owner_id="emp_asset_01", purpose="사내 규정 Q&A", model_id="anthropic:claude-sonnet-5-5", environment=Environment.test, monthly_budget_krw=50000),
-]}
-
-ANOMALIES = {a.id: a for a in [
-    Anomaly(id="anm_001", scope_type="project", scope_id="prj_quote_summary", scope_name="견적서 요약", rule="daily_cost_gt_3x_baseline", baseline=14010, observed=53397, ratio=3.81, projected_monthly_cost=krw(1160.8), status=AnomalyStatus.open, created_at=NOW - timedelta(hours=2)),
 ]}
 
 PLANS = {p.id: p for p in [

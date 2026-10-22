@@ -2,7 +2,8 @@
 
 수신: DM(message.im)과 멘션(app_mention) → 에이전트 작업 → 진행 상황을 한 메시지에 갱신 → 답변.
       승인이 필요하면 관리자에게 DM으로 확인 요청 버튼을 보내고, 결정 뒤 이어서 처리한다.
-버튼: 제안 반응(도움 됨·관련 없음·질문) → 백엔드 /suggestions/{id}/feedback
+버튼: 좌석 토큰 경보 [현재 작업 분석] → 에이전트 analyze_seat_usage (본인 권한)
+      제안 반응(도움 됨·관련 없음·질문) → 백엔드 /suggestions/{id}/feedback
       사용 의사(계속 필요·반납·휴직) → 백엔드 /confirmations/{id}/answer
       처리 확인(확인·거절) → 에이전트 /ai/tasks/{id}/approval
 발신(사용 의사 확인 DM, 활용 제안, 처리 요청 결과 안내)은 같은 프로세스의 워커 스레드(worker.py)가 백엔드를 폴링해 보낸다.
@@ -42,8 +43,8 @@ TOOL_LABEL = {
     "get_eval_results": "모델 품질 평가 조회", "estimate_task_cost": "예상 비용 계산", "get_usage_summary": "사용량 조회",
     "get_license_inventory": "이용권 현황 조회", "create_action_plan": "처리 요청 작성",
     "get_plan_status": "처리 요청 상태 확인", "execute_approved_plan": "승인된 요청 처리", "search_vendor_docs": "제품 공식 문서 검색",
-    "get_vendor_update": "업데이트 내용 확인", "search_internal_policy": "사내 정책 검색", "get_anomalies": "비용 급증 알림 조회",
-    "get_anomaly_detail": "알림 상세 확인", "get_usage_breakdown": "사용량 세부 분석",
+    "get_vendor_update": "업데이트 내용 확인", "search_internal_policy": "사내 정책 검색", "get_anomalies": "토큰 사용 경보 조회",
+    "get_seat_usage": "내 좌석 사용량 분석", "get_usage_breakdown": "사용량 세부 분석",
 }
 THREADS: dict[str, str] = {}  # slack (channel, thread_ts|user) -> agent thread_id. 같은 Slack 스레드면 같은 대화
 PENDING: dict[str, dict] = {}  # task_id -> {"token", "channel", "ts", "thread_ts"} 승인 대기 중 복귀 정보
@@ -96,6 +97,23 @@ def on_approval(ack, body, action, client):
         threading.Thread(target=_follow, args=(client, ctx["token"], task_id, ctx["channel"], ctx["ts"], ctx["thread_ts"], ctx["after"], ctx.get("is_admin", False)), daemon=True).start()
 
 
+def on_seat_analyze(ack, body, action, client):
+    """경보 DM의 [현재 작업 분석] → 본인 권한으로 에이전트 analyze_seat_usage를 돌려 같은 스레드에 답한다."""
+    ack()
+    target, user, channel = action["value"], body["user"]["id"], body["channel"]["id"]
+    try:
+        token, emp = identity.resolve(user)
+        if emp["id"] != target and emp.get("role") != "admin":
+            client.chat_postEphemeral(channel=channel, user=user, text="본인 사용량만 분석할 수 있어요.")
+            return
+        created = api.create_task(token, "지금 토큰을 많이 쓰는 이유를 분석하고 다른 모델을 추천해줘", None, "analyze_seat_usage", {"employee_id": target})
+    except api.ApiError as exc:
+        client.chat_postEphemeral(channel=channel, user=user, text=friendly(exc))
+        return
+    posted = client.chat_postMessage(channel=channel, thread_ts=body["message"]["ts"], text="분석하고 있어요…")
+    threading.Thread(target=_follow, args=(client, token, created["task_id"], channel, posted["ts"], body["message"]["ts"], 0), daemon=True).start()
+
+
 def create_app(verify_token: bool = True) -> App:
     app = App(token=os.environ["SLACK_BOT_TOKEN"], token_verification_enabled=verify_token)
 
@@ -123,6 +141,7 @@ def create_app(verify_token: bool = True) -> App:
         app.action(aid)(on_confirmation)
     for aid in ("ap_yes", "ap_no"):
         app.action(aid)(on_approval)
+    app.action("seat_analyze")(on_seat_analyze)
     return app
 
 

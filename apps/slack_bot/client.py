@@ -39,8 +39,8 @@ def agent(method: str, path: str, token: str, **kw) -> dict:
     return _call(method, AGENT_URL, path, token, **kw)
 
 
-def create_task(token: str, text: str, thread_id: str | None) -> dict:
-    return agent("POST", "/ai/tasks", token, json={"input": text, "thread_id": thread_id, "channel": "slack"})
+def create_task(token: str, text: str, thread_id: str | None, prompt_name: str | None = None, prompt_args: dict | None = None) -> dict:
+    return agent("POST", "/ai/tasks", token, json={"input": text, "thread_id": thread_id, "channel": "slack", "prompt_name": prompt_name, "prompt_args": prompt_args or {}})
 
 
 def stream_events(token: str, task_id: str, after: int = 0, timeout: int = 180) -> Iterator[dict]:

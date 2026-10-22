@@ -213,7 +213,7 @@ class Anomaly(Base):
     scope_type: str
     scope_id: str
     scope_name: str | None = None
-    rule: str = Field(description="예: daily_cost_gt_3x_baseline")
+    rule: str = Field(description="예: seat_pace_2x (좌석 토큰 소비 속도가 평균의 2배 이상)")
     baseline: float
     observed: float
     ratio: float

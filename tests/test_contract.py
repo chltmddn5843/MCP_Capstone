@@ -77,9 +77,13 @@ def test_every_agent_plan_waits_for_admin():
     assert client.post("/plans", json=other, headers=EMP).status_code == 403  # 남의 좌석 반납 불가
 
 
-def test_anomaly_detail_has_project_purpose():
-    d = client.get("/anomalies/anm_001", headers=ASSET).json()["data"]
-    assert d["project"]["purpose"] and d["series"] and d["breakdown_by_input_length"]
+def test_seat_usage_is_admin_or_self():
+    assert client.get("/usage/seats", headers=EMP).status_code == 403
+    paces = client.get("/usage/seats", headers=ASSET).json()["data"]
+    assert paces and all(p["product"] == "ChatGPT Enterprise" and p["daily_quota"] > 0 for p in paces)
+    other = next(p["employee_id"] for p in paces if p["employee_id"] != EMP["Authorization"].removeprefix("Bearer dev."))
+    assert client.get(f"/usage/seats/{other}", headers=EMP).status_code == 403
+    assert client.get(f"/usage/seats/{other}", headers=ASSET).json()["data"]["pace"]["employee_id"] == other
 
 
 def test_projects_list_has_budgets():

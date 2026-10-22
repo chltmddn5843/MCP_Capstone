@@ -1,5 +1,5 @@
 <script setup>
-// AI 비서: 추천 질문 + 자유 입력 + 진행 스트림. 같은 대화(thread)를 이어간다. ?q= 로 들어오면 바로 묻는다 (비용 화면의 '더 묻기').
+// AI 비서: 추천 질문 + 자유 입력 + 진행 스트림. 같은 대화(thread)를 이어간다. ?q= 로 들어오면 바로 묻는다 (좌석 배치도의 '작업 분석').
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { createTask, getTasks, errorLabel } from '../request.js'
@@ -22,7 +22,7 @@ async function ask(q, promptName, promptArgs) {
 async function loadHistory() { try { history.value = await getTasks(true, 10) } catch { history.value = [] } }
 onMounted(() => {
   loadHistory()
-  if (route.query.q) ask(String(route.query.q), route.query.prompt, route.query.anomaly ? { anomaly_id: route.query.anomaly } : undefined)
+  if (route.query.q) ask(String(route.query.q), route.query.prompt, route.query.employee ? { employee_id: route.query.employee } : undefined)
 })
 </script>
 
@@ -36,7 +36,7 @@ onMounted(() => {
     </div>
     <form class="tags" style="gap: 8px; align-items: flex-end" @submit.prevent="ask()">
       <label class="ask-field" for="ask-input">요청 내용
-        <input id="ask-input" v-model="text" class="ask-input" placeholder="예: 견적서 요약 프로젝트 비용이 왜 늘었는지 조사해줘" />
+        <input id="ask-input" v-model="text" class="ask-input" placeholder="예: 오늘 토큰을 많이 쓰는 좌석이 있는지 알려줘" />
       </label>
       <label class="small new-thread"><input v-model="newThread" type="checkbox" />새 대화로 시작</label>
       <button type="submit" class="btn btn-dark" :disabled="!text.trim()">보내기</button>
