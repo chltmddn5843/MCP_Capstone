@@ -5,7 +5,7 @@
 3) 처리 요청: 새 승인 대기 → 관리자 DM([승인]/[반려]), 결과(executed·rejected·failed) → 요청자 DM과 사용 안내   [F4]
    좌석 제품은 SSO 로그인 안내(아이디=회사 이메일, 비밀번호 없음), API는 키 앞부분 + 본인만 한 번 여는 링크. 키 값은 Slack에 보내지 않는다
 5) F3 좌석 토큰 경보: 사용량 수집 → 소비 속도 경보 배치 → 새 경보를 본인 DM (현재 작업 분석 버튼). F3_INTERVAL_MIN(기본 5분)마다
-4) F1 체인 한 바퀴: 수집 배치(공급사 모델 목록 폴링 → 새 모델이면 '새 모델 출시' 업데이트) → 검토 안 된 업데이트마다 에이전트 review_update(시스템 계정)
+4) F1 체인 한 바퀴: 수집 배치(공급사 모델 목록 폴링 → 새 모델이면 '새 모델 출시' 업데이트) → 검토 안 된 업데이트마다 에이전트 review_update(새 모델이면 draft_model_card, 시스템 계정)
    새 모델은 카드 뉴스(핵심 기능 3개 + 직무별 활용) 한 장을 전 직원 DM으로. 받는 사람의 직무 줄은 굵게
    → 발송 정책 배치(팀당 주 2건·업무 시간·보류) → 2)
    수동: uv run python -m apps.slack_bot --run-f1     자동: F1_INTERVAL_MIN>0 이면 그 주기로
@@ -170,8 +170,10 @@ def review_updates(wait: float = 180.0) -> list[dict]:
     for upd in updates:
         if upd["id"] in reviewed:
             continue
-        created = api.agent("POST", "/ai/tasks", SYSTEM_TOKEN, json={"input": f"업데이트 {upd['id']}를 검토해 관련 업무에 활용 제안을 만들어줘",
-                                                                   "prompt_name": "review_update", "prompt_args": {"update_id": upd["id"]}, "channel": "system"})
+        card = upd.get("title", "").startswith("새 모델 출시")  # 새 모델은 카드 뉴스 전용 작업 (한 프롬프트 안의 분기는 실제 모델이 잘 못 따른다)
+        created = api.agent("POST", "/ai/tasks", SYSTEM_TOKEN, json={
+            "input": f"업데이트 {upd['id']}로 새 모델 카드 뉴스를 만들어줘" if card else f"업데이트 {upd['id']}를 검토해 관련 업무에 활용 제안을 만들어줘",
+            "prompt_name": "draft_model_card" if card else "review_update", "prompt_args": {"update_id": upd["id"]}, "channel": "system"})
         task_id, t0, status = created["task_id"], time.time(), "queued"
         while time.time() - t0 < wait:
             status = api.agent("GET", f"/ai/tasks/{task_id}", SYSTEM_TOKEN)["status"]

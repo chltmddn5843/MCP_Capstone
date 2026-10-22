@@ -218,12 +218,12 @@ def test_review_update_prompt_saves_suggestion(client):
 
 
 def test_model_release_simulation_makes_one_card(client):
-    """F1: 출시 시뮬레이션 → 새 모델 감지 → review_update가 전사 카드 뉴스 한 장(핵심 기능 + 직무별 활용)을 저장한다."""
+    """F1: 출시 시뮬레이션 → 새 모델 감지 → draft_model_card가 전사 카드 뉴스 한 장(핵심 기능 + 직무별 활용)을 저장한다."""
     from fastapi.testclient import TestClient as BackendClient
     SYS = {"Authorization": "Bearer dev.sys"}
     bc = BackendClient(backend_app)
     found = bc.post("/internal/jobs/collect_release_notes/run", params={"simulate": True}, headers=SYS).json()["data"]["result"]["new_models"][0]
-    r = client.post("/ai/tasks", json={"input": f"업데이트 {found['update_id']}를 검토해 관련 업무에 활용 제안을 만들어줘", "prompt_name": "review_update",
+    r = client.post("/ai/tasks", json={"input": f"업데이트 {found['update_id']}로 새 모델 카드 뉴스를 만들어줘", "prompt_name": "draft_model_card",
                                        "prompt_args": {"update_id": found["update_id"]}, "channel": "system"}, headers=SYS)
     t = wait_status(client, r.json()["data"]["task_id"], SYS, {"done", "failed"})
     assert t["status"] == "done"

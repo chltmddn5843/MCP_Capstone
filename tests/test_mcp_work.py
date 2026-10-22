@@ -227,6 +227,7 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
     ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "추정하고 단정하지 않는다"),
     ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
     ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
+    ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "보류하지 않는다"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
     ("recommend_model", {"task_description": "문의 분류"}, "현재 모델도 estimate_task_cost로 계산"),
     ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "list_approved_models에서 같은 좌석 안의 더 가벼운 모델"),
