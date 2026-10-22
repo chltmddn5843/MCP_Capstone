@@ -131,12 +131,6 @@ class Reaction(StrEnum):
     question = "question"
 
 
-class UnmetNeedStatus(StrEnum):
-    open = "open"
-    under_review = "under_review"
-    closed = "closed"
-
-
 class Environment(StrEnum):
     test = "test"
     prod = "prod"

@@ -254,16 +254,6 @@ seats += [{"id": f"seat_cv_{i:03d}", "contract_id": "ctr_canva_2026", "employee_
           for i, e in enumerate(canva)]
 insert("seat_assignments", seats)
 insert("usage_records", chat_usage)
-# 미지원 요청: 요청자 부서 = 직원 부서. contract_compare 3건이 모이면 F5 구매 검토 후보가 된다
-emp_dept = {e["id"]: e["dept_id"] for e in emps}
-more_needs = [("emp_gen_004", "공급사 계약서 개정본 조항 비교", "contract_compare", 4),
-              ("emp_gen_011", "회의 녹음 한국어 자막·요약", "meeting_transcribe", 9),
-              ("emp_gen_017", "회의 녹음 요약해서 회의록 만들기", "meeting_transcribe", 3),
-              ("emp_gen_020", "도면 PDF에서 부품 목록 추출", "drawing_extract", 12)]
-insert("unmet_needs", dump(fx.UNMET_NEEDS) + [
-    {"id": f"need_{k:03d}", "employee_id": e, "dept_id": emp_dept[e], "summary": t, "capability_tag": tag,
-     "created_at": NOW - timedelta(days=d)} for k, (e, t, tag, d) in enumerate(more_needs, start=3)])
-
 # ── 처리 요청 · 절감 · 감사 ──
 # plan_000: 지난달 신규 입사자 좌석 배정(실행 완료). 절감 기록 sav_001은 실행된 조치안에만 붙는다
 plans = [{"id": "plan_000", "type": "seat_assign", "risk_level": "low", "status": "executed",

@@ -97,9 +97,6 @@ from schemas.rest import (
     TaskCreate,
     TaskUpdate,
     TeamAdoption,
-    UnmetNeedAggregate,
-    UnmetNeedCreate,
-    UnmetNeedCreateResponse,
     UsageResponse,
 )
 
@@ -553,29 +550,6 @@ def estimate(body: TaskCostEstimateRequest, user: Employee = Depends(current_use
     return ok(TaskCostEstimateResponse(model=m, daily=_krw(daily_usd), monthly=_krw(monthly_usd), fx_rate_krw_per_usd=FX, formula=formula))
 
 
-# ---------- F5 ----------
-def _unmet_aggs(tag: str | None = None) -> list[UnmetNeedAggregate]:
-    rs = db.rows("SELECT capability_tag, count(*) AS count, count(DISTINCT dept_id) AS dept_count, (array_agg(summary ORDER BY created_at))[1:3] AS sample_summaries"
-                 " FROM unmet_needs WHERE CAST(:t AS varchar) IS NULL OR capability_tag = :t GROUP BY capability_tag ORDER BY count(*) DESC", t=tag)
-    return [UnmetNeedAggregate(**r, threshold_met=r["count"] >= 3 and r["dept_count"] >= 2) for r in rs]
-
-
-@app.get("/unmet-needs", response_model=Envelope[list[UnmetNeedAggregate]], tags=["F5"])
-def list_unmet(min_count: int = 1, capability_tag: str | None = None, user: Employee = Depends(require(Role.admin))):
-    return ok([a for a in _unmet_aggs(capability_tag) if a.count >= min_count])
-
-
-@app.post("/unmet-needs", response_model=Envelope[UnmetNeedCreateResponse], status_code=201, tags=["F5"])
-def record_unmet(body: UnmetNeedCreate, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
-    from schemas.entities import UnmetNeed
-    with db.tx() as c:
-        r = db.one("INSERT INTO unmet_needs (id, employee_id, dept_id, summary, capability_tag, created_at) VALUES (:id, :e, :d, :s, :t, now())"
-                   " RETURNING id, employee_id, dept_id, summary, capability_tag, status, created_at", c,
-                   id=_new_id("need"), e=user.id, d=user.dept_id, s=body.summary, t=body.capability_tag)
-    agg = _unmet_aggs(body.capability_tag)[0]
-    return ok(UnmetNeedCreateResponse(need=UnmetNeed(**r), same_tag_count=agg.count, same_tag_dept_count=agg.dept_count, threshold_met=agg.threshold_met))
-
-
 # ---------- usage / anomalies (F3) ----------
 SCOPE_COL = {UsageScope.project: "u.project_id", UsageScope.employee: "u.employee_id", UsageScope.contract: "u.contract_id", UsageScope.dept: "p.dept_id"}
 GROUP_COL = {BreakdownBy.model: "coalesce(m.name, u.model_id)", BreakdownBy.api_key: "u.api_key_id", BreakdownBy.input_length: "u.input_length_bucket"}
@@ -1004,7 +978,7 @@ def audit_log(limit: int = 50, offset: int = 0, user: Employee = Depends(require
     return ok(Page(items=[AuditEntry(**r) for r in rs], total=total, limit=limit, offset=offset))
 
 
-JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "aggregate_unmet_needs", "send_suggestions"}
+JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "send_suggestions"}
 WEEKLY_CAP = 2  # 알림 정책: 팀당 주 2건
 
 
@@ -1087,8 +1061,6 @@ def run_job(job_name: str, now: datetime | None = Query(None, description="시�
         result = _job_check_thresholds(now)
     elif job_name == "send_suggestions":
         result = _job_send_suggestions(now)
-    elif job_name == "aggregate_unmet_needs":
-        result = {"aggregates": [a.model_dump() for a in _unmet_aggs()]}
     else:  # 수집 배치는 mock_vendor가 생기면 연결한다
         result = {"stub": True, "reason": "mock_vendor 미구현. 시드 데이터로 대신함"}
     with db.tx() as c:

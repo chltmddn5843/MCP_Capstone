@@ -190,17 +190,6 @@ async def test_f4_high_risk_is_decided_by_admin(monkeypatch):
     assert plan["risk_level"] == "high" and plan["approvers_required"] == ["admin"]
 
 
-# ---------- F5 미충족 수요 ----------
-
-async def test_f5_unmet_need_threshold(monkeypatch):
-    async with connect(mcp, monkeypatch, "admin") as c:
-        recorded = (await c.call_tool("record_unmet_need", {"summary": "규정집 두 버전 비교",
-                                                            "capability_tag": "contract_compare"})).structured_content
-        listed = (await c.call_tool("list_unmet_needs", {"capability_tag": "contract_compare"})).structured_content
-    assert recorded["same_tag_count"] >= 3 and recorded["threshold_met"]
-    assert listed["aggregates"][0]["threshold_met"]
-
-
 # ---------- Resource · Prompt ----------
 
 async def test_resources_and_prompts_match_spec(monkeypatch):
@@ -240,7 +229,6 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
 @pytest.mark.parametrize("name, args, principle", [
     ("investigate_anomaly", {"anomaly_id": "anm_001"}, "원인을 단정하지 말고"),
     ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
-    ("compare_candidates", {"capability_tag": "contract_compare"}, "문서에 없는 성능·가격은 쓰지 않는다"),
     ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
     ("recommend_model", {"task_description": "문의 분류"}, "현재 모델도 estimate_task_cost로 계산"),

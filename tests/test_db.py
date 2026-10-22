@@ -122,7 +122,6 @@ def test_assign_revalidates_before_execute():
 
 
 SEED_CHECKS = {  # 시드 일관성: 모두 0건이어야 한다
-    "need 부서 ≠ 직원 부서": "SELECT count(*) AS n FROM unmet_needs n JOIN employees e ON e.id = n.employee_id WHERE n.dept_id <> e.dept_id",
     "휴직자 좌석에 on_leave 표시 없음": "SELECT count(*) AS n FROM seat_assignments s JOIN employees e ON e.id = s.employee_id"
                               " WHERE e.status <> 'active' AND s.status = 'assigned' AND s.flag IS DISTINCT FROM 'on_leave'",
     "배정일 < 입사일": "SELECT count(*) AS n FROM seat_assignments s JOIN employees e ON e.id = s.employee_id WHERE s.assigned_at::date < e.hire_date",

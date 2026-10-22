@@ -17,7 +17,6 @@ CREATE TYPE source_kind AS ENUM ('release_notes', 'pricing', 'docs');
 CREATE TYPE target_type AS ENUM ('employee', 'team', 'all');
 CREATE TYPE suggestion_status AS ENUM ('draft', 'pending_approval', 'sent', 'on_hold');
 CREATE TYPE reaction AS ENUM ('useful', 'irrelevant', 'question');
-CREATE TYPE unmet_need_status AS ENUM ('open', 'under_review', 'closed');
 CREATE TYPE environment AS ENUM ('test', 'prod');
 CREATE TYPE seat_status AS ENUM ('assigned', 'unassigned');
 CREATE TYPE license_flag AS ENUM ('unused', 'on_leave', 'no_record', 'recent_hire');
@@ -261,7 +260,7 @@ CREATE TABLE anomalies (
 );
 CREATE INDEX ON anomalies (scope_type, scope_id, rule, created_at);
 
--- F4 이용권 · F5 미지원 요청
+-- F4 이용권
 CREATE TABLE seat_assignments (
   id varchar PRIMARY KEY,
   contract_id varchar NOT NULL REFERENCES contracts(id),
@@ -274,17 +273,6 @@ CREATE TABLE seat_assignments (
 );
 -- 한 직원은 한 계약에 배정 좌석 하나
 CREATE UNIQUE INDEX seat_one_active ON seat_assignments (contract_id, employee_id) WHERE status = 'assigned';
-
-CREATE TABLE unmet_needs (
-  id varchar PRIMARY KEY,
-  employee_id varchar NOT NULL REFERENCES employees(id),
-  dept_id varchar NOT NULL REFERENCES departments(id),
-  summary text NOT NULL,
-  capability_tag varchar NOT NULL,
-  status unmet_need_status NOT NULL DEFAULT 'open',
-  created_at timestamptz NOT NULL
-);
-CREATE INDEX ON unmet_needs (capability_tag);
 
 -- 처리 요청 · 절감 · 감사
 CREATE TABLE action_plans (

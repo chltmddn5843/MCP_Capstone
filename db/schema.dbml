@@ -64,11 +64,6 @@ Enum reaction {
   irrelevant
   question
 }
-Enum unmet_need_status {
-  open
-  under_review
-  closed
-}
 Enum environment {
   test
   prod
@@ -353,7 +348,7 @@ Table anomalies {
   indexes { (scope_type, scope_id, rule, created_at) }
 }
 
-// ───────── F4 이용권 · F5 미지원 요청 ─────────
+// ───────── F4 이용권 ─────────
 Table seat_assignments {
   id varchar [pk]
   contract_id varchar [not null, ref: > contracts.id]
@@ -366,17 +361,6 @@ Table seat_assignments {
   indexes {
     (contract_id, employee_id) [note: "부분 UNIQUE WHERE status = 'assigned' (Alembic에서 생성)"]
   }
-}
-
-Table unmet_needs {
-  id varchar [pk]
-  employee_id varchar [not null, ref: > employees.id]
-  dept_id varchar [not null, ref: > departments.id]
-  summary text [not null]
-  capability_tag varchar [not null]
-  status unmet_need_status [not null, default: 'open']
-  created_at timestamptz [not null]
-  indexes { capability_tag }
 }
 
 // ───────── 처리 요청 · 절감 · 감사 ─────────
@@ -489,7 +473,6 @@ TableGroup f3_usage [color: #fd7e14] {
 }
 TableGroup f4_seat [color: #6f42c1] {
   seat_assignments
-  unmet_needs
 }
 TableGroup plan_audit [color: #dc3545] {
   action_plans

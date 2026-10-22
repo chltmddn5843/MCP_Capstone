@@ -14,7 +14,6 @@ const routes = [
   { path: '/seats', name: 'seats', component: () => import('./views/SeatsView.vue'), meta: { title: '좌석 배치도' } },
   { path: '/cost', name: 'cost', component: () => import('./views/CostView.vue'), meta: { title: '비용·사용량' } },
   { path: '/suggestions', name: 'suggestions', component: () => import('./views/SuggestionsView.vue'), meta: { title: '자동 제안 기록' } },
-  { path: '/needs', name: 'needs', component: () => import('./views/NeedsView.vue'), meta: { title: '미지원 요청·팀 활용' } },
   { path: '/assistant', name: 'assistant', component: () => import('./views/AssistantView.vue'), meta: { title: 'AI 비서' } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]

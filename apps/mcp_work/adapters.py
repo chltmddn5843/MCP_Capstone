@@ -133,18 +133,6 @@ async def request_confirmation(i: M.RequestConfirmationIn) -> dict:
     return {"confirmation_id": c["id"], "due_at": c["due_at"]}
 
 
-# ---------- F5 미충족 수요 ----------
-@adapter("record_unmet_need")
-async def record_unmet_need(i: M.RecordUnmetNeedIn) -> dict:
-    r = await call("POST", "/unmet-needs", json_body=i.model_dump())
-    return {"need_id": r["need"]["id"], "same_tag_count": r["same_tag_count"], "threshold_met": r["threshold_met"]}
-
-
-@adapter("list_unmet_needs")
-async def list_unmet_needs(i: M.ListUnmetNeedsIn) -> dict:
-    return {"aggregates": await call("GET", "/unmet-needs", params=i.model_dump())}
-
-
 # ---------- 조치안 (공통 실행 게이트) ----------
 def _approvers(plan_type: PlanType, risk: RiskLevel) -> list[str]:
     """누가 승인해야 하는지. 백엔드 _decide 규칙(11절)을 에이전트 안내용으로 옮겨 적은 것이다."""

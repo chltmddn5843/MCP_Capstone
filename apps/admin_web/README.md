@@ -20,7 +20,6 @@ npm run build      # dist/
 | `/licenses` | 구독·이용권 | F4 |
 | `/cost` | 비용·사용량 · 급증 알림 · AI 조사 | F3 |
 | `/suggestions` | 자동 제안 기록 | F1 |
-| `/needs` | 미지원 요청 · 팀 활용 | F5 |
 | `/assistant` | **AI 비서에게 묻기** (진행 스트림, 내 요청) | 전체 |
 
 ## 구조
@@ -44,7 +43,6 @@ npm run build      # dist/
 - `GET /projects` — 프로젝트별 비용 표. 지금은 알림 상세에서 아는 프로젝트만 보인다.
 - `GET/PATCH /departments` — 팀별 자동 발송 스위치·Slack 채널. 지금은 읽기 전용 목록.
 - `GET /usage`의 월 단위 집계 — 홈의 월별 추이는 계약 사용량을 주 단위로 묶어 대신한다.
-- 미지원 요청 응답에 부서 이름 — 지금은 부서 수만 있다.
 - `POST /confirmations`의 `plan_id` 선택화 — 지금은 회수 요청을 먼저 만들어 붙인다.
 
 색은 4개만 쓴다: `#111113` · `#f7f8f3` · `#dcef6d` · `#ffffff` (`src/styles.css`의 `:root`).

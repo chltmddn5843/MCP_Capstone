@@ -40,7 +40,7 @@ def friendly(exc) -> str:
 TOOL_LABEL = {
     "get_my_profile": "내 정보와 등록 업무 확인", "list_approved_tools": "승인 제품·플랜 확인", "list_approved_models": "승인 모델·단가 확인",
     "get_eval_results": "모델 품질 평가 조회", "estimate_task_cost": "예상 비용 계산", "get_usage_summary": "사용량 조회",
-    "get_license_inventory": "이용권 현황 조회", "record_unmet_need": "미지원 요청 기록", "create_action_plan": "처리 요청 작성",
+    "get_license_inventory": "이용권 현황 조회", "create_action_plan": "처리 요청 작성",
     "get_plan_status": "처리 요청 상태 확인", "execute_approved_plan": "승인된 요청 처리", "search_vendor_docs": "제품 공식 문서 검색",
     "get_vendor_update": "업데이트 내용 확인", "search_internal_policy": "사내 정책 검색", "get_anomalies": "비용 급증 알림 조회",
     "get_anomaly_detail": "알림 상세 확인", "get_usage_breakdown": "사용량 세부 분석",

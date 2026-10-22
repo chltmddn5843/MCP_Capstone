@@ -191,7 +191,7 @@ function opinionView(p) {
   if (o.asset) lines.push(`자산: ${o.asset.product}${o.asset.purchased != null ? ` ${o.asset.purchased}석 중 배정 ${o.asset.assigned}석, 미배정 ${o.asset.unassigned}석` : ''}${o.asset.seat_price_krw ? ` · 좌석 월 ${Number(o.asset.seat_price_krw).toLocaleString('ko-KR')}원` : ''}${o.asset.note ? ` · ${o.asset.note}` : ''}`)
   return { title: `${RECO[o.recommendation] ?? 'AI 의견'} · ${o.summary}`, body: lines.join('\n'), facts: o.facts ?? [], risks: o.risks ?? [], alternative: o.alternative ?? null, recommendation: o.recommendation }
 }
-const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모', capability_tag: '필요 기능' }
+const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모' }
 export async function getPlans() {
   const page = await get('/plans', { limit: 100 })
   await loadNames()
@@ -245,12 +245,6 @@ export async function getTeamSwitches() {
 }
 export function setTeamSwitch() { return Promise.resolve() }
 
-// GET /unmet-needs
-export async function getUnmetNeeds() {
-  const rows = await get('/unmet-needs')
-  return rows.map((n) => ({ capability: cap(n.capability_tag), count: n.count, depts: Array.from({ length: n.dept_count }, (_, i) => `부서 ${i + 1}`), deptCount: n.dept_count,
-    example: n.sample_summaries[0] ?? '', thresholdMet: n.threshold_met }))
-}
 // GET /adoption/teams
 export async function getTeamAdoption() {
   const rows = await get('/adoption/teams')

@@ -49,11 +49,6 @@ TEMPLATES: dict[str, str] = {
         "request_confirmation으로 사용 의사를 먼저 묻는다. 반납 응답이 있을 때만 회수·재배정하고, 무응답은 회수 사유로 쓰지 않는다. "
         "반납 응답이 확인되면 create_action_plan(seat_reclaim, items=[{{employee_id, contract_id, confirmation_id, "
         "reassign_to_employee_id}}])으로 회수·재배정 조치안을 만든다. 쓸 좌석이 없을 때만 purchase_review를 제안한다."),
-    "compare_candidates": (
-        "미충족 수요 '{capability_tag}'를 해결할 후보를 비교하라. list_unmet_needs로 건수와 부서 수를 확인하고, "
-        "list_approved_tools로 기존 도구로 해결되는지 먼저 본다. 해결되지 않으면 search_vendor_docs(candidates_only=true)로 "
-        "후보 문서를 찾아 비교표를 만들고, 기준을 넘으면 create_action_plan(purchase_review)을 제안한다. "
-        "허용 목록 벤더의 공식 문서만 쓰고, 문서에 없는 성능·가격은 쓰지 않는다. 외부 벤치마크나 일반 웹 검색은 쓰지 않는다."),
 }
 
 

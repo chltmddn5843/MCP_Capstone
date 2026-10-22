@@ -104,11 +104,6 @@ CONFIRMATIONS = {c.id: c for c in [
     Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", answer=ConfirmationAnswer.return_seat, due_at=NOW + timedelta(days=5), answered_at=NOW - timedelta(minutes=15)),
 ]}
 
-UNMET_NEEDS = [
-    UnmetNeed(id="need_001", employee_id="emp_sales_02", dept_id="dept_sales", summary="계약서 두 버전 조항 비교", capability_tag="contract_compare", created_at=NOW - timedelta(days=6)),
-    UnmetNeed(id="need_002", employee_id="emp_mkt_01", dept_id="dept_mkt", summary="협력사 계약서 변경점 확인", capability_tag="contract_compare", created_at=NOW - timedelta(days=2)),
-]
-
 SAVINGS = [SavingsEntry(id="sav_001", plan_id="plan_001", kind=SavingsKind.purchase_avoided, amount_krw=45000 * 2, basis="재배정 1석 × 월 45,000원 × 남은 2개월")]
 
 AUDIT = [AuditEntry(id="aud_001", actor_id="emp_asset_01", actor_role=Role.admin, action="plan.approve", target="plan_001", before={"status": "pending_approval"}, after={"status": "approved"}, created_at=NOW - timedelta(minutes=20))]

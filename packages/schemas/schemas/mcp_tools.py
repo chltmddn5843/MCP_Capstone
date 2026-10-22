@@ -46,7 +46,6 @@ from schemas.rest import (
     RelevantTaskCandidate,
     TaskCostEstimateResponse,
     TeamAdoption,
-    UnmetNeedAggregate,
 )
 
 ALL = [Role.employee, Role.admin, Role.system]
@@ -132,16 +131,6 @@ class GetLicenseInventoryIn(BaseModel):
 
 class GetEmployeeAssetsIn(BaseModel):
     employee_id: str
-
-
-class RecordUnmetNeedIn(BaseModel):
-    summary: str
-    capability_tag: str
-
-
-class ListUnmetNeedsIn(BaseModel):
-    min_count: int | None = None
-    capability_tag: str | None = None
 
 
 class RequestConfirmationIn(BaseModel):
@@ -230,16 +219,6 @@ class AnomaliesOut(BaseModel):
 
 class LicenseInventoryOut(BaseModel):
     contracts: list[ContractInventory]
-
-
-class RecordUnmetNeedOut(BaseModel):
-    need_id: str
-    same_tag_count: int
-    threshold_met: bool
-
-
-class ListUnmetNeedsOut(BaseModel):
-    aggregates: list[UnmetNeedAggregate]
 
 
 class RequestConfirmationOut(BaseModel):
@@ -335,8 +314,6 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_anomaly_detail", "경보 한 건의 상세: 대상 프로젝트(등록 목적, 모델, 예산), 최근 추이, 모델별·입력 길이별 분포.", GetAnomalyDetailIn, AnomalyDetail, [Role.admin, Role.system], backend="GET /anomalies/{id}", features=["F3"]),
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.admin, Role.system], backend="GET /inventory", features=["F4"]),
     ToolSpec("get_employee_assets", "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.", GetEmployeeAssetsIn, MyProfileOut, [Role.admin, Role.system], backend="GET /employees/{id}/assets", features=["F4"]),
-    ToolSpec("record_unmet_need", "승인 제품으로 할 수 없는 요청(미지원 요청)을 기록한다.", RecordUnmetNeedIn, RecordUnmetNeedOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /unmet-needs", features=["F5"]),
-    ToolSpec("list_unmet_needs", "미지원 요청을 기능 태그별로 집계한다.", ListUnmetNeedsIn, ListUnmetNeedsOut, [Role.admin, Role.system], backend="GET /unmet-needs", features=["F5"]),
     ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.admin], read_only=False, backend="POST /confirmations", features=["F4"]),
     ToolSpec("create_action_plan", "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어가고(status=pending_approval), 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
     ToolSpec("get_plan_status", "조치안 상태, 승인자, 결과.", GetPlanStatusIn, PlanStatusOut, ALL, backend="GET /plans/{id}", features=["common"]),
@@ -368,7 +345,6 @@ PROMPTS: dict[str, list[str]] = {
     "investigate_anomaly": ["anomaly_id"],
     "review_seat_request": ["plan_id"],
     "review_plan": ["plan_id"],
-    "compare_candidates": ["capability_tag"],
 }
 
 

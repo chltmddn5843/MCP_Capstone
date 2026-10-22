@@ -31,7 +31,6 @@ from schemas.common import (
     TargetType,
     TaskSource,
     ToolApprovalStatus,
-    UnmetNeedStatus,
 )
 
 
@@ -156,16 +155,6 @@ class EvalResult(Base):
     avg_output_tokens: int
     latency_ms: int
     evaluated_at: datetime
-
-
-class UnmetNeed(Base):
-    id: str
-    employee_id: str
-    dept_id: str
-    summary: str
-    capability_tag: str
-    status: UnmetNeedStatus = UnmetNeedStatus.open
-    created_at: datetime
 
 
 class Project(Base):
