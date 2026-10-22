@@ -1,6 +1,6 @@
 """작업 저장소, 진행 이벤트 버스, 그래프 실행기.
 
-- TaskStore: SQLite에 Task JSON을 저장한다 (서버가 재시작돼도 작업 이력과 thread_id가 남는다).
+- TaskStore: PostgreSQL agent.tasks에 Task JSON을 저장한다 (서버가 재시작돼도 작업 이력과 thread_id가 남는다).
 - EventBus: 작업별 이벤트 이력 + 대기자 깨우기. SSE는 이력을 먼저 재생하고 새 이벤트를 기다린다.
 - Runner: graph.astream으로 실행하면서 TOKEN·TOOL_START·TOOL_END·APPROVAL_REQUIRED·DONE·FAILED를 발행한다.
 """
@@ -11,12 +11,13 @@ import asyncio
 import json
 import logging
 import os
-import sqlite3
 import uuid
 from datetime import UTC, datetime
 
+import psycopg
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import Command
+from psycopg.types.json import Jsonb
 
 from apps.agent_runtime.graph import RUNTIMES, Runtime
 from apps.agent_runtime.harness.instructions import build_system_prompt
@@ -36,29 +37,31 @@ def _now() -> datetime:
 
 
 class TaskStore:
-    def __init__(self, path: str):
-        self.conn = sqlite3.connect(path, check_same_thread=False)
-        self.conn.execute("CREATE TABLE IF NOT EXISTS tasks (task_id TEXT PRIMARY KEY, requester_id TEXT, created_at TEXT, body TEXT)")
-        self.conn.commit()
+    """agent.tasks (PostgreSQL). body는 Task JSON 전체라 DBeaver에서 body->>'status' 처럼 바로 조회할 수 있다."""
+
+    def __init__(self, url: str):
+        self.conn = psycopg.connect(url, autocommit=True)  # ponytail: 연결 1개를 공유(psycopg 내부 잠금). 동시 요청이 많아지면 psycopg_pool로
+        self.conn.execute("CREATE SCHEMA IF NOT EXISTS agent")
+        self.conn.execute("CREATE TABLE IF NOT EXISTS agent.tasks (task_id TEXT PRIMARY KEY, requester_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, body JSONB NOT NULL)")
 
     def save(self, t: Task) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?)", (t.task_id, t.requester_id, t.created_at.isoformat(), t.model_dump_json()))
-        self.conn.commit()
+        self.conn.execute("INSERT INTO agent.tasks VALUES (%s,%s,%s,%s) ON CONFLICT (task_id) DO UPDATE SET body = EXCLUDED.body",
+                          (t.task_id, t.requester_id, t.created_at, Jsonb(t.model_dump(mode="json"))))
 
     @staticmethod
-    def _parse(body: str) -> Task | None:
+    def _parse(body: dict) -> Task | None:
         try:
-            return Task.model_validate_json(body)
+            return Task.model_validate(body)
         except Exception as exc:  # noqa: BLE001  — 스키마가 바뀐 옛 행은 건너뛴다 (예: 역할 축소 전 role=asset)
             log.warning("skip unreadable task row: %s", str(exc)[:120])
             return None
 
     def get(self, task_id: str) -> Task | None:
-        row = self.conn.execute("SELECT body FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        row = self.conn.execute("SELECT body FROM agent.tasks WHERE task_id=%s", (task_id,)).fetchone()
         return self._parse(row[0]) if row else None
 
     def list(self, requester_id: str | None = None, limit: int = 50) -> list[Task]:
-        q = "SELECT body FROM tasks" + (" WHERE requester_id=?" if requester_id else "") + " ORDER BY created_at DESC LIMIT ?"
+        q = "SELECT body FROM agent.tasks" + (" WHERE requester_id=%s" if requester_id else "") + " ORDER BY created_at DESC LIMIT %s"
         args = (requester_id, limit) if requester_id else (limit,)
         return [t for t in (self._parse(r[0]) for r in self.conn.execute(q, args)) if t is not None]
 

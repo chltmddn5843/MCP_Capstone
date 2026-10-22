@@ -12,8 +12,8 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 MCP_WORK_URL = os.getenv("MCP_WORK_URL", "")  # 비어 있으면 로컬 REST 모드
 MCP_DOCS_URL = os.getenv("MCP_DOCS_URL", "")
 
-LLM_MODEL = os.getenv("LLM_MODEL", "anthropic:claude-sonnet-5-5")  # models.id 키 그대로. anthropic:claude-opus-5-5, xai:grok-4.7, fake
-LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "")  # 예: anthropic:claude-haiku-5-5
+LLM_MODEL = os.getenv("LLM_MODEL", "openai:gpt-5.4-mini")  # "공급사:API 모델명". openai:gpt-5.4-nano, xai:grok-4.7, fake
+LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "")  # 예: openai:gpt-5.4-nano
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 
 # Agent Loop 한도
@@ -25,8 +25,8 @@ MAX_SAME_TOOL = int(os.getenv("AGENT_MAX_SAME_TOOL", "3"))
 CONTEXT_TOKEN_BUDGET = int(os.getenv("AGENT_CONTEXT_TOKENS", "24000"))
 TOOL_RESULT_MAX_CHARS = int(os.getenv("AGENT_TOOL_RESULT_MAX_CHARS", "4000"))
 
-# State
-CHECKPOINT_DB = os.getenv("AGENT_CHECKPOINT_DB", "./db/agent_checkpoints.db")
-TASK_DB = os.getenv("AGENT_TASK_DB", "./db/agent_tasks.db")
+# State: 백엔드와 같은 PostgreSQL, 스키마 agent (checkpoint 테이블 + tasks). docs/아키텍처.md 6절
+AGENT_DB_URL = os.getenv("DATABASE_URL", "postgresql://capstone:capstone@localhost:5432/capstone").replace("+psycopg", "", 1)
+AGENT_DB_URL += ("&" if "?" in AGENT_DB_URL else "?") + "options=-csearch_path%3Dagent"
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")

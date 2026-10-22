@@ -5,8 +5,6 @@ import os
 import time
 
 os.environ["LLM_MODEL"] = "fake"
-os.environ["AGENT_CHECKPOINT_DB"] = ":memory:"
-os.environ["AGENT_TASK_DB"] = ":memory:"
 os.environ["MCP_WORK_URL"] = ""
 
 import httpx  # noqa: E402

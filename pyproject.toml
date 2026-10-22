@@ -16,7 +16,7 @@ dependencies = [
     "langchain>=1.4",
     "langchain-anthropic>=1.7",
     "langchain-openai>=1.7",
-    "langgraph-checkpoint-sqlite>=3.1",
+    "langgraph-checkpoint-postgres>=3.0",
     # MCP 서버·클라이언트 (mcp 2.x). langchain-mcp-adapters는 mcp 1.x 전용이라 쓰지 않는다
     "fastmcp>=4.1,<5",
     # 접점
