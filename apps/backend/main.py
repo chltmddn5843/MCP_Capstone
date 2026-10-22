@@ -163,7 +163,7 @@ def _setup_status() -> SetupStatus:
                " (SELECT count(*) FROM contracts) AS contracts, (SELECT count(*) FROM models WHERE approved) AS models,"
                " (SELECT count(*) FROM projects) AS projects, (SELECT count(*) FROM budgets WHERE fiscal_year = :y) AS budgets,"
                " (SELECT count(*) FROM employees WHERE role = 'admin' AND password_hash IS NOT NULL) AS admins", y=_this_year())
-    return SetupStatus(company_name=c and c["name"], has_admin=n.pop("admins") > 0, setup_completed=bool(c and c["setup_completed_at"]), steps=n)
+    return SetupStatus(company_name=c and c["name"], has_admin=n.pop("admins") > 0, setup_completed=bool(c and c["setup_completed_at"]), steps=n, dev_login=APP_ENV != "prod")
 
 
 @app.get("/setup/status", response_model=Envelope[SetupStatus], tags=["setup"])

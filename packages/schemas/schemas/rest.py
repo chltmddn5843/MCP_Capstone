@@ -228,6 +228,7 @@ class SetupStatus(BaseModel):
     has_admin: bool
     setup_completed: bool
     steps: dict[str, int]  # departments·employees·contracts·models·projects·budgets 건수
+    dev_login: bool = False  # APP_ENV가 prod가 아니면 true. 로그인 화면이 '시연 계정' 버튼을 보일지 정한다
 
 
 class SignupRequest(BaseModel):

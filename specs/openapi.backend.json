@@ -8952,6 +8952,11 @@
             },
             "type": "object",
             "title": "Steps"
+          },
+          "dev_login": {
+            "type": "boolean",
+            "title": "Dev Login",
+            "default": false
           }
         },
         "type": "object",

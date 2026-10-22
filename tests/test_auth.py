@@ -67,3 +67,10 @@ def test_prod_blocks_dev_paths_but_slack_exchange_works(monkeypatch):
     assert by_slack == "emp_mkt_01"  # 매핑이 없으면 직원의 slack_user_id로 찾는다
     assert client.post("/auth/slack-exchange", json={"slack_user_id": "U_NONE"}, headers=sys_jwt).status_code == 404
     assert client.post("/auth/slack-exchange", json={"slack_user_id": "U_MKT01"}, headers=emp_jwt).status_code == 403  # 시스템 계정만
+
+
+def test_setup_status_tells_ui_whether_dev_login_is_open(monkeypatch):
+    from apps.backend import main
+    assert client.get("/setup/status").json()["data"]["dev_login"] is True
+    monkeypatch.setattr(main, "APP_ENV", "prod")
+    assert client.get("/setup/status").json()["data"]["dev_login"] is False
