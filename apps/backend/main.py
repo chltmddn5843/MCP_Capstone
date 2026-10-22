@@ -7,10 +7,14 @@ B(백엔드)는 이 파일의 라우트 시그니처와 response_model을 유지
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import Depends, FastAPI, Header, Query
+import httpx
+from fastapi import Depends, FastAPI, Header, Query, Request
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from apps.backend import db
 from apps.backend.auth import APP_ENV, authenticate, current_user, get_employee, hash_password, issue_token, require
@@ -1102,3 +1106,32 @@ def notify_outbox_delivered(outbox_id: str, user: Employee = Depends(require(Rol
     if not r:
         raise ApiError(ErrorCode.not_found, "발송함 항목 없음")
     return ok(r)
+
+
+# ---------- AI 작업 중계 (docs/아키텍처.md 5-3) ----------
+AGENT_URL = os.getenv("AGENT_URL", "http://localhost:8002")
+AGENT_TRANSPORT: httpx.AsyncBaseTransport | None = None  # 테스트가 가짜 에이전트를 끼운다
+
+
+async def _relay(request: Request) -> StreamingResponse:
+    """/ai/tasks* 를 에이전트로 그대로 넘긴다(SSE 포함). 화면은 에이전트 주소를 모른다. 계약은 specs/openapi.agent.json."""
+    client = httpx.AsyncClient(base_url=AGENT_URL, transport=AGENT_TRANSPORT, timeout=httpx.Timeout(10, read=60))  # SSE keep-alive는 15초마다
+    headers = {k: v for k in ("authorization", "content-type", "x-trace-id") if (v := request.headers.get(k))}
+    req = client.build_request(request.method, request.url.path, params=request.query_params, headers=headers, content=await request.body())
+    try:
+        r = await client.send(req, stream=True)
+    except httpx.TransportError as e:
+        await client.aclose()
+        raise ApiError(ErrorCode.agent_unavailable, f"AI 비서 서버에 연결할 수 없습니다 ({type(e).__name__})")
+
+    async def close():
+        await r.aclose()
+        await client.aclose()
+
+    passthrough = {k: v for k in ("cache-control", "x-accel-buffering") if (v := r.headers.get(k))}
+    return StreamingResponse(r.aiter_bytes(), r.status_code, passthrough, r.headers.get("content-type"), BackgroundTask(close))
+
+
+for _method, _path in [("POST", "/ai/tasks"), ("GET", "/ai/tasks"), ("GET", "/ai/tasks/{task_id}"),
+                       ("GET", "/ai/tasks/{task_id}/stream"), ("POST", "/ai/tasks/{task_id}/approval")]:
+    app.add_api_route(_path, _relay, methods=[_method], dependencies=[Depends(current_user)], tags=["ai"])

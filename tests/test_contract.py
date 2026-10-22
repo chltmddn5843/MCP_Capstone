@@ -182,7 +182,7 @@ def test_mcp_registry_roles_and_schemas():
         t.output_model.model_json_schema()
 
 
-@pytest.mark.parametrize("method,path", [(m, p) for m, p, _, _ in ROUTES if "{" not in p and m == "GET" and p not in ("/usage", "/eval-results")])
+@pytest.mark.parametrize("method,path", [(m, p) for m, p, _, _ in ROUTES if "{" not in p and m == "GET" and not p.startswith("/ai/") and p not in ("/usage", "/eval-results")])
 def test_every_simple_get_responds_in_envelope(method, path):
     r = client.get(path, headers=SYS if path not in ("/adoption/teams", "/me/tasks", "/savings", "/audit-log", "/unmet-needs") else ASSET)
     assert r.status_code in (200, 403), (path, r.text)

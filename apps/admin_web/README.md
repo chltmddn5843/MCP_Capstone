@@ -28,7 +28,7 @@ npm run build      # dist/
 - `src/api.js` — 화면별 데이터 함수. 함수 이름·반환 모양은 목업 시절과 같다.
 - `src/components/TaskStream.vue` — 에이전트 진행 이벤트(TOKEN·TOOL_START/END·APPROVAL_REQUIRED·DONE·FAILED) 표시.
 - `src/components/TaskApprovals.vue` — 변경 도구 앞에서 멈춘 작업 확인·거절 → 이어서 처리.
-- 프록시: 개발은 `vite.config.js`, 운영은 `nginx.conf.template`. `/api/ai/*`는 백엔드 중계가 생기기 전까지만 에이전트로 간다.
+- 프록시: 개발은 `vite.config.js`, 운영은 `nginx.conf.template`. `/api/*` 전부 백엔드로 간다(AI 비서는 백엔드가 에이전트로 중계).
 
 ## 배포 (compose)
 ```yaml
@@ -37,7 +37,6 @@ npm run build      # dist/
     ports: ["80:80"]
     environment:
       BACKEND_UPSTREAM: http://backend:8000
-      AGENT_UPSTREAM: http://agent:8002      # /ai/tasks 중계 전까지만
     depends_on: [backend]
 ```
 

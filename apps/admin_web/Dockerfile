@@ -10,5 +10,5 @@ FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 # nginx 이미지는 /etc/nginx/templates/*.template 의 ${VAR}를 환경변수로 치환해 conf.d에 놓는다.
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
-ENV BACKEND_UPSTREAM=http://backend:8000 AGENT_UPSTREAM=http://agent:8002
+ENV BACKEND_UPSTREAM=http://backend:8000
 EXPOSE 80
