@@ -20,7 +20,7 @@ from schemas.entities import Employee
 
 PREFIX = "dev."
 APP_ENV = os.getenv("APP_ENV", "dev")
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-secret-change-me-in-env-0123456789")
+JWT_SECRET = os.getenv("JWT_SECRET") or "dev-only-secret-change-me-in-env-0123456789"  # .env에 빈 값(JWT_SECRET=)이어도 기본값
 TOKEN_TTL = timedelta(minutes=int(os.getenv("JWT_TTL_MINUTES", "60")))
 if APP_ENV == "prod" and JWT_SECRET.startswith("dev-only"):
     raise RuntimeError("APP_ENV=prod에서는 JWT_SECRET을 반드시 설정하세요")

@@ -54,7 +54,7 @@ flowchart TD
 - **도구 선택**: 모델이 역할별 도구 목록에서 고른다. 서버가 역할에 맞지 않는 도구를 숨기므로 권한 밖 호출은 아예 보이지 않는다.
 - **근거 기반 답변**: 모든 도구 결과가 `evidence`에 쌓이고, 답 끝에 "근거:" 줄로 인용한다.
 - **승인 게이트(HITL)**: 변경 도구는 실행 전에 멈추고, 승인자가 결정해야 이어진다. 에이전트는 실행 내용을 바꾸지 못하고 plan_id만 넘긴다.
-- **상태 저장·재개**: thread_id 단위 checkpointer(SQLite). 승인 대기 중 서버가 살아 있으면 그대로 재개하고, 같은 thread_id로 대화를 이어갈 수 있다.
+- **상태 저장·재개**: thread_id 단위 checkpointer(PostgreSQL `agent` 스키마). 승인 대기 중 서버가 살아 있으면 그대로 재개하고, 같은 thread_id로 대화를 이어갈 수 있다.
 - **역할 프로필**: Instructions(`prompts/role_*.md`)와 도구 집합이 역할마다 다르다.
 
 ## 4. Harness 8요소 매핑
@@ -65,7 +65,7 @@ flowchart TD
 | Tools | `harness/tools.py` | MCP Client(FastMCP Client, Streamable HTTP) 또는 로컬 REST. 결과 4,000자 제한, 오류는 ToolMessage |
 | Agent Loop | `graph.py` `check_limits` | 최대 8턴, 120초, 같은 도구 3회 |
 | Context | `harness/context.py` | 토큰 예산 24k. 넘으면 오래된 대화를 자른다 (system·마지막 human 유지) |
-| State·Memory | `AsyncSqliteSaver`, `tasks.TaskStore` | thread_id 단위 저장, 승인 대기 후 그대로 재개, 작업 이력 SQLite |
+| State·Memory | `AsyncPostgresSaver`, `tasks.TaskStore` | thread_id 단위 저장, 승인 대기 후 그대로 재개, 작업 이력 `agent.tasks` (PostgreSQL) |
 | Guardrails | `harness/guardrails.py`, `approval_gate`, `finalize` | destructiveHint 도구는 interrupt. 도구 결과의 이메일·전화번호 마스킹. 직원·Slack 채널 답변은 출력 필터로 도구 이름·식별자·오류 코드·근거 줄 제거 (참고 데이터는 evidence에 유지) |
 | Recovery | `harness/recovery.py` | 429·503 등 일시 오류 2회 재시도, 계속 실패하면 LLM_FALLBACK_MODEL, 그래도 실패면 FAILED |
 | Observability | `harness/observability.py` | trace_id 하나로 Node·도구·토큰·지연 JSON 로그. LANGSMITH_TRACING=true면 LangSmith trace |
@@ -87,7 +87,7 @@ API는 `schemas/agent.py` 머리말과 같다. SSE는 `?after=<seq>`로 이어 �
 
 | 설정 | 뜻 |
 | --- | --- |
-| `LLM_MODEL=anthropic:claude-sonnet-5-5` | 기본. 값은 DB `models.id`와 같은 키다. `anthropic:claude-opus-5-5`, `xai:grok-4.7` 등으로 바꿀 수 있다 |
+| `LLM_MODEL=openai:gpt-5.4-mini` | 기본. `공급사:API 모델명` 형식이다. `openai:gpt-5.4-nano`, `xai:grok-4.7` 등으로 바꿀 수 있다 |
 | `LLM_MODEL=fake` | 키 없이 그래프를 돌리는 스크립트 모델 (테스트·배선 확인용) |
 | `MCP_WORK_URL` 비어 있음 | 로컬 모드: 백엔드 REST 직접 호출. 도구 이름·입출력은 MCP와 같다 |
 | `MCP_WORK_URL=http://localhost:8010/mcp` | MCP 모드: tools/list를 받아 쓴다 (최종 목표) |

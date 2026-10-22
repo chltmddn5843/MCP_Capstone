@@ -25,6 +25,8 @@ def reset_db() -> None:
 
 try:
     reset_db()
+    with db.engine.begin() as c:  # 에이전트 작업 이력·checkpoint(agent 스키마)는 세션 시작 때 한 번 비운다. 에이전트 앱이 다시 만든다
+        c.exec_driver_sql("DROP SCHEMA IF EXISTS agent CASCADE")
 except OperationalError as e:
     sys.exit(f"PostgreSQL에 연결할 수 없습니다 ({db.DATABASE_URL}). `docker compose up -d postgres` 후 다시 실행하세요.\n{e}")
 

@@ -6,17 +6,16 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, Header, Query
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sse_starlette.sse import EventSourceResponse
 
 from apps.agent_runtime import harness
-from apps.agent_runtime.config import CHECKPOINT_DB, TASK_DB
+from apps.agent_runtime.config import AGENT_DB_URL
 from apps.agent_runtime.graph import build_graph
 from apps.agent_runtime.tasks import EventBus, Runner, TaskStore
 from apps.backend.errors import ApiError, install_error_handlers, ok
@@ -52,9 +51,10 @@ def _token(authorization: str = Header()) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    os.makedirs(os.path.dirname(TASK_DB) or ".", exist_ok=True)
-    async with AsyncSqliteSaver.from_conn_string(CHECKPOINT_DB) as saver:
-        app.state.runner = Runner(build_graph(saver), TaskStore(TASK_DB), EventBus())
+    store = TaskStore(AGENT_DB_URL)  # agent 스키마를 먼저 만든다. checkpoint 테이블은 setup()이 search_path(agent)에 만든다
+    async with AsyncPostgresSaver.from_conn_string(AGENT_DB_URL) as saver:
+        await saver.setup()
+        app.state.runner = Runner(build_graph(saver), store, EventBus())
         yield
 
 
