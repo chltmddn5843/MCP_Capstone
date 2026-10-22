@@ -81,15 +81,15 @@ async def test_request_confirmation_creates_with_due_date(monkeypatch):
 
 async def test_f1_relevant_tasks_and_suggestion(monkeypatch):
     async with connect(mcp, monkeypatch, "system") as c:
-        found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_ai_a_doc_compare"})).structured_content
+        found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_chatgpt_doc_compare"})).structured_content
         assert found["update"]["affected_plans"] == ["Enterprise"]
         assert all(cand["employee_id"] for cand in found["candidates"])
-        blank = await c.call_tool("save_suggestion", {"update_id": "upd_ai_a_doc_compare", "target_type": "employee",
+        blank = await c.call_tool("save_suggestion", {"update_id": "upd_chatgpt_doc_compare", "target_type": "employee",
                                                       "target_id": "emp_hrd_01", "relevance": " ", "body": "x"},
                                   raise_on_error=False)
         assert error_of(blank)["code"] == "invalid"
         saved = (await c.call_tool("save_suggestion", {
-            "update_id": "upd_ai_a_doc_compare", "target_type": "employee", "target_id": "emp_hrd_01",
+            "update_id": "upd_chatgpt_doc_compare", "target_type": "employee", "target_id": "emp_hrd_01",
             "task_id": "task_hrd_survey", "relevance": "등록 업무가 여러 설문 파일 비교를 필요로 함",
             "body": "등록하신 '교육 과정별 설문 결과 비교' 업무에 쓸 수 있는 기능이 추가됐어요."})).structured_content
     assert saved["status"] == "draft"
@@ -97,7 +97,7 @@ async def test_f1_relevant_tasks_and_suggestion(monkeypatch):
 
 async def test_f1_admin_sees_team_level_only(monkeypatch):
     async with connect(mcp, monkeypatch, "admin") as c:
-        found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_ai_a_doc_compare"})).structured_content
+        found = (await c.call_tool("find_relevant_tasks", {"update_id": "upd_chatgpt_doc_compare"})).structured_content
         adoption = (await c.call_tool("get_team_adoption", {"period": PERIOD})).structured_content
     assert all(cand["employee_id"] is None for cand in found["candidates"])
     assert {t["team_id"] for t in adoption["teams"]} == {"dept_mkt", "dept_cs", "dept_md"}  # 제안 반응이 있는 팀만
@@ -164,7 +164,7 @@ async def test_f4_plan_lifecycle(monkeypatch):
         assert "no_record" in flags                                    # 기록 없음은 확인 필요
 
         plan = (await c.call_tool("create_action_plan", {
-            "type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026"}],
+            "type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_chatgpt_2026"}],
             "rationale": "휴직 중, 본인 확인 응답: 반납",
             "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]})).structured_content
         assert plan["status"] == "pending_approval" and plan["approvers_required"] == ["admin"]
@@ -185,7 +185,7 @@ async def test_f4_plan_lifecycle(monkeypatch):
 
 async def test_f4_high_risk_is_decided_by_admin(monkeypatch):
     async with connect(mcp, monkeypatch, "asset") as c:
-        plan = (await c.call_tool("create_action_plan", {"type": "purchase_review", "items": [{"tool_id": "tool_cand_x"}],
+        plan = (await c.call_tool("create_action_plan", {"type": "purchase_review", "items": [{"tool_id": "tool_grok"}],
                                                          "rationale": "계약서 비교 수요 3건", "evidence": []})).structured_content
     assert plan["risk_level"] == "high" and plan["approvers_required"] == ["admin"]
 
@@ -208,7 +208,7 @@ async def test_resources_and_prompts_match_spec(monkeypatch):
         uris = {str(r.uri) for r in await c.list_resources()} | {t.uri_template for t in await c.list_resource_templates()}
         prompts = {p.name: [a.name for a in p.arguments] for p in await c.list_prompts()}
         policy = (await c.read_resource("policy://ai-usage"))[0].text
-        contract = (await c.read_resource("contract://ctr_ai_a_2026/summary"))[0].text
+        contract = (await c.read_resource("contract://ctr_chatgpt_2026/summary"))[0].text
         matrix = (await c.read_resource("policy://approval-matrix"))[0].text
         rendered = await c.get_prompt("investigate_anomaly", {"anomaly_id": "anm_001"})
     assert uris == set(RESOURCES)
@@ -241,7 +241,7 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
     ("investigate_anomaly", {"anomaly_id": "anm_001"}, "원인을 단정하지 말고"),
     ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
     ("compare_candidates", {"capability_tag": "contract_compare"}, "문서에 없는 성능·가격은 쓰지 않는다"),
-    ("review_update", {"update_id": "upd_ai_a_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
+    ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
     ("recommend_model", {"task_description": "문의 분류"}, "현재 모델도 estimate_task_cost로 계산"),
     ("investigate_anomaly", {"anomaly_id": "anm_001"}, "get_anomaly_detail로 대상 프로젝트의 등록 목적"),

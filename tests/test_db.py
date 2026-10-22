@@ -10,7 +10,7 @@ ADMIN = {"Authorization": "Bearer dev.emp_asset_01"}
 
 
 def unassigned() -> int:
-    inv = client.get("/inventory", params={"contract_id": "ctr_ai_a_2026"}, headers=ADMIN).json()["data"][0]
+    inv = client.get("/inventory", params={"contract_id": "ctr_chatgpt_2026"}, headers=ADMIN).json()["data"][0]
     return inv["unassigned"]
 
 
@@ -38,7 +38,7 @@ NIGHT = "2026-10-20T12:00:00Z"       # 월요일 21:00 KST
 
 
 def team_suggestion(dept: str) -> str:
-    body = {"update_id": "upd_ai_a_doc_compare", "target_type": "team", "target_id": dept, "relevance": "근거", "body": "제안"}
+    body = {"update_id": "upd_chatgpt_doc_compare", "target_type": "team", "target_id": dept, "relevance": "근거", "body": "제안"}
     return client.post("/suggestions", json=body, headers=SYS).json()["data"]["id"]
 
 
@@ -87,24 +87,24 @@ def tools_of(emp: str) -> set[str]:
 
 
 def assign(emp: str):
-    return client.post("/plans", headers=ADMIN, json={"type": "seat_assign", "items": [{"employee_id": emp, "contract_id": "ctr_ai_a_2026"}],
+    return client.post("/plans", headers=ADMIN, json={"type": "seat_assign", "items": [{"employee_id": emp, "contract_id": "ctr_chatgpt_2026"}],
                                                       "rationale": "t", "evidence": []})
 
 
 def test_grant_and_revoke_change_usable_tools():
     """부여하면 그 직원의 실제 사용 가능 도구에 생기고, 회수하면 사라진다. API 도구는 팀 프로젝트가 있을 때만."""
-    assert "tool_ai_a" not in tools_of("emp_mkt_01")
-    assert "tool_ai_b" in tools_of("emp_cs_01") and "tool_ai_b" not in tools_of("emp_hrd_01")  # HRD팀은 Claude API 프로젝트가 없다
+    assert "tool_chatgpt" not in tools_of("emp_mkt_01")
+    assert "tool_claude" in tools_of("emp_cs_01") and "tool_claude" not in tools_of("emp_hrd_01")  # HRD팀은 Claude API 프로젝트가 없다
     plan = assign("emp_mkt_01").json()["data"]
     assert plan["status"] == "pending_approval"  # v2.1: 배정도 관리자 승인 뒤 실행
     client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "t"})
     assert client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "as1"}).status_code == 200
-    assert "tool_ai_a" in tools_of("emp_mkt_01")
-    plan = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}],
+    assert "tool_chatgpt" in tools_of("emp_mkt_01")
+    plan = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}],
                                                       "rationale": "t", "evidence": []}).json()["data"]
     client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "t"})
     assert client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "rv1"}).status_code == 200
-    assert "tool_ai_a" not in tools_of("emp_mkt_01")
+    assert "tool_chatgpt" not in tools_of("emp_mkt_01")
 
 
 def test_assign_revalidates_before_execute():
@@ -115,7 +115,7 @@ def test_assign_revalidates_before_execute():
         assert r.status_code == 409 and why in r.json()["error"]["message"]
         assert db.one("SELECT status FROM action_plans WHERE id = :id", id=r.json()["error"]["details"]["plan_id"])["status"] == "failed"
     with db.tx() as c:  # 좌석을 꽉 채운 상태로 만든다 (구매 수 = 배정 수)
-        c.execute(db.text("UPDATE contracts SET seats_purchased = 58 WHERE id = 'ctr_ai_a_2026'"))
+        c.execute(db.text("UPDATE contracts SET seats_purchased = 58 WHERE id = 'ctr_chatgpt_2026'"))
     r = assign("emp_mkt_01")
     assert r.status_code == 409 and "남은 좌석 0석" in r.json()["error"]["message"]
     assert db.one("SELECT count(*) AS n FROM savings_ledger")["n"] == savings

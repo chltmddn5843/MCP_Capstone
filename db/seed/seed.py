@@ -101,19 +101,19 @@ insert("contracts", dump(fx.CONTRACTS.values()) + [
 insert("budgets", [{"fiscal_year": 2026, "category": "seat", "annual_krw": 63_600_000},
                    {"fiscal_year": 2026, "category": "api", "annual_krw": 21_600_000}])
 # 모델 id = "공급사:API 모델명". 에이전트 LLM_MODEL·projects·usage_records·eval_results가 같은 키로 이어진다
-insert("models", [{**m, "tool_id": {"anthropic": "tool_ai_b", "xai": "tool_cand_x"}[m["id"].split(":")[0]]}
+insert("models", [{**m, "tool_id": {"anthropic": "tool_claude", "xai": "tool_grok"}[m["id"].split(":")[0]]}
                   for m in dump(fx.MODELS.values())])
 insert("eval_results", dump(fx.EVAL_RESULTS))
-# 팀별 대표 업무 (F1 관련성 판단 근거). tools_used는 그 사람이 실제로 쓸 수 있는 도구만: ChatGPT 좌석 보유자 tool_ai_a,
+# 팀별 대표 업무 (F1 관련성 판단 근거). tools_used는 그 사람이 실제로 쓸 수 있는 도구만: ChatGPT 좌석 보유자 tool_chatgpt,
 # Claude API는 그 팀 프로젝트가 있을 때(고객지원·영업·경영지원·마케팅·생산관리)
 TEAM_TASKS = {
-    "dept_mgmt": [("월간 비용 보고서 요약", "부서별 SW 비용을 정리해 경영진 보고용 한 장으로 요약", "monthly", ["tool_ai_a", "tool_ai_b"])],
-    "dept_hrd": [("신입 교육 자료 초안", "직무별 온보딩 교안 초안과 퀴즈 작성", "monthly", ["tool_ai_a"])],
-    "dept_mkt": [("경쟁사 보도자료 비교", "경쟁사 보도자료 여러 건을 비교해 메시지 차이 정리", "weekly", ["tool_ai_a", "tool_ai_b"])],
-    "dept_sales": [("견적서 요약 검토", "고객 견적서 PDF 요약 결과를 검토해 영업 메모 작성", "daily", ["tool_ai_a", "tool_ai_b"])],
-    "dept_cs": [("응대 매뉴얼 갱신", "자주 묻는 문의를 모아 응대 매뉴얼 문구 개정", "weekly", ["tool_ai_a", "tool_ai_b"])],
-    "dept_prod": [("생산 일정 변경 공지", "라인별 일정 변경 사항을 공지문으로 정리", "weekly", ["tool_ai_a", "tool_ai_b"])],
-    "dept_md": [("시장조사 자료 정리", "경쟁 제품 가격·사양을 모아 신제품 기획안 표로 정리", "weekly", ["tool_ai_a"])],
+    "dept_mgmt": [("월간 비용 보고서 요약", "부서별 SW 비용을 정리해 경영진 보고용 한 장으로 요약", "monthly", ["tool_chatgpt", "tool_claude"])],
+    "dept_hrd": [("신입 교육 자료 초안", "직무별 온보딩 교안 초안과 퀴즈 작성", "monthly", ["tool_chatgpt"])],
+    "dept_mkt": [("경쟁사 보도자료 비교", "경쟁사 보도자료 여러 건을 비교해 메시지 차이 정리", "weekly", ["tool_chatgpt", "tool_claude"])],
+    "dept_sales": [("견적서 요약 검토", "고객 견적서 PDF 요약 결과를 검토해 영업 메모 작성", "daily", ["tool_chatgpt", "tool_claude"])],
+    "dept_cs": [("응대 매뉴얼 갱신", "자주 묻는 문의를 모아 응대 매뉴얼 문구 개정", "weekly", ["tool_chatgpt", "tool_claude"])],
+    "dept_prod": [("생산 일정 변경 공지", "라인별 일정 변경 사항을 공지문으로 정리", "weekly", ["tool_chatgpt", "tool_claude"])],
+    "dept_md": [("시장조사 자료 정리", "경쟁 제품 가격·사양을 모아 신제품 기획안 표로 정리", "weekly", ["tool_chatgpt"])],
 }
 gen_tasks = []
 for dept, tasks in TEAM_TASKS.items():
@@ -122,15 +122,15 @@ for dept, tasks in TEAM_TASKS.items():
         gen_tasks.append({"id": f"task_{g['id']}", "employee_id": g["id"], "title": title, "description": desc, "frequency": freq,
                           "tools_used": tools, "source": "bot" if k else "manual", "updated_at": NOW - timedelta(days=5 + k * 7)})
 # 페르소나 서진(상품기획·MD 과장): 리뷰 분석 업무를 등록해 두었고, 아래에서 관련 Slack 제안을 받고 피드백한다
-gen_tasks.append({"id": "task_md_review", "employee_id": "emp_md_01", "title": "신제품 고객 리뷰 분석", "frequency": "weekly", "tools_used": ["tool_ai_a"],
+gen_tasks.append({"id": "task_md_review", "employee_id": "emp_md_01", "title": "신제품 고객 리뷰 분석", "frequency": "weekly", "tools_used": ["tool_chatgpt"],
                   "description": "온라인몰·SNS 리뷰 파일 여러 개를 모아 불만·요청을 분류하고 신제품 기획 보고서에 반영", "source": "manual",
                   "updated_at": NOW - timedelta(days=4)})
 insert("registered_tasks", dump(fx.TASKS.values()) + gen_tasks)
 
 # ── F1 ──
 insert("vendor_sources", [
-    {"id": "src_ai_a_rn", "vendor": "OpenAI", "url": "https://openai.com/business/chatgpt-pricing/", "kind": "release_notes"},
-    {"id": "src_ai_b_rn", "vendor": "Anthropic", "url": "https://platform.claude.com/docs/en/about-claude/pricing", "kind": "pricing"},
+    {"id": "src_chatgpt_rn", "vendor": "OpenAI", "url": "https://openai.com/business/chatgpt-pricing/", "kind": "release_notes"},
+    {"id": "src_claude_rn", "vendor": "Anthropic", "url": "https://platform.claude.com/docs/en/about-claude/pricing", "kind": "pricing"},
     {"id": "src_x_docs", "vendor": "xAI", "url": "https://docs.x.ai/developers/models", "kind": "docs", "is_candidate": True}])
 insert("vendor_updates", dump(fx.UPDATES.values()))
 sugs = []
@@ -138,14 +138,14 @@ for s in dump(fx.SUGGESTIONS.values()):
     tid = s.pop("target_id")
     s["target_employee_id" if s["target_type"] == fx.TargetType.employee else "target_dept_id"] = tid
     sugs.append(s)
-sugs.append({"id": "sug_002", "update_id": "upd_ai_a_doc_compare", "target_type": "team", "target_dept_id": "dept_prod",
+sugs.append({"id": "sug_002", "update_id": "upd_chatgpt_doc_compare", "target_type": "team", "target_dept_id": "dept_prod",
              "relevance": "생산관리팀 등록 업무에 문서 비교 근거 없음", "body": "-", "status": "on_hold",
              "hold_reason": "관련 업무 근거 없음 · 팀 자동 발송 꺼짐"})
 for i, (dept, n_fb) in enumerate([("dept_mkt", 3), ("dept_cs", 2)], start=10):
-    sugs.append({"id": f"sug_{i:03d}", "update_id": "upd_ai_a_doc_compare", "target_type": "team", "target_dept_id": dept,
+    sugs.append({"id": f"sug_{i:03d}", "update_id": "upd_chatgpt_doc_compare", "target_type": "team", "target_dept_id": dept,
                  "relevance": "팀 등록 업무에 여러 문서 비교가 있음", "body": "문서 비교 기능으로 캠페인 시안·문의 응답 초안을 나란히 비교해 보세요.",
                  "status": "sent", "sent_at": NOW - timedelta(days=3)})
-sugs.append({"id": "sug_020", "update_id": "upd_ai_a_doc_compare", "target_type": "employee", "target_employee_id": "emp_md_01", "task_id": "task_md_review",
+sugs.append({"id": "sug_020", "update_id": "upd_chatgpt_doc_compare", "target_type": "employee", "target_employee_id": "emp_md_01", "task_id": "task_md_review",
              "relevance": "등록 업무 '신제품 고객 리뷰 분석'이 여러 리뷰 파일 비교를 필요로 함", "status": "sent", "sent_at": NOW - timedelta(days=2),
              "body": "등록하신 '신제품 고객 리뷰 분석'에 문서 비교 기능을 써 보세요. 리뷰 파일 여러 개를 올리면 공통 불만과 차이를 표로 정리해 줍니다. Enterprise 플랜에 포함돼 추가 비용이 없습니다."})
 insert("suggestions", sugs)
@@ -156,7 +156,7 @@ for sid, dept, reactions in [("sug_010", "dept_mkt", ["useful", "useful", "quest
     fb += [{"id": f"fb_{sid}_{k}", "suggestion_id": sid, "employee_id": members[k], "reaction": r, "created_at": NOW - timedelta(days=2)}
            for k, r in enumerate(reactions)]
 insert("feedback", fb)
-insert("review_runs", [{"id": "rr_001", "update_id": "upd_ai_a_doc_compare", "agent_task_id": "task_demo_001", "ran_at": NOW,
+insert("review_runs", [{"id": "rr_001", "update_id": "upd_chatgpt_doc_compare", "agent_task_id": "task_demo_001", "ran_at": NOW,
                         "sent_dept_ids": ["dept_hrd"], "held": [{"dept_id": "dept_prod", "reason": "근거 없음"}]}])
 
 # ── F3 ──
@@ -188,9 +188,9 @@ for d in range(60):
             r = int(total * share)
             tin, tout = r * TOKENS[bucket], r * 300
             usd = round(tin / 1e6 * m.input_usd_per_mtok + tout / 1e6 * m.output_usd_per_mtok, 4)
-            usage.append({"vendor_record_id": f"vr_{pid}_{d:02d}_{bucket}", "contract_id": "ctr_ai_b_2026", "period_start": day,
+            usage.append({"vendor_record_id": f"vr_{pid}_{d:02d}_{bucket}", "contract_id": "ctr_claude_2026", "period_start": day,
                           "project_id": pid, "api_key_id": f"key_{pid}", "model_id": p.model_id, "input_length_bucket": bucket,
-                          "requests": r, "input_tokens": tin, "output_tokens": tout, "cost_usd": usd, "fx_rate": fx.FX,
+                          "requests": r, "input_tokens": tin, "output_tokens": tout, "cost_usd": usd,
                           "cost_krw": round(usd * fx.FX)})
 insert("usage_records", usage)
 # 경보 수치는 위 사용량에서 계산한다 (check_thresholds 규칙과 같음: 마지막 날 ÷ 직전 14일 중앙값)
@@ -221,7 +221,7 @@ for i, e in enumerate(x for x in humans if x != "emp_mkt_01"):
         flag, last = "unused", NOW - timedelta(days=45)
     elif i % 13 == 0:
         flag, last = "no_record", None  # 기록 없음 = 확인 필요
-    seats.append({"id": f"seat_a_{i:03d}", "contract_id": "ctr_ai_a_2026", "employee_id": e, "status": "assigned",
+    seats.append({"id": f"seat_a_{i:03d}", "contract_id": "ctr_chatgpt_2026", "employee_id": e, "status": "assigned",
                   "assigned_at": since, "last_activity_at": last, "flag": flag})
 on_leave = {e["id"] for e in emps if e["status"] == "on_leave"}
 for i, e in enumerate(humans[:20]):
@@ -232,7 +232,7 @@ for i, e in enumerate(humans[:20]):
 # 플래그와 맞춘다: 휴직자는 50일 전까지, 장기 미사용은 45일 전까지, 기록 없음은 0건, 최근 입사는 배정일부터.
 DEPT_P = {"dept_md": 0.65, "dept_mkt": 0.8, "dept_cs": 0.75, "dept_sales": 0.6, "dept_mgmt": 0.55, "dept_hrd": 0.5, "dept_prod": 0.3}
 chat_usage = []
-for k, st in enumerate(x for x in seats if x["contract_id"] == "ctr_ai_a_2026"):
+for k, st in enumerate(x for x in seats if x["contract_id"] == "ctr_chatgpt_2026"):
     e = st["employee_id"]
     stop = {"on_leave": 50, "unused": 45}.get(st["flag"], 0)
     p = DEPT_P[emp_dept_of[e]] * (0.3 if k % 5 == 0 else 1)
@@ -242,8 +242,8 @@ for k, st in enumerate(x for x in seats if x["contract_id"] == "ctr_ai_a_2026"):
         if st["flag"] == "no_record" or day < st["assigned_at"] or day > NOW - timedelta(days=stop or 0) or random.random() > p * (0.15 if day.weekday() >= 5 else 1):
             continue
         r = random.randint(3, 25)
-        chat_usage.append({"vendor_record_id": f"vr_chat_{e}_{d:02d}", "contract_id": "ctr_ai_a_2026", "period_start": day, "employee_id": e,
-                           "requests": r, "input_tokens": r * 1500, "output_tokens": r * 600, "cost_usd": 0, "fx_rate": fx.FX, "cost_krw": 0})
+        chat_usage.append({"vendor_record_id": f"vr_chat_{e}_{d:02d}", "contract_id": "ctr_chatgpt_2026", "period_start": day, "employee_id": e,
+                           "requests": r, "input_tokens": r * 1500, "output_tokens": r * 600, "cost_usd": 0, "cost_krw": 0})
         last = day + timedelta(hours=random.randint(9, 18))
     st["last_activity_at"] = last
 # Canva: 마케팅 전원 + 영업 2명 (15석 중 12석). 한 명은 장기 미사용
@@ -267,8 +267,8 @@ insert("unmet_needs", dump(fx.UNMET_NEEDS) + [
 # ── 처리 요청 · 절감 · 감사 ──
 # plan_000: 지난달 신규 입사자 좌석 배정(실행 완료). 절감 기록 sav_001은 실행된 조치안에만 붙는다
 plans = [{"id": "plan_000", "type": "seat_assign", "risk_level": "low", "status": "executed",
-          "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_ai_a_2026"}], "rationale": "신규 입사자 배정 (미배정 좌석 사용)",
-          "evidence": [{"source": "inventory", "ref": "ctr_ai_a_2026", "value": {"unassigned": 3}}], "requested_by": "emp_asset_01",
+          "items": [{"employee_id": "emp_gen_052", "contract_id": "ctr_chatgpt_2026"}], "rationale": "신규 입사자 배정 (미배정 좌석 사용)",
+          "evidence": [{"source": "inventory", "ref": "ctr_chatgpt_2026", "value": {"unassigned": 3}}], "requested_by": "emp_asset_01",
           "approver_id": None, "execution_key": "auto_plan_000", "executed_at": NOW - timedelta(days=20),
           "result": {"vendor": "mock", "ok": True}, "created_at": NOW - timedelta(days=20)}] + dump(fx.PLANS.values())
 for p in plans:

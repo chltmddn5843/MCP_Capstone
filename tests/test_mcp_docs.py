@@ -46,7 +46,7 @@ async def test_search_internal_policy_returns_clause_location(monkeypatch):
 
 async def test_get_vendor_update_via_backend(monkeypatch):
     async with connect(mcp, monkeypatch, "employee") as c:
-        update = (await c.call_tool("get_vendor_update", {"update_id": "upd_ai_a_doc_compare"})).structured_content
+        update = (await c.call_tool("get_vendor_update", {"update_id": "upd_chatgpt_doc_compare"})).structured_content
         missing = await c.call_tool("get_vendor_update", {"update_id": "upd_nope"}, raise_on_error=False)
     assert update["affected_plans"] == ["Enterprise"] and update["url"].startswith("https://")
     assert error_of(missing)["code"] == "not_found"

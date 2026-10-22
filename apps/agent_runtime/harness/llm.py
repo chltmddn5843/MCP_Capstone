@@ -80,15 +80,15 @@ class ScriptedModel(BaseChatModel):
             return ChatResult(generations=[ChatGeneration(message=msg)])
         if not tools_done:
             if "안써" in last_human.replace(" ", "") or "반납" in last_human:
-                call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "본인 반납 요청", "evidence": []}, "id": _cid()}
+                call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], "rationale": "본인 반납 요청", "evidence": []}, "id": _cid()}
             elif "api" in last_human.lower() and ("사용" in last_human or "써야" in last_human):
-                call = {"name": "create_action_plan", "args": {"type": "api_access", "items": [{"tool_id": "tool_ai_b", "purpose": "세일즈 데이터 자동 분석"}], "rationale": "API 제품 사용 신청", "evidence": []}, "id": _cid()}
+                call = {"name": "create_action_plan", "args": {"type": "api_access", "items": [{"tool_id": "tool_claude", "purpose": "세일즈 데이터 자동 분석"}], "rationale": "API 제품 사용 신청", "evidence": []}, "id": _cid()}
             elif "회수" in last_human or "재배정" in last_human:
-                call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_ai_a_2026", "confirmation_id": "cfm_001", "reassign_to_employee_id": "emp_mkt_01"}], "rationale": "휴직 중, 본인 반납 응답 있음", "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]}, "id": _cid()}
+                call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_sales_02", "contract_id": "ctr_chatgpt_2026", "confirmation_id": "cfm_001", "reassign_to_employee_id": "emp_mkt_01"}], "rationale": "휴직 중, 본인 반납 응답 있음", "evidence": [{"source": "confirmations", "ref": "cfm_001", "value": "return_seat"}]}, "id": _cid()}
             elif "실행" in last_human and re.search(r"plan_[A-Za-z0-9]+", last_human):
                 call = {"name": "execute_approved_plan", "args": {"plan_id": re.search(r"plan_[A-Za-z0-9]+", last_human).group(0), "idempotency_key": f"idem_{uuid.uuid4().hex[:8]}"}, "id": _cid()}
             elif "이용권" in last_human or "좌석" in last_human:
-                call = {"name": "create_action_plan", "args": {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_ai_a_2026"}], "rationale": "미배정 이용권이 있어 신청자에게 배정", "evidence": [{"source": "inventory", "ref": "ctr_ai_a_2026", "value": {"unassigned": 2}}]}, "id": _cid()}
+                call = {"name": "create_action_plan", "args": {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], "rationale": "미배정 이용권이 있어 신청자에게 배정", "evidence": [{"source": "inventory", "ref": "ctr_chatgpt_2026", "value": {"unassigned": 2}}]}, "id": _cid()}
             else:
                 call = {"name": "get_my_profile", "args": {}, "id": _cid()}
             msg = AIMessage(content="", tool_calls=[call])
