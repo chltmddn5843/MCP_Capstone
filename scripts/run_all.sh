@@ -7,6 +7,14 @@ cd "$(dirname "$0")/.."
 [ -f .env ] || { cp .env.example .env; echo ".env 생성됨. OPENAI_API_KEY 등을 채우세요 (키 없으면 LLM_MODEL=fake)."; }
 mkdir -p db logs
 MCP="${MCP:-1}"
+SLACK="${SLACK:-0}"
+TUNNEL="${TUNNEL:-0}"
+app_env="${APP_ENV:-$(awk -F= '$1=="APP_ENV"{sub(/[ \t]*#.*$/, "", $2); gsub(/[ \t]/, "", $2); print $2}' .env)}"
+if [ "$TUNNEL" = "1" ] && [ "$app_env" != "prod" ]; then
+  echo "TUNNEL=1(외부 공개)은 APP_ENV=prod에서만 켭니다. dev면 누구나 dev-login으로 관리자 토큰을 받습니다."
+  echo "scripts/setup_local.sh 를 먼저 실행하거나 .env의 APP_ENV·JWT_SECRET·SYSTEM_TOKEN을 맞추세요 (README 로그인 절)."
+  exit 1
+fi
 ports=(8000 8002 5173); [ "$MCP" = "1" ] && ports+=(8010 8011)
 for port in "${ports[@]}"; do
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -48,4 +56,17 @@ echo "admin_web http://localhost:5173       로그는 logs/*.log"
 if [ ! -d apps/admin_web/node_modules ]; then npm --prefix apps/admin_web install; fi
 npm --prefix apps/admin_web run dev -- --host 0.0.0.0 >logs/admin_web.log 2>&1 & pids+=($!)
 wait_port 5173
+if [ "$SLACK" = "1" ]; then
+  uv run python -m apps.slack_bot >logs/slack_bot.log 2>&1 & pids+=($!)
+  echo "slack_bot  실행 중 (logs/slack_bot.log)"
+fi
+if [ "$TUNNEL" = "1" ]; then
+  cloudflared tunnel --url http://localhost:5173 >logs/cloudflare.log 2>&1 & pids+=($!)
+  for i in $(seq 1 30); do
+    tunnel_url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' logs/cloudflare.log 2>/dev/null | head -n 1 || true)
+    [ -n "$tunnel_url" ] && { echo "cloudflare $tunnel_url"; break; }
+    sleep 1
+  done
+  [ -n "${tunnel_url:-}" ] || echo "cloudflare 주소는 logs/cloudflare.log 에서 확인"
+fi
 wait

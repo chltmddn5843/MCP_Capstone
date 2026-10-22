@@ -531,6 +531,33 @@
             "type": "string",
             "title": "Input"
           },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "feature_route": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Feature Route",
+            "default": []
+          },
+          "workflow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Workflow",
+            "default": []
+          },
           "tool_calls": {
             "items": {
               "$ref": "#/components/schemas/ToolCall"

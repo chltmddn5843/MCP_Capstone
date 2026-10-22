@@ -78,6 +78,9 @@ class Task(BaseModel):
     requester_role: Role
     channel: str
     input: str
+    intent: str | None = None
+    feature_route: list[str] = []
+    workflow: list[str] = []
     tool_calls: list[ToolCall] = []
     result: TaskResult | None = None
     approval: ApprovalCard | None = None

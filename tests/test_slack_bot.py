@@ -116,13 +116,22 @@ def test_feedback_button_calls_backend(monkeypatch):
     assert calls == {"sid": "sug_1", "reaction": "irrelevant"} and "관련 없음" in slack.ephemeral[-1]["text"]
 
 
-def test_identity_falls_back_to_user_map(monkeypatch):
+def test_identity_exchanges_via_backend(monkeypatch):
+    """SLACK_USER_MAP의 직원 id를 실어 백엔드 /auth/slack-exchange로 토큰을 받고, 백엔드 not_found는 그대로 올린다."""
     identity._cache.clear()
     monkeypatch.setenv("SLACK_USER_MAP", '{"U_MKT01": "emp_mkt_01"}')
-    monkeypatch.setattr(identity, "backend", lambda *a, **k: (_ for _ in ()).throw(api.ApiError("not_found", "no route")))
-    monkeypatch.setattr(identity, "_dev_login", lambda emp_id: (f"dev.{emp_id}", {"id": emp_id, "role": "employee"}))
+    calls = []
+
+    def fake_backend(method, path, token, json):
+        calls.append((path, json))
+        if json["employee_id"] is None:
+            raise api.ApiError("not_found", "연결된 직원 없음")
+        return {"access_token": "jwt-mkt", "employee": {"id": json["employee_id"], "role": "employee"}}
+
+    monkeypatch.setattr(identity, "backend", fake_backend)
     token, emp = identity.resolve("U_MKT01")
-    assert token == "dev.emp_mkt_01" and emp["id"] == "emp_mkt_01"
+    assert token == "jwt-mkt" and emp["id"] == "emp_mkt_01"
+    assert calls == [("/auth/slack-exchange", {"slack_user_id": "U_MKT01", "employee_id": "emp_mkt_01"})]
     try:
         identity.resolve("U_UNKNOWN")
         raise AssertionError("매핑 없는 사용자는 실패해야 함")
@@ -252,3 +261,14 @@ def test_outcome_messages_cover_reclaim_holder_and_requester():
     assert "반납 처리됐어요" in m["emp_gen_052"] and "반납 처리가 끝났어요" in m["emp_asset_01"]
     m = worker.outcome_messages({"type": "seat_assign", "status": "failed", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_ai_a_2026"}]}, names)
     assert "관리자가 다시 확인" in m["emp_md_01"]
+
+
+def test_identity_single_user_fallback(monkeypatch):
+    """SLACK_USER_MAP이 비어 있으면 SLACK_USER_ID → SLACK_EMPLOYEE_ID 한 명으로 연결한다 (scripts/setup_local.sh)."""
+    monkeypatch.setenv("SLACK_USER_MAP", "")
+    monkeypatch.setenv("SLACK_USER_ID", "U_ME")
+    monkeypatch.setenv("SLACK_EMPLOYEE_ID", "emp_cs_01")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "")
+    assert identity._user_map() == {"U_ME": "emp_cs_01"} and identity.admin_slack_ids() == ["U_ME"]
+    monkeypatch.setenv("SLACK_USER_MAP", '{"U_X": "emp_mkt_01"}')
+    assert identity._user_map() == {"U_X": "emp_mkt_01"}  # 매핑이 있으면 매핑이 우선
