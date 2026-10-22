@@ -93,17 +93,12 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
             return d if "error" in d else {"project_id": a["project_id"], "by": a["by"], "rows": d["breakdown"]}
         case "get_anomalies":
             return {"anomalies": await _call(client, "GET", "/anomalies", params={"status": a.get("status")})}
-        case "get_anomaly_detail":
-            return await _call(client, "GET", f"/anomalies/{a['anomaly_id']}")
+        case "get_seat_usage":
+            return await _call(client, "GET", f"/usage/seats/{a['employee_id']}")
         case "get_license_inventory":
             return {"contracts": await _call(client, "GET", "/inventory", params={"contract_id": a.get("contract_id")})}
         case "get_employee_assets":
             return await _call(client, "GET", f"/employees/{a['employee_id']}/assets")
-        case "record_unmet_need":
-            d = await _call(client, "POST", "/unmet-needs", json_body=a)
-            return d if "error" in d else {"need_id": d["need"]["id"], "same_tag_count": d["same_tag_count"], "threshold_met": d["threshold_met"]}
-        case "list_unmet_needs":
-            return {"aggregates": await _call(client, "GET", "/unmet-needs", params={"min_count": a.get("min_count"), "capability_tag": a.get("capability_tag")})}
         case "request_confirmation":
             d = await _call(client, "POST", "/confirmations", json_body=a)
             return d if "error" in d else {"confirmation_id": d["id"], "due_at": d["due_at"]}

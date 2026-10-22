@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from schemas.common import (
     BillingType,
     BreakdownBy,
+    PaceLevel,
     ConfirmationAnswer,
     DataClass,
     Environment,
@@ -46,7 +47,6 @@ from schemas.entities import (
     RegisteredTask,
     Suggestion,
     ToolWithPlan,
-    UnmetNeed,
     UsagePoint,
     UsageSummary,
     VendorUpdate,
@@ -161,27 +161,6 @@ class TaskCostEstimateResponse(BaseModel):
     monthly: Money
     fx_rate_krw_per_usd: float
     formula: str = Field(description="사람이 읽는 계산식")
-
-
-# ---------- /unmet-needs ----------
-class UnmetNeedCreate(BaseModel):
-    summary: str
-    capability_tag: str
-
-
-class UnmetNeedCreateResponse(BaseModel):
-    need: UnmetNeed
-    same_tag_count: int
-    same_tag_dept_count: int
-    threshold_met: bool
-
-
-class UnmetNeedAggregate(BaseModel):
-    capability_tag: str
-    count: int
-    dept_count: int
-    threshold_met: bool
-    sample_summaries: list[str] = []
 
 
 # ---------- /inventory ----------
@@ -312,13 +291,30 @@ class UsageResponse(BaseModel):
     breakdown: list[BreakdownRow] = []
 
 
-# ---------- /anomalies ----------
-class AnomalyDetail(BaseModel):
-    anomaly: Anomaly
-    project: Project | None = None
-    series: list[UsagePoint]
-    breakdown_by_model: list[BreakdownRow] = []
-    breakdown_by_input_length: list[BreakdownRow] = []
+# ---------- /usage/seats (F3 좌석별 토큰 소비 속도) ----------
+class SeatPace(BaseModel):
+    """예상 = 오늘 사용 ÷ 업무 시간(09~18시 KST) 경과 비율. 평균 = 같은 제품 좌석들의 최근 14일 하루 사용량 평균."""
+    employee_id: str
+    employee_name: str
+    dept_name: str
+    contract_id: str
+    product: str
+    tokens_today: int
+    projected_today: int
+    peer_avg_daily: int
+    daily_quota: int = Field(description="좌석당 하루 토큰 한도 (contracts.daily_token_quota)")
+    quota_used_pct: float
+    projected_quota_pct: float
+    ratio: float = Field(description="예상 ÷ 평균")
+    level: PaceLevel
+    last_activity_at: datetime | None = None
+
+
+class SeatPaceDetail(BaseModel):
+    pace: SeatPace
+    by_hour: list[BreakdownRow] = Field(default=[], description="오늘 시간대별 (key=KST 시, 예: 14)")
+    by_input_length: list[BreakdownRow] = []
+    by_model: list[BreakdownRow] = []
 
 
 # ---------- /plans ----------
@@ -392,8 +388,6 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/adoption/teams", "팀 단위 활용 현황 (5명 이상 팀)", [Role.admin]),
     ("GET", "/eval-results", "모델 평가 결과", [Role.employee, Role.admin, Role.system]),
     ("POST", "/estimates/task-cost", "예상 비용 계산", [Role.employee, Role.admin, Role.system]),
-    ("GET", "/unmet-needs", "미충족 수요 집계", [Role.admin]),
-    ("POST", "/unmet-needs", "미충족 수요 기록", [Role.employee, Role.admin, Role.system]),
     ("GET", "/inventory", "이용권 현황", [Role.admin, Role.system]),
     ("GET", "/employees/{employee_id}/assets", "직원이 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)", [Role.admin, Role.system]),
     ("GET", "/usage", "사용량", [Role.employee, Role.admin, Role.system]),
@@ -412,7 +406,8 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("POST", "/projects", "API 프로젝트 등록", [Role.admin]),
     ("GET", "/budgets", "연간 예산과 월 배분", [Role.admin, Role.system]),
     ("PUT", "/budgets", "연간 예산 설정", [Role.admin]),
-    ("GET", "/anomalies/{anomaly_id}", "경보 상세", [Role.admin, Role.system]),
+    ("GET", "/usage/seats", "좌석별 오늘 토큰 소비 속도", [Role.admin, Role.system]),
+    ("GET", "/usage/seats/{employee_id}", "좌석 소비 속도 상세 (직원은 본인만)", [Role.employee, Role.admin, Role.system]),
     ("GET", "/plans", "조치안 목록", [Role.employee, Role.admin, Role.system]),
     ("POST", "/plans", "처리 요청 생성. 모든 요청은 승인 대기(pending_approval). 직원: seat_assign·seat_reclaim(본인), api_access, model_change(본인 소유 프로젝트, test)", [Role.employee, Role.admin, Role.system]),
     ("GET", "/plans/{plan_id}", "조치안 상태", [Role.employee, Role.admin, Role.system]),

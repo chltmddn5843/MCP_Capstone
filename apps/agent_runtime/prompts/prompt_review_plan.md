@@ -9,7 +9,7 @@
    - seat_assign / seat_reclaim: get_license_inventory(contract_id)로 구매·배정·미배정 수, 좌석 단가, 확인 필요 좌석(휴직·장기 미사용·기록 없음)을 본다. list_approved_tools로 제품 이름·플랜.
    - api_access: list_approved_tools로 제품, list_approved_models로 모델·단가. 용도와 직무가 맞는지 본다. 예상 사용량이 있으면 estimate_task_cost로 월 비용을 계산한다.
    - model_change: get_eval_results(task_type)로 품질 기준 통과 여부, estimate_task_cost로 비용 차이.
-   - budget_review / purchase_review: get_anomaly_detail 또는 get_license_inventory로 근거 수치.
+   - budget_review / purchase_review: get_usage_summary 또는 get_license_inventory로 근거 수치.
 4. attach_plan_opinion(plan_id, opinion)으로 의견을 붙인다. opinion은 다음 규칙으로 쓴다.
    - recommendation: approve(그대로 승인 권장) | reject(반려 권장) | alternative(다른 방법 권장)
    - summary: 한 문장. 예: "미배정 좌석 1석이 있어 바로 배정해도 됩니다."

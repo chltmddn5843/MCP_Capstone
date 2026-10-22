@@ -29,6 +29,7 @@ from schemas.common import (
     Granularity,
     LicenseFlag,
     Money,
+    PaceLevel,
     Page,
     PlanStatus,
     PlanType,
@@ -62,7 +63,6 @@ from pydantic import ValidationError
 
 from schemas.plan_items import validate_items
 from schemas.rest import (
-    AnomalyDetail,
     BudgetSet,
     BudgetView,
     ContractCreate,
@@ -89,6 +89,8 @@ from schemas.rest import (
     PlanDecision,
     PlanExecuteResponse,
     RelevantTaskCandidate,
+    SeatPace,
+    SeatPaceDetail,
     RelevantTasksResponse,
     SavingsSummary,
     SuggestionCreate,
@@ -97,9 +99,6 @@ from schemas.rest import (
     TaskCreate,
     TaskUpdate,
     TeamAdoption,
-    UnmetNeedAggregate,
-    UnmetNeedCreate,
-    UnmetNeedCreateResponse,
     UsageResponse,
 )
 
@@ -553,29 +552,6 @@ def estimate(body: TaskCostEstimateRequest, user: Employee = Depends(current_use
     return ok(TaskCostEstimateResponse(model=m, daily=_krw(daily_usd), monthly=_krw(monthly_usd), fx_rate_krw_per_usd=FX, formula=formula))
 
 
-# ---------- F5 ----------
-def _unmet_aggs(tag: str | None = None) -> list[UnmetNeedAggregate]:
-    rs = db.rows("SELECT capability_tag, count(*) AS count, count(DISTINCT dept_id) AS dept_count, (array_agg(summary ORDER BY created_at))[1:3] AS sample_summaries"
-                 " FROM unmet_needs WHERE CAST(:t AS varchar) IS NULL OR capability_tag = :t GROUP BY capability_tag ORDER BY count(*) DESC", t=tag)
-    return [UnmetNeedAggregate(**r, threshold_met=r["count"] >= 3 and r["dept_count"] >= 2) for r in rs]
-
-
-@app.get("/unmet-needs", response_model=Envelope[list[UnmetNeedAggregate]], tags=["F5"])
-def list_unmet(min_count: int = 1, capability_tag: str | None = None, user: Employee = Depends(require(Role.admin))):
-    return ok([a for a in _unmet_aggs(capability_tag) if a.count >= min_count])
-
-
-@app.post("/unmet-needs", response_model=Envelope[UnmetNeedCreateResponse], status_code=201, tags=["F5"])
-def record_unmet(body: UnmetNeedCreate, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
-    from schemas.entities import UnmetNeed
-    with db.tx() as c:
-        r = db.one("INSERT INTO unmet_needs (id, employee_id, dept_id, summary, capability_tag, created_at) VALUES (:id, :e, :d, :s, :t, now())"
-                   " RETURNING id, employee_id, dept_id, summary, capability_tag, status, created_at", c,
-                   id=_new_id("need"), e=user.id, d=user.dept_id, s=body.summary, t=body.capability_tag)
-    agg = _unmet_aggs(body.capability_tag)[0]
-    return ok(UnmetNeedCreateResponse(need=UnmetNeed(**r), same_tag_count=agg.count, same_tag_dept_count=agg.dept_count, threshold_met=agg.threshold_met))
-
-
 # ---------- usage / anomalies (F3) ----------
 SCOPE_COL = {UsageScope.project: "u.project_id", UsageScope.employee: "u.employee_id", UsageScope.contract: "u.contract_id", UsageScope.dept: "p.dept_id"}
 GROUP_COL = {BreakdownBy.model: "coalesce(m.name, u.model_id)", BreakdownBy.api_key: "u.api_key_id", BreakdownBy.input_length: "u.input_length_bucket"}
@@ -616,7 +592,7 @@ def usage(scope: UsageScope, scope_id: str, start: datetime, end: datetime, gran
     return ok(UsageResponse(summary=summary, series=series, breakdown=breakdown))
 
 
-ANM_COLS = ("a.id, a.scope_type, a.scope_id, p.name AS scope_name, a.rule, a.baseline::float AS baseline, a.observed::float AS observed,"
+ANM_COLS = ("a.id, a.scope_type, a.scope_id, e.name AS scope_name, a.rule, a.baseline::float AS baseline, a.observed::float AS observed,"
             " a.ratio::float AS ratio, a.projected_monthly_krw, a.projected_monthly_usd::float AS projected_monthly_usd, a.status, a.created_at")
 
 
@@ -656,24 +632,79 @@ def org_members(user: Employee = Depends(require(Role.admin, Role.system))):
 
 @app.get("/anomalies", response_model=Envelope[list[Anomaly]], tags=["F3"])
 def anomalies(status: str | None = None, user: Employee = Depends(require(Role.admin, Role.system))):
-    rs = db.rows(f"SELECT {ANM_COLS} FROM anomalies a LEFT JOIN projects p ON p.id = a.scope_id"
+    rs = db.rows(f"SELECT {ANM_COLS} FROM anomalies a LEFT JOIN employees e ON e.id = a.scope_id"
                  " WHERE CAST(:s AS varchar) IS NULL OR a.status::text = :s ORDER BY a.created_at DESC", s=status)
     return ok([_anomaly(r) for r in rs])
 
 
-@app.get("/anomalies/{anomaly_id}", response_model=Envelope[AnomalyDetail], tags=["F3"])
-def anomaly_detail(anomaly_id: str, user: Employee = Depends(require(Role.admin, Role.system))):
-    r = db.one(f"SELECT {ANM_COLS} FROM anomalies a LEFT JOIN projects p ON p.id = a.scope_id WHERE a.id = :id", id=anomaly_id)
-    if not r:
-        raise ApiError(ErrorCode.not_found, "경보 없음")
-    a = _anomaly(r)
-    prj = db.one("SELECT id, name, dept_id, owner_id, purpose, model_id, environment, monthly_budget_krw FROM projects WHERE id = :id", id=a.scope_id)
-    end = a.created_at
-    start = end - timedelta(days=14)
-    scope = UsageScope.project
-    return ok(AnomalyDetail(anomaly=a, project=Project(**prj) if prj else None, series=_series_rows(scope, a.scope_id, start, end),
-                            breakdown_by_model=_breakdown(scope, a.scope_id, start, end, BreakdownBy.model),
-                            breakdown_by_input_length=_breakdown(scope, a.scope_id, start, end, BreakdownBy.input_length)))
+# ---------- F3 좌석별 토큰 소비 속도 ----------
+WORKDAY = (9, 18)  # KST. 예상 = 오늘 사용 ÷ 업무 시간 경과 비율 (ponytail: 전사 고정. 교대·야근 팀이 생기면 부서별 설정으로)
+PACE_OVER, PACE_CAUTION = 2.0, 1.5
+PACE_MIN_SHARE = 0.25  # 아침 첫 몇 건이 크게 부풀지 않게: 오늘 실제 사용이 평균의 25% 미만이면 경보 대상이 아니다
+
+
+def _day_start(now: datetime) -> datetime:
+    k = now + KST
+    return datetime(k.year, k.month, k.day, tzinfo=UTC) - KST
+
+
+def _workday_fraction(now: datetime) -> float:
+    k = now + KST
+    return min(1.0, max(1 / (WORKDAY[1] - WORKDAY[0]), (k.hour + k.minute / 60 - WORKDAY[0]) / (WORKDAY[1] - WORKDAY[0])))
+
+
+def _seat_paces(now: datetime, employee_id: str | None = None) -> list[SeatPace]:
+    """사용량을 받는 좌석(contracts.daily_token_quota > 0)마다 오늘 예상량을 같은 제품 좌석 평균과 비교한다."""
+    d0 = _day_start(now)
+    rs = db.rows(
+        "WITH hist AS (SELECT contract_id, employee_id, date_trunc('day', period_start + interval '9 hours') AS d, sum(input_tokens + output_tokens) AS t"
+        "              FROM usage_records WHERE employee_id IS NOT NULL AND period_start >= :h AND period_start < :d0 GROUP BY 1, 2, 3),"
+        " peer AS (SELECT contract_id, avg(t)::float AS avg FROM hist GROUP BY 1),"
+        " today AS (SELECT contract_id, employee_id, sum(input_tokens + output_tokens)::bigint AS t, max(period_start) AS last"
+        "           FROM usage_records WHERE employee_id IS NOT NULL AND period_start >= :d0 AND period_start <= :n GROUP BY 1, 2)"
+        " SELECT s.employee_id, e.name AS employee_name, d.name AS dept_name, s.contract_id, t.product, c.daily_token_quota AS quota,"
+        "        coalesce(td.t, 0) AS used, td.last, coalesce(pr.avg, 0) AS avg"
+        " FROM seat_assignments s JOIN contracts c ON c.id = s.contract_id JOIN tools t ON t.id = c.tool_id"
+        " JOIN employees e ON e.id = s.employee_id JOIN departments d ON d.id = e.dept_id"
+        " LEFT JOIN today td ON td.contract_id = s.contract_id AND td.employee_id = s.employee_id"
+        " LEFT JOIN peer pr ON pr.contract_id = s.contract_id"
+        " WHERE s.status = 'assigned' AND c.daily_token_quota > 0 AND (CAST(:e AS varchar) IS NULL OR s.employee_id = :e)",
+        h=d0 - timedelta(days=14), d0=d0, n=now, e=employee_id)
+    frac, out = _workday_fraction(now), []
+    for r in rs:
+        projected = round(r["used"] / frac)
+        ratio = round(projected / r["avg"], 2) if r["avg"] else 0.0
+        enough = r["used"] >= r["avg"] * PACE_MIN_SHARE
+        level = PaceLevel.over if ratio >= PACE_OVER and enough else PaceLevel.caution if ratio >= PACE_CAUTION and enough else PaceLevel.normal
+        out.append(SeatPace(employee_id=r["employee_id"], employee_name=r["employee_name"], dept_name=r["dept_name"], contract_id=r["contract_id"],
+                            product=r["product"], tokens_today=r["used"], projected_today=projected, peer_avg_daily=round(r["avg"]),
+                            daily_quota=r["quota"], quota_used_pct=round(r["used"] / r["quota"] * 100, 1),
+                            projected_quota_pct=round(projected / r["quota"] * 100, 1), ratio=ratio, level=level, last_activity_at=r["last"]))
+    return sorted(out, key=lambda x: -x.ratio)
+
+
+@app.get("/usage/seats", response_model=Envelope[list[SeatPace]], tags=["F3"])
+def seat_paces(user: Employee = Depends(require(Role.admin, Role.system))):
+    return ok(_seat_paces(_now()))
+
+
+@app.get("/usage/seats/{employee_id}", response_model=Envelope[SeatPaceDetail], tags=["F3"])
+def seat_pace_detail(employee_id: str, user: Employee = Depends(require(Role.employee, Role.admin, Role.system))):
+    if user.role == Role.employee and employee_id != user.id:
+        raise ApiError(ErrorCode.forbidden, "직원은 본인 좌석만 볼 수 있습니다")
+    now = _now()
+    pace = _seat_paces(now, employee_id)
+    if not pace:
+        raise ApiError(ErrorCode.not_found, "사용량을 받는 좌석이 없습니다")
+    d0 = _day_start(now)
+
+    def rows(key_sql: str) -> list[BreakdownRow]:
+        rs = _usage_rows(UsageScope.employee, employee_id, d0, now, key_sql)
+        total = sum(r["input_tokens"] + r["output_tokens"] for r in rs) or 1
+        return [BreakdownRow(key=str(r["key"]), requests=r["requests"], input_tokens=r["input_tokens"], output_tokens=r["output_tokens"],
+                             cost=Money(krw=r["krw"], usd=round(r["usd"], 4)), share=round((r["input_tokens"] + r["output_tokens"]) / total, 4)) for r in rs]
+    return ok(SeatPaceDetail(pace=pace[0], by_hour=rows("to_char(u.period_start + interval '9 hours', 'HH24')"),
+                             by_input_length=rows(GROUP_COL[BreakdownBy.input_length]), by_model=rows(GROUP_COL[BreakdownBy.model])))
 
 
 # ---------- F4 ----------
@@ -1004,31 +1035,72 @@ def audit_log(limit: int = 50, offset: int = 0, user: Employee = Depends(require
     return ok(Page(items=[AuditEntry(**r) for r in rs], total=total, limit=limit, offset=offset))
 
 
-JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "aggregate_unmet_needs", "send_suggestions"}
+JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "send_suggestions"}
 WEEKLY_CAP = 2  # 알림 정책: 팀당 주 2건
 
 
 def _job_check_thresholds(now: datetime) -> dict:
-    """프로젝트별 마지막 날 비용이 직전 14일 중앙값의 3배를 넘으면 경보. 같은 날 같은 경보는 한 번만."""
-    made = []
-    for p in db.rows("SELECT id, monthly_budget_krw FROM projects ORDER BY id"):
-        days = db.rows("SELECT date_trunc('day', period_start) AS d, sum(cost_krw)::float AS krw, sum(cost_usd)::float AS usd FROM usage_records"
-                       " WHERE project_id = :p AND period_start <= :n GROUP BY 1 ORDER BY 1 DESC LIMIT 15", p=p["id"], n=now)
-        if len(days) < 8:
+    """좌석 토큰 소비 속도가 평균의 2배 이상(level=over)이면 경보. 같은 사람 같은 날은 한 번만."""
+    made, d0 = [], _day_start(now)
+    for p in _seat_paces(now):
+        if p.level != PaceLevel.over:
             continue
-        prior = sorted(d["krw"] for d in days[1:])
-        base = prior[len(prior) // 2]
-        last = days[0]
-        if base and last["krw"] / base > 3:
-            with db.tx() as c:
-                dup = db.one("SELECT id FROM anomalies WHERE scope_id = :p AND rule = 'daily_cost_gt_3x_baseline' AND created_at >= :d", c, p=p["id"], d=last["d"])
-                if not dup:
-                    aid = _new_id("anm")
-                    c.execute(db.text("INSERT INTO anomalies (id, scope_type, scope_id, rule, baseline, observed, ratio, projected_monthly_krw, projected_monthly_usd, created_at)"
-                                      " VALUES (:id, 'project', :p, 'daily_cost_gt_3x_baseline', :b, :o, :r, :pk, :pu, :n)"),
-                              dict(id=aid, p=p["id"], b=base, o=last["krw"], r=round(last["krw"] / base, 2), pk=round(last["krw"] * 30), pu=round(last["usd"] * 30, 4), n=now))
-                    made.append(aid)
+        with db.tx() as c:
+            if db.one("SELECT id FROM anomalies WHERE scope_type = 'employee' AND scope_id = :e AND rule = 'seat_pace_2x' AND created_at >= :d", c, e=p.employee_id, d=d0):
+                continue
+            aid = _new_id("anm")
+            c.execute(db.text("INSERT INTO anomalies (id, scope_type, scope_id, rule, baseline, observed, ratio, created_at)"
+                              " VALUES (:id, 'employee', :e, 'seat_pace_2x', :b, :o, :r, :n)"),
+                      dict(id=aid, e=p.employee_id, b=p.peer_avg_daily, o=p.projected_today, r=p.ratio, n=now))
+            made.append(aid)
     return {"new_anomalies": made}
+
+
+DEMO_HEAVY = set(filter(None, os.getenv("F3_DEMO_HEAVY", "emp_md_01,emp_cs_01").split(",")))  # 시연용: 늘 빠르게 쓰는 좌석
+
+
+def _job_collect_usage(now: datetime) -> dict:
+    """더미 수집: 사용량을 받는 좌석마다 빈 지난 평일(최대 14일)과 오늘 업무 시간 중 지난 시간의 사용량을 채운다.
+    실제 연동 시 이 함수만 벤더 사용량 API(OpenAI Admin·Compliance 등) 호출로 바꾼다."""
+    import random
+
+    d0 = _day_start(now)
+    seats = db.rows("SELECT s.employee_id, s.contract_id FROM seat_assignments s JOIN contracts c ON c.id = s.contract_id"
+                    " JOIN employees e ON e.id = s.employee_id WHERE s.status = 'assigned' AND c.daily_token_quota > 0 AND e.status = 'active'")
+    have = {(r["employee_id"], r["d"]) for r in db.rows(
+        "SELECT DISTINCT employee_id, (date_trunc('day', period_start + interval '9 hours'))::date AS d FROM usage_records"
+        " WHERE employee_id IS NOT NULL AND period_start >= :h AND period_start < :d0", h=d0 - timedelta(days=14), d0=d0)}
+    k = now + KST
+    rows = []
+    for s in seats:
+        e = s["employee_id"]
+        for back in range(14, 0, -1):  # 빈 지난 평일
+            day = d0 - timedelta(days=back)
+            local = (day + KST).date()
+            if local.weekday() >= 5 or (e, local) in have:
+                continue
+            rnd = random.Random(f"{e}{local}")
+            t = rnd.randint(15, 45) * 1000
+            rows.append(dict(v=f"vr_sim_{e}_{local:%Y%m%d}", c=s["contract_id"], p=day + timedelta(hours=WORKDAY[0] + 1), e=e, m="openai:gpt-5.5-mini",
+                             b="0-2k", r=t // 2000, i=t * 7 // 10, o=t * 3 // 10))
+        heavy = e in DEMO_HEAVY
+        for h in range(WORKDAY[0], min(k.hour, WORKDAY[1] - 1) + 1):  # 오늘 지난 업무 시간 (지금 시간은 지난 분만큼)
+            part = 1.0 if h < k.hour else k.minute / 60
+            if part <= 0:
+                continue
+            rnd = random.Random(f"{e}{k:%Y%m%d}{h}")
+            t = int(rnd.randint(15, 45) * 1000 / (WORKDAY[1] - WORKDAY[0]) * rnd.uniform(0.5, 1.5) * (3.5 if heavy else 1) * part)
+            long_input = heavy and rnd.random() < 0.7
+            rows.append(dict(v=f"vr_live_{e}_{k:%Y%m%d}{h:02d}", c=s["contract_id"], p=d0 + timedelta(hours=h), e=e,
+                             m="openai:gpt-5.5" if long_input or rnd.random() < 0.4 else "openai:gpt-5.5-mini",
+                             b="8k+" if long_input else "0-2k" if rnd.random() < 0.6 else "2k-8k", r=max(1, t // 2500), i=t * 8 // 10, o=t * 2 // 10))
+    with db.tx() as c:
+        for x in rows:  # 지금 시간 칸은 다음 수집 때 더 커진다
+            c.execute(db.text("INSERT INTO usage_records (vendor_record_id, contract_id, period_start, employee_id, model_id, input_length_bucket,"
+                              " requests, input_tokens, output_tokens, cost_usd, cost_krw) VALUES (:v, :c, :p, :e, :m, :b, :r, :i, :o, 0, 0)"
+                              " ON CONFLICT (vendor_record_id) DO UPDATE SET requests = EXCLUDED.requests, input_tokens = EXCLUDED.input_tokens,"
+                              " output_tokens = EXCLUDED.output_tokens"), x)
+    return {"records": len(rows), "seats": len(seats)}
 
 
 def _in_business_hours(now: datetime) -> bool:
@@ -1085,10 +1157,10 @@ def run_job(job_name: str, now: datetime | None = Query(None, description="시�
     t, now = _now(), now or _now()
     if job_name == "check_thresholds":
         result = _job_check_thresholds(now)
+    elif job_name == "collect_usage":
+        result = _job_collect_usage(now)
     elif job_name == "send_suggestions":
         result = _job_send_suggestions(now)
-    elif job_name == "aggregate_unmet_needs":
-        result = {"aggregates": [a.model_dump() for a in _unmet_aggs()]}
     else:  # 수집 배치는 mock_vendor가 생기면 연결한다
         result = {"stub": True, "reason": "mock_vendor 미구현. 시드 데이터로 대신함"}
     with db.tx() as c:

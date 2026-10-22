@@ -10,7 +10,7 @@ const router = useRouter()
 const me = ref({ name: '', role: '' })
 const company = ref('')
 setupStatus().then((s) => (company.value = s.company_name ?? '')).catch(() => {})
-const counts = ref({ inbox: 0, cost: 0 })
+const counts = ref({ inbox: 0, seats: 0 })
 const mainEl = ref(null)
 
 const groups = [
@@ -18,12 +18,10 @@ const groups = [
     { to: '/', label: '홈', icon: ['M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z'] },
     { to: '/inbox', label: '승인 대기', badge: 'inbox', icon: ['M4 13l2-8h12l2 8', 'M4 13v6h16v-6h-5l-1 2h-4l-1-2z'] },
     { to: '/licenses', label: '구독·이용권', icon: ['M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M7 10h4M7 14h7'] },
-    { to: '/seats', label: '좌석 배치도', icon: ['M3 4h18v16H3z', 'M3 10h18M10 10v10'] },
-    { to: '/cost', label: '비용·사용량', badge: 'cost', icon: ['M4 20V10M10 20V4M16 20v-7M22 20H2'] },
+    { to: '/seats', label: '좌석 배치도', badge: 'seats', icon: ['M3 4h18v16H3z', 'M3 10h18M10 10v10'] },
   ] },
   { label: '활용 지원', items: [
     { to: '/suggestions', label: '자동 제안 기록', icon: ['M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z', 'M9 11h6M9 14h4'] },
-    { to: '/needs', label: '미지원 요청·팀 활용', icon: ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z', 'M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01'] },
   ] },
   { label: '관리', items: [
     { to: '/setup', label: '회사 설정', icon: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },

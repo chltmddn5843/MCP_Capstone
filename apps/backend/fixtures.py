@@ -60,6 +60,9 @@ MODELS = {m.id: m for m in [  # id = "공급사:API 모델명" = 에이전트 LL
     Model(id="anthropic:claude-haiku-5-5", vendor="Anthropic", name="Claude Haiku 5.5", capabilities="빠른 단순 분류·추출 (입력 10만 토큰 이하 단가)", input_usd_per_mtok=0.1, output_usd_per_mtok=0.5, allowed_data_class=DataClass.internal),
     Model(id="xai:grok-4.7", vendor="xAI", name="Grok 4.7", capabilities="빠른 범용 응답·실시간 검색 도구 연동", input_usd_per_mtok=2.0, output_usd_per_mtok=6.0, approved=False, allowed_data_class=DataClass.public),
     Model(id="xai:grok-4.3", vendor="xAI", name="Grok 4.3", capabilities="저비용 범용 응답", input_usd_per_mtok=1.25, output_usd_per_mtok=2.5, approved=False, allowed_data_class=DataClass.public),
+    # ChatGPT Enterprise 좌석 안에서 고르는 모델. 좌석 정액에 포함돼 토큰 단가가 없다 (F3 모델 변경 권장용)
+    Model(id="openai:gpt-5.5", vendor="OpenAI", name="GPT-5.5 (ChatGPT)", capabilities="깊은 추론·긴 문서 분석 · 토큰을 많이 쓴다", input_usd_per_mtok=0, output_usd_per_mtok=0, allowed_data_class=DataClass.internal),
+    Model(id="openai:gpt-5.5-mini", vendor="OpenAI", name="GPT-5.5 mini (ChatGPT)", capabilities="짧은 질의·초안·분류·요약 · 빠르고 가볍다", input_usd_per_mtok=0, output_usd_per_mtok=0, allowed_data_class=DataClass.internal),
 ]}
 
 TASKS = {t.id: t for t in [
@@ -91,10 +94,6 @@ PROJECTS = {p.id: p for p in [
     Project(id="prj_faq", name="사내 FAQ", dept_id="dept_mgmt", owner_id="emp_asset_01", purpose="사내 규정 Q&A", model_id="anthropic:claude-sonnet-5-5", environment=Environment.test, monthly_budget_krw=50000),
 ]}
 
-ANOMALIES = {a.id: a for a in [
-    Anomaly(id="anm_001", scope_type="project", scope_id="prj_quote_summary", scope_name="견적서 요약", rule="daily_cost_gt_3x_baseline", baseline=14010, observed=53397, ratio=3.81, projected_monthly_cost=krw(1160.8), status=AnomalyStatus.open, created_at=NOW - timedelta(hours=2)),
-]}
-
 PLANS = {p.id: p for p in [
     ActionPlan(id="plan_001", type=PlanType.seat_assign, risk_level=RiskLevel.low, status=PlanStatus.approved, items=[{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], rationale="미배정 좌석 2석 중 1석 배정", evidence=[Evidence(source="inventory", ref="ctr_chatgpt_2026", value={"unassigned": 2})], requested_by="emp_mkt_01", approver_id=None, created_at=NOW - timedelta(minutes=30)),
     ActionPlan(id="plan_002", type=PlanType.seat_reclaim, risk_level=RiskLevel.medium, status=PlanStatus.pending_approval, items=[{"employee_id": "emp_sales_02", "contract_id": "ctr_chatgpt_2026"}], rationale="휴직 중, 본인 확인 응답: 반납", evidence=[Evidence(source="confirmations", ref="cfm_001", value="return_seat")], requested_by="emp_asset_01", created_at=NOW - timedelta(minutes=10)),
@@ -103,11 +102,6 @@ PLANS = {p.id: p for p in [
 CONFIRMATIONS = {c.id: c for c in [
     Confirmation(id="cfm_001", plan_id="plan_002", employee_id="emp_sales_02", question="ChatGPT Enterprise 이용권을 계속 사용하시나요?", answer=ConfirmationAnswer.return_seat, due_at=NOW + timedelta(days=5), answered_at=NOW - timedelta(minutes=15)),
 ]}
-
-UNMET_NEEDS = [
-    UnmetNeed(id="need_001", employee_id="emp_sales_02", dept_id="dept_sales", summary="계약서 두 버전 조항 비교", capability_tag="contract_compare", created_at=NOW - timedelta(days=6)),
-    UnmetNeed(id="need_002", employee_id="emp_mkt_01", dept_id="dept_mkt", summary="협력사 계약서 변경점 확인", capability_tag="contract_compare", created_at=NOW - timedelta(days=2)),
-]
 
 SAVINGS = [SavingsEntry(id="sav_001", plan_id="plan_001", kind=SavingsKind.purchase_avoided, amount_krw=45000 * 2, basis="재배정 1석 × 월 45,000원 × 남은 2개월")]
 

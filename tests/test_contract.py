@@ -77,9 +77,13 @@ def test_every_agent_plan_waits_for_admin():
     assert client.post("/plans", json=other, headers=EMP).status_code == 403  # 남의 좌석 반납 불가
 
 
-def test_anomaly_detail_has_project_purpose():
-    d = client.get("/anomalies/anm_001", headers=ASSET).json()["data"]
-    assert d["project"]["purpose"] and d["series"] and d["breakdown_by_input_length"]
+def test_seat_usage_is_admin_or_self():
+    assert client.get("/usage/seats", headers=EMP).status_code == 403
+    paces = client.get("/usage/seats", headers=ASSET).json()["data"]
+    assert paces and all(p["product"] == "ChatGPT Enterprise" and p["daily_quota"] > 0 for p in paces)
+    other = next(p["employee_id"] for p in paces if p["employee_id"] != EMP["Authorization"].removeprefix("Bearer dev."))
+    assert client.get(f"/usage/seats/{other}", headers=EMP).status_code == 403
+    assert client.get(f"/usage/seats/{other}", headers=ASSET).json()["data"]["pace"]["employee_id"] == other
 
 
 def test_projects_list_has_budgets():
@@ -174,7 +178,7 @@ def test_employee_usage_self_only():
 
 def test_mcp_registry_roles_and_schemas():
     names = [t.name for t in TOOLS]
-    assert len(names) == len(set(names)) == 26
+    assert len(names) == len(set(names)) == 24
     assert "execute_approved_plan" not in {t.name for t in tools_for_role(Role.employee)}
     assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.admin)}
     for t in TOOLS:
@@ -184,7 +188,7 @@ def test_mcp_registry_roles_and_schemas():
 
 @pytest.mark.parametrize("method,path", [(m, p) for m, p, _, _ in ROUTES if "{" not in p and m == "GET" and not p.startswith("/ai/") and p not in ("/usage", "/eval-results")])
 def test_every_simple_get_responds_in_envelope(method, path):
-    r = client.get(path, headers=SYS if path not in ("/adoption/teams", "/me/tasks", "/savings", "/audit-log", "/unmet-needs") else ASSET)
+    r = client.get(path, headers=SYS if path not in ("/adoption/teams", "/me/tasks", "/savings", "/audit-log") else ASSET)
     assert r.status_code in (200, 403), (path, r.text)
     assert ("data" in r.json()) or ("error" in r.json())
 

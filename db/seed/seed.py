@@ -92,16 +92,20 @@ emp_dept_of = {e["id"]: e["dept_id"] for e in emps}
 insert("tools", dump(fx.TOOLS.values(), kind="ai") + [
     {"id": "tool_adobe", "kind": "software", "vendor": "Adobe", "product": "Acrobat Pro", "category": "pdf_editor",
      "approval_status": "approved", "allowed_data_class": "confidential", "policy_note": "계약서 PDF 편집·비교. AI 불필요 업무 안내용"}])
-insert("contracts", dump(fx.CONTRACTS.values()) + [
+contracts = dump(fx.CONTRACTS.values()) + [
     {"id": "ctr_adobe_2026", "tool_id": "tool_adobe", "plan_name": "Acrobat Pro Teams", "billing_type": "seat_flat",
      "seats_purchased": 60, "seat_price_krw": 32000, "term_start": date(2026, 1, 1), "term_end": date(2026, 12, 31)},
     {"id": "ctr_canva_2026", "tool_id": "tool_canva", "plan_name": "Canva Enterprise", "billing_type": "seat_flat",
-     "seats_purchased": 15, "seat_price_krw": 28000, "term_start": date(2026, 1, 1), "term_end": date(2026, 12, 31)}])
+     "seats_purchased": 15, "seat_price_krw": 28000, "term_start": date(2026, 1, 1), "term_end": date(2026, 12, 31)}]
+# F3: ChatGPT 좌석만 직원별 토큰 사용량을 받는다. 좌석당 하루 15만 토큰
+for c in contracts:
+    c["daily_token_quota"] = 150_000 if c["id"] == "ctr_chatgpt_2026" else 0
+insert("contracts", contracts)
 # 2026 연간 예산. 좌석: 구매 좌석료 월 504만원(ChatGPT 60·Acrobat 60·Canva 15석)의 약 105%, API: 프로젝트 월 예산 합(154.5만원)보다 약간 큰 월 180만원
 insert("budgets", [{"fiscal_year": 2026, "category": "seat", "annual_krw": 63_600_000},
                    {"fiscal_year": 2026, "category": "api", "annual_krw": 21_600_000}])
 # 모델 id = "공급사:API 모델명". 에이전트 LLM_MODEL·projects·usage_records·eval_results가 같은 키로 이어진다
-insert("models", [{**m, "tool_id": {"anthropic": "tool_claude", "xai": "tool_grok"}[m["id"].split(":")[0]]}
+insert("models", [{**m, "tool_id": {"anthropic": "tool_claude", "xai": "tool_grok", "openai": "tool_chatgpt"}[m["id"].split(":")[0]]}
                   for m in dump(fx.MODELS.values())])
 insert("eval_results", dump(fx.EVAL_RESULTS))
 # 팀별 대표 업무 (F1 관련성 판단 근거). tools_used는 그 사람이 실제로 쓸 수 있는 도구만: ChatGPT 좌석 보유자 tool_chatgpt,
@@ -181,7 +185,7 @@ for d in range(60):
     for pid, reqs in base_reqs.items():
         p = PROJECTS[pid]
         m = fx.MODELS[p.model_id]
-        # 비용 급증: 견적서 요약 마지막 3일(anm_001, 긴 PDF), 캠페인 카피 마지막 2일(anm_002, 요청 수 4배 — 페르소나 서연이 보는 마케팅 경고)
+        # 사용량 증가: 견적서 요약 마지막 3일(긴 PDF), 캠페인 카피 마지막 2일(요청 수 4배). 홈의 모델별 비용에 보인다
         spike = (pid == "prj_quote_summary" and d >= 57) or (pid == "prj_mkt_copy" and d >= 58)
         total = int(reqs * random.uniform(0.9, 1.1) * ({"prj_quote_summary": 2.5, "prj_mkt_copy": 4}[pid] if spike else 1))
         for bucket, share in (SPIKE_MIX if spike and pid == "prj_quote_summary" else MIX[pid]).items():
@@ -193,21 +197,6 @@ for d in range(60):
                           "requests": r, "input_tokens": tin, "output_tokens": tout, "cost_usd": usd,
                           "cost_krw": round(usd * fx.FX)})
 insert("usage_records", usage)
-# 경보 수치는 위 사용량에서 계산한다 (check_thresholds 규칙과 같음: 마지막 날 ÷ 직전 14일 중앙값)
-anm = dump(fx.ANOMALIES.values(), drop=("scope_name", "projected_monthly_cost"))
-anm.append({"id": "anm_002", "scope_type": "project", "scope_id": "prj_mkt_copy", "rule": "daily_cost_gt_3x_baseline", "status": "open"})
-for a in anm:
-    daily: dict = {}
-    for u in usage:
-        if u["project_id"] == a["scope_id"]:
-            k = u["period_start"].date()
-            daily[k] = (daily.get(k, (0, 0))[0] + u["cost_krw"], daily.get(k, (0, 0))[1] + u["cost_usd"])
-    days = sorted(daily)
-    last, prior = daily[days[-1]], sorted(daily[k][0] for k in days[-15:-1])
-    base = prior[len(prior) // 2]
-    a.update(baseline=base, observed=last[0], ratio=round(last[0] / base, 2), projected_monthly_krw=last[0] * 30,
-             projected_monthly_usd=round(last[1] * 30, 4), created_at=datetime.combine(days[-1], datetime.min.time(), NOW.tzinfo) + timedelta(hours=23))
-insert("anomalies", anm)
 
 # ── F4 ── ChatGPT Enterprise 60석 중 배정 58석(emp_mkt_01은 신청 대기), Adobe 60석 중 20석
 seats = []
@@ -243,7 +232,8 @@ for k, st in enumerate(x for x in seats if x["contract_id"] == "ctr_chatgpt_2026
             continue
         r = random.randint(3, 25)
         chat_usage.append({"vendor_record_id": f"vr_chat_{e}_{d:02d}", "contract_id": "ctr_chatgpt_2026", "period_start": day, "employee_id": e,
-                           "requests": r, "input_tokens": r * 1500, "output_tokens": r * 600, "cost_usd": 0, "cost_krw": 0})
+                           "requests": r, "input_tokens": r * 1500, "output_tokens": r * 600, "cost_usd": 0, "cost_krw": 0,
+                           "model_id": "openai:gpt-5.5-mini" if r < 12 else "openai:gpt-5.5", "input_length_bucket": "0-2k" if r < 12 else "2k-8k"})
         last = day + timedelta(hours=random.randint(9, 18))
     st["last_activity_at"] = last
 # Canva: 마케팅 전원 + 영업 2명 (15석 중 12석). 한 명은 장기 미사용
@@ -254,16 +244,6 @@ seats += [{"id": f"seat_cv_{i:03d}", "contract_id": "ctr_canva_2026", "employee_
           for i, e in enumerate(canva)]
 insert("seat_assignments", seats)
 insert("usage_records", chat_usage)
-# 미지원 요청: 요청자 부서 = 직원 부서. contract_compare 3건이 모이면 F5 구매 검토 후보가 된다
-emp_dept = {e["id"]: e["dept_id"] for e in emps}
-more_needs = [("emp_gen_004", "공급사 계약서 개정본 조항 비교", "contract_compare", 4),
-              ("emp_gen_011", "회의 녹음 한국어 자막·요약", "meeting_transcribe", 9),
-              ("emp_gen_017", "회의 녹음 요약해서 회의록 만들기", "meeting_transcribe", 3),
-              ("emp_gen_020", "도면 PDF에서 부품 목록 추출", "drawing_extract", 12)]
-insert("unmet_needs", dump(fx.UNMET_NEEDS) + [
-    {"id": f"need_{k:03d}", "employee_id": e, "dept_id": emp_dept[e], "summary": t, "capability_tag": tag,
-     "created_at": NOW - timedelta(days=d)} for k, (e, t, tag, d) in enumerate(more_needs, start=3)])
-
 # ── 처리 요청 · 절감 · 감사 ──
 # plan_000: 지난달 신규 입사자 좌석 배정(실행 완료). 절감 기록 sav_001은 실행된 조치안에만 붙는다
 plans = [{"id": "plan_000", "type": "seat_assign", "risk_level": "low", "status": "executed",

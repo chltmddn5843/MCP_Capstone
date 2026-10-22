@@ -29,7 +29,7 @@ npx @modelcontextprotocol/inspector     # tools/list에 역할별 도구가 보�
 
 ## 확인
 ```bash
-uv run pytest tests/test_mcp_work.py          # 명세 등록, 역할별 노출, 오류 전달, F1~F5 흐름, Resource·Prompt
+uv run pytest tests/test_mcp_work.py          # 명세 등록, 역할별 노출, 오류 전달, F1~F4 흐름, Resource·Prompt
 uv run uvicorn apps.backend.main:app --port 8000 &
 uv run python -m apps.mcp_work.server         # Inspector에서 헤더 Authorization: Bearer dev.emp_asset_01
 ```

@@ -27,7 +27,7 @@ CLASSIFY_PROMPT = """다음 요청의 의도를 아래 다섯 가지 중 하나�
 TOOLS_BY_INTENT = {
     "access_request": ["get_my_profile", "list_approved_tools", "list_approved_models", "create_action_plan", "get_plan_status"],
     "release_request": ["get_my_profile", "list_approved_tools", "create_action_plan", "get_plan_status"],
-    "recommendation": ["get_my_profile", "list_approved_tools", "list_approved_models", "get_eval_results", "estimate_task_cost", "get_usage_summary", "search_vendor_docs", "record_unmet_need", "create_action_plan"],
+    "recommendation": ["get_my_profile", "list_approved_tools", "list_approved_models", "get_eval_results", "estimate_task_cost", "get_usage_summary", "search_vendor_docs", "create_action_plan"],
     "policy_question": ["get_my_profile", "list_approved_tools", "search_internal_policy", "search_vendor_docs", "get_vendor_update"],
     "status_or_other": ["get_my_profile", "upsert_my_task", "get_plan_status", "list_approved_tools"],
 }
@@ -42,9 +42,9 @@ PROCEDURE = {
    - 좌석형 제품을 본인이 이미 배정받아 쓰고 있을 때만(get_my_profile의 등록 업무·이용권 기준) 요청을 만들지 말고 "이미 쓸 수 있어요"라고 답한다.
    - API 제품은 회사 승인 목록에 있어도 개인 권한(프로젝트)이 따로 필요하므로 **항상** api_access 요청을 만든다. "이미 쓸 수 있어요"라고 답하지 않는다.
 4. 요청을 만들었으면 "관리자에게 전달했어요. 결정되면 알려드릴게요."라고만 답한다. 요청을 만들지 못했으면 절대 전달됐다고 말하지 않는다.
-비용 추정·모델 비교·미지원 요청 기록은 이 의도에서 하지 않는다.""",
+비용 추정·모델 비교는 이 의도에서 하지 않는다.""",
     "release_request": """[이번 요청의 의도: 반납·중단] 1) get_my_profile로 쓰는 제품을 확인한다. 2) 어느 제품인지 분명하면 create_action_plan(type=seat_reclaim, items=[{employee_id: 본인, contract_id}], rationale: "본인 반납 요청")을 만든다. 여러 개면 어느 것인지 하나만 묻는다. 3) 만들었으면 "반납 요청을 관리자에게 전달했어요."라고 답한다.""",
-    "recommendation": """[이번 요청의 의도: 제품·모델 추천] 업무 조건(하루 건수, 입력 길이, 정확도 기준, 응답 시간, 채팅인지 API인지)이 부족하면 한 번에 묶어 묻는다. 승인 제품·모델 중에서 평가 결과와 비용으로 비교해 추천한다. 승인 제품으로 할 수 있는 일이면 미지원 요청을 기록하지 않는다. 미지원 요청(record_unmet_need)은 승인 제품 어느 것도 그 기능을 제공하지 않을 때만 쓴다. 추천 뒤 사용자가 쓰겠다고 하면 사용 신청 절차로 넘어간다고 안내한다 ("쓰고 싶다고 말씀해 주시면 관리자에게 전달할게요").""",
+    "recommendation": """[이번 요청의 의도: 제품·모델 추천] 업무 조건(하루 건수, 입력 길이, 정확도 기준, 응답 시간, 채팅인지 API인지)이 부족하면 한 번에 묶어 묻는다. 승인 제품·모델 중에서 평가 결과와 비용으로 비교해 추천한다. 승인 제품 어느 것도 그 기능을 제공하지 않으면 "지금 승인된 제품으로는 어렵습니다"라고 솔직히 답한다. 추천 뒤 사용자가 쓰겠다고 하면 사용 신청 절차로 넘어간다고 안내한다 ("쓰고 싶다고 말씀해 주시면 관리자에게 전달할게요").""",
     "policy_question": """[이번 요청의 의도: 사용 가능 여부·정책] search_internal_policy와 list_approved_tools로 확인해 "돼요/안 돼요"와 조건을 짧게 답한다. 해당 기능이 승인 제품 플랜에 있는지도 본다.""",
     "status_or_other": """[이번 요청의 의도: 상태 문의·기타] 내 요청 상태는 get_plan_status, 업무 등록은 upsert_my_task를 쓴다. 인사·잡담은 짧게 답한다.""",
     "system": "",

@@ -111,9 +111,9 @@ async def get_anomalies(i: M.GetAnomaliesIn) -> dict:
     return {"anomalies": await call("GET", "/anomalies", params={"status": i.status and i.status.value})}
 
 
-@adapter("get_anomaly_detail")
-async def get_anomaly_detail(i: M.GetAnomalyDetailIn) -> dict:
-    return await call("GET", f"/anomalies/{i.anomaly_id}")
+@adapter("get_seat_usage")
+async def get_seat_usage(i: M.GetSeatUsageIn) -> dict:
+    return await call("GET", f"/usage/seats/{i.employee_id}")
 
 
 # ---------- F4 이용권 ----------
@@ -131,18 +131,6 @@ async def get_employee_assets(i: M.GetEmployeeAssetsIn) -> dict:
 async def request_confirmation(i: M.RequestConfirmationIn) -> dict:
     c = await call("POST", "/confirmations", json_body=i.model_dump())
     return {"confirmation_id": c["id"], "due_at": c["due_at"]}
-
-
-# ---------- F5 미충족 수요 ----------
-@adapter("record_unmet_need")
-async def record_unmet_need(i: M.RecordUnmetNeedIn) -> dict:
-    r = await call("POST", "/unmet-needs", json_body=i.model_dump())
-    return {"need_id": r["need"]["id"], "same_tag_count": r["same_tag_count"], "threshold_met": r["threshold_met"]}
-
-
-@adapter("list_unmet_needs")
-async def list_unmet_needs(i: M.ListUnmetNeedsIn) -> dict:
-    return {"aggregates": await call("GET", "/unmet-needs", params=i.model_dump())}
 
 
 # ---------- 조치안 (공통 실행 게이트) ----------

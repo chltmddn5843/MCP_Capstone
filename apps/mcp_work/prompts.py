@@ -1,6 +1,6 @@
 """Prompt 6개 (schemas.mcp_tools.PROMPTS). 같은 형식의 요청을 반복할 때 쓰는 지시문 템플릿.
 
-에이전트 런타임은 RunCreate.prompt_name / prompt_args로 이 템플릿을 고른다(예: investigate_anomaly).
+에이전트 런타임은 RunCreate.prompt_name / prompt_args로 이 템플릿을 고른다(예: analyze_seat_usage).
 템플릿은 도구 사용 순서와 금지 사항만 정하고, 판단은 모델이 한다.
 """
 
@@ -29,13 +29,11 @@ TEMPLATES: dict[str, str] = {
         "현재 비용은 get_usage_summary로 보되, 권한 때문에 프로젝트 사용량을 볼 수 없으면(forbidden) 하루 건수와 건당 토큰을 물어 "
         "현재 모델도 estimate_task_cost로 계산해 같은 기준으로 비교한다. "
         "평가 결과가 없으면 추천하지 말고 샘플 평가를 제안한다. 정액 좌석제 도구는 모델을 바꿔도 청구액이 줄지 않는다고 알린다."),
-    "investigate_anomaly": (
-        "경보 {anomaly_id}의 원인을 조사하라. get_anomalies로 경보를 확인하고, get_anomaly_detail로 대상 프로젝트의 등록 목적, "
-        "모델, 예산, 최근 추이를 본다. 등록 목적에 비춰 자연스러운 증가인지도 함께 판단한다. get_usage_breakdown을 by=model, "
-        "by=input_length, by=api_key로 각각 불러 요청량 증가인지, 입력 길이 증가인지, 특정 키 문제인지 가른다. "
-        "원인을 단정하지 말고 후보마다 근거(구간별 비중, 기준 대비 배수)를 붙여 제시한다. "
-        "담당자가 고를 수 있는 선택지(예산 증액 검토, 반복 요청 점검, 품질 평가 후 모델 검토, 부서에 사용 목적 확인)를 내고 "
-        "필요하면 create_action_plan(budget_review 또는 model_change)으로 조치안을 만든다."),
+    "analyze_seat_usage": (
+        "직원 {employee_id}의 좌석이 오늘 토큰을 많이 쓰는 이유를 짧게 분석하라. get_seat_usage로 오늘 사용량·예상량·평균 대비 배수와 "
+        "시간대별·입력 길이별·모델별 분포를 보고, 본인이면 get_my_profile로 등록 업무를 본다. 대화 내용은 알 수 없으므로 사용 패턴으로만 "
+        "추정하고 단정하지 않는다(예: 8k 이상 긴 입력 비중, 특정 시간대 집중, 무거운 모델 비중). list_approved_models에서 같은 좌석 안의 "
+        "더 가벼운 모델을 하나 추천하고 어떤 작업에 바꾸면 좋은지 한 줄로 말한다. 사용량은 인사평가에 쓰지 않는다. 5줄 이내."),
     "review_plan": (
         "승인 대기 처리 요청 {plan_id}를 검토해 관리자용 의견을 붙여라. get_plan_status로 요청을 읽고, get_employee_profile로 요청자의 "
         "이름·부서·직무·등록 업무·배정 제품을, 유형에 따라 get_license_inventory·list_approved_tools·list_approved_models·get_eval_results·"
@@ -49,11 +47,6 @@ TEMPLATES: dict[str, str] = {
         "request_confirmation으로 사용 의사를 먼저 묻는다. 반납 응답이 있을 때만 회수·재배정하고, 무응답은 회수 사유로 쓰지 않는다. "
         "반납 응답이 확인되면 create_action_plan(seat_reclaim, items=[{{employee_id, contract_id, confirmation_id, "
         "reassign_to_employee_id}}])으로 회수·재배정 조치안을 만든다. 쓸 좌석이 없을 때만 purchase_review를 제안한다."),
-    "compare_candidates": (
-        "미충족 수요 '{capability_tag}'를 해결할 후보를 비교하라. list_unmet_needs로 건수와 부서 수를 확인하고, "
-        "list_approved_tools로 기존 도구로 해결되는지 먼저 본다. 해결되지 않으면 search_vendor_docs(candidates_only=true)로 "
-        "후보 문서를 찾아 비교표를 만들고, 기준을 넘으면 create_action_plan(purchase_review)을 제안한다. "
-        "허용 목록 벤더의 공식 문서만 쓰고, 문서에 없는 성능·가격은 쓰지 않는다. 외부 벤치마크나 일반 웹 검색은 쓰지 않는다."),
 }
 
 

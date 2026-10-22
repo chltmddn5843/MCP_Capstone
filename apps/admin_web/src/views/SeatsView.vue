@@ -2,8 +2,10 @@
 // 층별 좌석 배치도 (관리자). 직원·부서·도구는 GET /org/members(DB) 값이고, 층·책상 위치만 화면에서 임의로 정한다.
 // 도구는 '쓸 수 있는 것'(배정 좌석 + 팀 프로젝트 API). 좌석은 최근 30일 사용일 수도 보인다 — 관리자는 개인별 사용량을 볼 수 있지만(설계문서 3절)
 // 이용권 관리 목적으로만 쓰고 인사평가에 쓰지 않는다. 팀 프로젝트 API는 개인 기록이 아니라 숫자가 없다.
-import { ref, computed, onMounted } from 'vue'
-import { getOrgMembers } from '../api.js'
+// 토큰 좌석(ChatGPT 등)은 오늘 소비 속도(GET /usage/seats)로 색을 입힌다: 오늘 예상량이 같은 제품 좌석 평균 하루 사용량의 2배 이상이면 경보. 30초마다 갱신.
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { getOrgMembers, getSeatPaces, getSeatPaceDetail } from '../api.js'
 import { FLAG, onTabKeys } from '../labels.js'
 import ProductLogo from '../components/ProductLogo.vue'
 
@@ -19,11 +21,20 @@ const members = ref([])
 const error = ref('')
 const floorId = ref(FLOORS[0].id)
 const toolFilter = ref('all')
-const selectedId = ref('')
+const selectedId = ref(String(useRoute().query.id ?? ''))
+const paces = ref({})
+const detail = ref(null)
 
+const loadPaces = async () => { paces.value = await getSeatPaces().catch(() => paces.value) }
+let timer
 onMounted(async () => {
   try { members.value = await getOrgMembers() } catch (e) { error.value = e.message }
+  const f = FLOORS.find((x) => x.depts.includes(selected.value?.dept_id))
+  if (f) floorId.value = f.id // 홈에서 ?id=로 들어오면 그 사람 층으로
+  await loadPaces()
+  timer = setInterval(loadPaces, 30000)
 })
+onUnmounted(() => clearInterval(timer))
 
 const floor = computed(() => FLOORS.find((f) => f.id === floorId.value))
 const tools = computed(() => {
@@ -45,6 +56,13 @@ const zones = computed(() => floor.value.depts.map((id) => {
 }))
 const floorPeople = (f) => members.value.filter((p) => f.depts.includes(p.dept_id)).length
 const selected = computed(() => members.value.find((p) => p.id === selectedId.value))
+// 고른 직원의 오늘 시간대·입력 길이·모델 분포. 토큰 좌석이 없으면 not_found → 비움
+watch(selectedId, async (id) => { detail.value = null; if (id && paces.value[id]) detail.value = await getSeatPaceDetail(id).catch(() => null) }, { immediate: true })
+const pace = (p) => paces.value[p.id]
+const PACE = { normal: '보통', caution: '빠름', over: '평균의 2배 이상' }
+const n = (v) => Math.round(v).toLocaleString('ko-KR')
+const paceLine = (x) => `${x.product} 오늘 ${n(x.tokens_today)} 토큰 사용 · 이 속도면 ${n(x.projected_today)} 토큰(평균 ${n(x.peer_avg_daily)}의 ${x.ratio}배, ${PACE[x.level]})`
+const top = (rows) => rows.slice().sort((a, b) => b.share - a.share).slice(0, 3).map((b) => `${b.key} ${Math.round(b.share * 100)}%`).join(' · ')
 const dim = (p) => toolFilter.value !== 'all' && !uses(p, toolFilter.value)
 // 최근 30일 사용일: 고른 도구(전체 보기면 기록이 있는 좌석 중 가장 많이 쓴 것). 기록을 주지 않는 제품뿐이면 null
 const WORKDAYS = 22 // 30일 중 평일 수. 막대 100% 기준
@@ -61,6 +79,7 @@ const ago = (s) => (s ? `${Math.max(0, Math.round((Date.now() - new Date(s)) / 8
 const deskLabel = (p) => `${p.name} · ${p.job_title}${p.status !== 'active' ? ` · ${STATUS[p.status]}` : ''} · `
   + (p.tools.length ? p.tools.map((t) => t.product + (t.flag ? `(${FLAG[t.flag]?.label})` : '')).join(', ') : '쓰는 도구 없음')
   + (days(p) != null ? ` · 최근 30일 ${days(p)}일 사용(${LEVEL(days(p))})` : '')
+  + (pace(p) ? ` · ${paceLine(pace(p))}` : '')
 function pickFloor(id) { floorId.value = id; selectedId.value = '' }
 </script>
 
@@ -86,12 +105,14 @@ function pickFloor(id) { floorId.value = id; selectedId.value = '' }
   <div class="row">
     <section class="card col-3 plan" :aria-label="`${floor.label} ${floor.title} 배치도`">
       <div class="card-head">
-        <div><h2>{{ floor.label }} · {{ floor.title }}</h2><span class="small muted">책상을 누르면 오른쪽에 쓰는 도구가 나옵니다</span></div>
+        <div><h2>{{ floor.label }} · {{ floor.title }}</h2><span class="small muted">책상을 누르면 오른쪽에 쓰는 도구가 나오고, 마우스를 올리면 오늘 토큰 소비가 보입니다</span></div>
         <div class="legend">
           <span><i class="swatch" style="background: var(--white); outline: 1px solid var(--line-strong)" />재직</span>
           <span><i class="swatch hatch" />휴직</span>
           <span><i class="swatch" style="outline: 2px dashed var(--ink); background: var(--white)" />이용권 확인 필요</span>
           <span><i class="act-legend" />최근 30일 사용일 (평일 {{ WORKDAYS }}일 = 가득)</span>
+          <span><i class="swatch pace-caution" />토큰 소비 빠름 (1.5배)</span>
+          <span><i class="swatch pace-over" />토큰 소비 2배 이상 · 본인 Slack 안내</span>
         </div>
       </div>
 
@@ -104,9 +125,9 @@ function pickFloor(id) { floorId.value = id; selectedId.value = '' }
           <div class="islands">
             <div v-for="(cl, ci) in z.clusters" :key="ci" class="island">
               <template v-for="(p, di) in cl" :key="p?.id ?? `empty-${ci}-${di}`">
-                <button v-if="p" type="button" class="desk" :class="{ leave: p.status !== 'active', check: needsCheck(p), dim: dim(p) }"
+                <button v-if="p" type="button" class="desk" :class="[{ leave: p.status !== 'active', check: needsCheck(p), dim: dim(p) }, pace(p) && `pace-${pace(p).level}`]"
                   :aria-pressed="p.id === selectedId" :aria-label="deskLabel(p)" @click="selectedId = p.id">
-                  <span class="desk-name">{{ p.name }}</span>
+                  <span class="desk-name">{{ p.name }}<b v-if="pace(p) && pace(p).level !== 'normal'" class="pace-x">×{{ pace(p).ratio }}</b></span>
                   <span class="desk-tools">
                     <ProductLogo v-for="t in p.tools" :key="t.tool_id" :tool-id="t.tool_id" :name="t.product" :size="16" />
                     <span v-if="!p.tools.length" class="xs muted">없음</span>
@@ -114,6 +135,12 @@ function pickFloor(id) { floorId.value = id; selectedId.value = '' }
                   <span v-if="days(p) != null" class="act" aria-hidden="true">
                     <span class="act-bar"><i :style="{ width: `${Math.min(100, (days(p) / WORKDAYS) * 100)}%` }" /></span>
                     <span class="act-n">{{ days(p) }}일</span>
+                  </span>
+                  <span v-if="pace(p)" class="pace-tip" aria-hidden="true">
+                    <strong>{{ pace(p).product }} · 오늘 {{ PACE[pace(p).level] }}</strong>
+                    <span>지금까지 {{ n(pace(p).tokens_today) }} 토큰</span>
+                    <span>이 속도면 {{ n(pace(p).projected_today) }} 토큰</span>
+                    <span>평균 {{ n(pace(p).peer_avg_daily) }}의 {{ pace(p).ratio }}배 · 하루 한도 {{ Math.round(pace(p).projected_quota_pct) }}% 예상</span>
                   </span>
                 </button>
                 <div v-else class="desk empty" aria-hidden="true"><span class="xs">빈 자리</span></div>
@@ -126,7 +153,7 @@ function pickFloor(id) { floorId.value = id; selectedId.value = '' }
           <div class="room core">엘리베이터 · 계단</div>
         </div>
       </div>
-      <p class="xs muted" style="margin: 0">직원·부서·도구·사용일은 DB 값이고, 층과 책상 위치는 시연용으로 임의 배치했습니다. 사용일은 이용권 관리에만 쓰고 인사평가에 쓰지 않습니다. Acrobat·Canva는 공급사가 사용 기록을 주지 않아 마지막 사용일만 보입니다.</p>
+      <p class="xs muted" style="margin: 0">직원·부서·도구·사용일은 DB 값이고, 층과 책상 위치는 시연용으로 임의 배치했습니다. 사용일은 이용권 관리에만 쓰고 인사평가에 쓰지 않습니다. Acrobat·Canva는 공급사가 사용 기록을 주지 않아 마지막 사용일만 보입니다. 토큰 소비 속도 = 오늘 예상량 ÷ 같은 제품 좌석의 최근 14일 평균 하루 사용량(근무 9–18시 기준).</p>
     </section>
 
     <aside class="card col-1 detail" aria-live="polite" aria-labelledby="who-h">
@@ -150,6 +177,18 @@ function pickFloor(id) { floorId.value = id; selectedId.value = '' }
           </li>
         </ul>
         <p v-if="!selected.tools.length" class="small muted" style="margin: 0">배정된 좌석도, 팀 프로젝트 API도 없습니다.</p>
+        <section v-if="pace(selected)" class="pace-box" :class="`pace-${pace(selected).level}`" aria-labelledby="pace-h">
+          <h3 id="pace-h" class="small">오늘 토큰 소비 · {{ PACE[pace(selected).level] }}</h3>
+          <span class="small">{{ paceLine(pace(selected)) }}</span>
+          <span class="act-bar" role="img" :aria-label="`하루 한도의 ${Math.round(pace(selected).projected_quota_pct)}% 예상`"><i :style="{ width: `${Math.min(100, pace(selected).projected_quota_pct)}%` }" /></span>
+          <span class="xs muted">하루 한도 {{ n(pace(selected).daily_quota) }} 토큰 중 {{ Math.round(pace(selected).quota_used_pct) }}% 사용, {{ Math.round(pace(selected).projected_quota_pct) }}% 예상</span>
+          <template v-if="detail">
+            <span class="xs">모델: {{ top(detail.by_model) || '없음' }}</span>
+            <span class="xs">입력 길이: {{ top(detail.by_input_length) || '없음' }}</span>
+            <span class="xs">많이 쓴 시간: {{ top(detail.by_hour.map((b) => ({ ...b, key: `${b.key}시` }))) || '없음' }}</span>
+          </template>
+          <RouterLink :to="{ path: '/assistant', query: { q: `${selected.name} 님이 오늘 토큰을 많이 쓰는 이유를 분석하고 다른 모델을 추천해줘`, prompt: 'analyze_seat_usage', employee: selected.id } }" class="btn">AI로 현재 작업 분석</RouterLink>
+        </section>
         <RouterLink v-if="needsCheck(selected)" to="/licenses" class="btn btn-dark">구독·이용권에서 확인하기</RouterLink>
       </template>
       <template v-else>
@@ -173,12 +212,22 @@ function pickFloor(id) { floorId.value = id; selectedId.value = '' }
 .zone-count { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 4px; border-radius: 999px; border: 1px solid var(--line-strong); }
 .islands { display: flex; flex-wrap: wrap; gap: 16px; }
 .island { display: grid; grid-template-columns: repeat(3, minmax(0, 76px)); gap: 4px; padding: 6px; border-radius: 8px; background: var(--track); }
-.desk { min-height: 64px; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.desk { position: relative; min-height: 64px; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
 .desk:hover { border-color: var(--ink); }
 .desk[aria-pressed='true'] { background: var(--ink); color: var(--white); border-color: var(--ink); }
 .desk.check { outline: 2px dashed var(--ink); outline-offset: -4px; }
 .desk.leave { background: repeating-linear-gradient(45deg, var(--white) 0 6px, var(--track) 6px 12px); }
 .desk.dim { opacity: 0.3; }
+.desk.pace-caution, .swatch.pace-caution { background: rgba(220, 239, 109, 0.45); }
+.desk.pace-over, .swatch.pace-over { background: var(--lime); border: 2px solid var(--ink); }
+.desk.pace-over[aria-pressed='true'], .desk.pace-caution[aria-pressed='true'] { background: var(--ink); }
+.pace-x { margin-left: 4px; font-size: 11px; }
+.pace-tip { display: none; position: absolute; z-index: 5; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); width: max-content; max-width: 240px;
+  flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--ink); color: var(--white); font-size: 12px; text-align: left; pointer-events: none; }
+.desk:hover .pace-tip, .desk:focus-visible .pace-tip { display: flex; }
+.pace-box { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; border: 1px solid var(--line-strong); }
+.pace-box h3 { margin: 0; }
+.pace-box.pace-over { border: 2px solid var(--ink); background: rgba(220, 239, 109, 0.35); }
 .desk.empty { border-style: dashed; background: transparent; color: var(--muted); }
 .desk-name { font-size: 13px; font-weight: 600; }
 .desk-tools { display: flex; gap: 3px; min-height: 16px; }

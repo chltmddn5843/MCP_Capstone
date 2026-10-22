@@ -76,17 +76,18 @@ def send_approval_request(client, channel: str, task: dict, web_url: str | None 
     return client.chat_postMessage(channel=channel, text="AI 비서 처리 확인 요청", blocks=build_approval_request(task, web_url))
 
 
-# ---------- 5. 비용 급증 알림 (F3) ----------
-def build_alert(anomaly: dict) -> list[dict]:
-    cost = anomaly.get("projected_monthly_cost") or {}
+# ---------- 5. 좌석 토큰 소비 경보 (F3, 본인에게만) ----------
+def build_seat_alert(anomaly: dict) -> list[dict]:
     return [
-        _section(f"*비용 급증 알림* · {anomaly.get('scope_name', anomaly['scope_id'])}\n기준 대비 *{anomaly['ratio']}배* · 예상 월 비용 {cost.get('krw', 0):,}원"),
-        _buttons([("원인 조사", "al_investigate", anomaly["id"], "primary")]),
+        _section(f"*토큰 사용량이 많은 작업 중이에요!*\n지금 속도면 오늘 약 *{round(anomaly['observed']):,} 토큰*을 쓰게 돼요 "
+                 f"(평소 평균 {round(anomaly['baseline']):,} 토큰의 *{anomaly['ratio']}배*).\n모델 변경을 권해 드려요. 진행 중인 작업도 한 번 확인 부탁드려요."),
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "이 알림은 본인에게만 갑니다. 사용량은 이용권 관리에만 쓰고 인사평가에 쓰지 않습니다."}]},
+        _buttons([("현재 작업 분석", "seat_analyze", anomaly["scope_id"], "primary")]),
     ]
 
 
-def send_alert(client, channel: str, anomaly: dict) -> dict:
-    return client.chat_postMessage(channel=channel, text="비용 급증 알림", blocks=build_alert(anomaly))
+def send_seat_alert(client, channel: str, anomaly: dict) -> dict:
+    return client.chat_postMessage(channel=channel, text="토큰 사용량이 많은 작업 중이에요!", blocks=build_seat_alert(anomaly))
 
 
 # ---------- 2. 답변 (F2 등, 봇이 직접) ----------

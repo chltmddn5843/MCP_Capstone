@@ -3122,218 +3122,6 @@
         }
       }
     },
-    "/unmet-needs": {
-      "get": {
-        "tags": [
-          "F5"
-        ],
-        "summary": "List Unmet",
-        "operationId": "list_unmet_unmet_needs_get",
-        "parameters": [
-          {
-            "name": "min_count",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1,
-              "title": "Min Count"
-            }
-          },
-          {
-            "name": "capability_tag",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Capability Tag"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_list_UnmetNeedAggregate__"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "F5"
-        ],
-        "summary": "Record Unmet",
-        "operationId": "record_unmet_unmet_needs_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UnmetNeedCreate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Envelope_UnmetNeedCreateResponse_"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          }
-        }
-      }
-    },
     "/usage": {
       "get": {
         "tags": [
@@ -3680,21 +3468,110 @@
         }
       }
     },
-    "/anomalies/{anomaly_id}": {
+    "/usage/seats": {
       "get": {
         "tags": [
           "F3"
         ],
-        "summary": "Anomaly Detail",
-        "operationId": "anomaly_detail_anomalies__anomaly_id__get",
+        "summary": "Seat Paces",
+        "operationId": "seat_paces_usage_seats_get",
         "parameters": [
           {
-            "name": "anomaly_id",
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_SeatPace__"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/usage/seats/{employee_id}": {
+      "get": {
+        "tags": [
+          "F3"
+        ],
+        "summary": "Seat Pace Detail",
+        "operationId": "seat_pace_detail_usage_seats__employee_id__get",
+        "parameters": [
+          {
+            "name": "employee_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Anomaly Id"
+              "title": "Employee Id"
             }
           },
           {
@@ -3720,7 +3597,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_AnomalyDetail_"
+                  "$ref": "#/components/schemas/Envelope_SeatPaceDetail_"
                 }
               }
             }
@@ -6226,7 +6103,7 @@
           "rule": {
             "type": "string",
             "title": "Rule",
-            "description": "예: daily_cost_gt_3x_baseline"
+            "description": "예: seat_pace_2x (좌석 토큰 소비 속도가 평균의 2배 이상)"
           },
           "baseline": {
             "type": "number",
@@ -6272,52 +6149,6 @@
           "created_at"
         ],
         "title": "Anomaly"
-      },
-      "AnomalyDetail": {
-        "properties": {
-          "anomaly": {
-            "$ref": "#/components/schemas/Anomaly"
-          },
-          "project": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Project"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "series": {
-            "items": {
-              "$ref": "#/components/schemas/UsagePoint"
-            },
-            "type": "array",
-            "title": "Series"
-          },
-          "breakdown_by_model": {
-            "items": {
-              "$ref": "#/components/schemas/BreakdownRow"
-            },
-            "type": "array",
-            "title": "Breakdown By Model",
-            "default": []
-          },
-          "breakdown_by_input_length": {
-            "items": {
-              "$ref": "#/components/schemas/BreakdownRow"
-            },
-            "type": "array",
-            "title": "Breakdown By Input Length",
-            "default": []
-          }
-        },
-        "type": "object",
-        "required": [
-          "anomaly",
-          "series"
-        ],
-        "title": "AnomalyDetail"
       },
       "AnomalyStatus": {
         "type": "string",
@@ -7071,22 +6902,6 @@
         ],
         "title": "Envelope[ActionPlan]"
       },
-      "Envelope_AnomalyDetail_": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/AnomalyDetail"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "Envelope[AnomalyDetail]"
-      },
       "Envelope_BudgetView_": {
         "properties": {
           "data": {
@@ -7359,6 +7174,22 @@
         ],
         "title": "Envelope[SavingsSummary]"
       },
+      "Envelope_SeatPaceDetail_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SeatPaceDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SeatPaceDetail]"
+      },
       "Envelope_SetupStatus_": {
         "properties": {
           "data": {
@@ -7406,22 +7237,6 @@
           "meta"
         ],
         "title": "Envelope[TaskCostEstimateResponse]"
-      },
-      "Envelope_UnmetNeedCreateResponse_": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/UnmetNeedCreateResponse"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "Envelope[UnmetNeedCreateResponse]"
       },
       "Envelope_UsageResponse_": {
         "properties": {
@@ -7673,6 +7488,26 @@
         ],
         "title": "Envelope[list[RegisteredTask]]"
       },
+      "Envelope_list_SeatPace__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SeatPace"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[list[SeatPace]]"
+      },
       "Envelope_list_TeamAdoption__": {
         "properties": {
           "data": {
@@ -7712,26 +7547,6 @@
           "meta"
         ],
         "title": "Envelope[list[ToolWithPlan]]"
-      },
-      "Envelope_list_UnmetNeedAggregate__": {
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/UnmetNeedAggregate"
-            },
-            "type": "array",
-            "title": "Data"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/Meta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data",
-          "meta"
-        ],
-        "title": "Envelope[list[UnmetNeedAggregate]]"
       },
       "Environment": {
         "type": "string",
@@ -8327,6 +8142,16 @@
           "tools"
         ],
         "title": "OrgMember"
+      },
+      "PaceLevel": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "caution",
+          "over"
+        ],
+        "title": "PaceLevel",
+        "description": "좌석 토큰 소비 속도: 오늘 예상량 ÷ 같은 제품 좌석 평균 하루 사용량"
       },
       "Page_ActionPlan_": {
         "properties": {
@@ -8925,6 +8750,130 @@
         ],
         "title": "SavingsSummary"
       },
+      "SeatPace": {
+        "properties": {
+          "employee_id": {
+            "type": "string",
+            "title": "Employee Id"
+          },
+          "employee_name": {
+            "type": "string",
+            "title": "Employee Name"
+          },
+          "dept_name": {
+            "type": "string",
+            "title": "Dept Name"
+          },
+          "contract_id": {
+            "type": "string",
+            "title": "Contract Id"
+          },
+          "product": {
+            "type": "string",
+            "title": "Product"
+          },
+          "tokens_today": {
+            "type": "integer",
+            "title": "Tokens Today"
+          },
+          "projected_today": {
+            "type": "integer",
+            "title": "Projected Today"
+          },
+          "peer_avg_daily": {
+            "type": "integer",
+            "title": "Peer Avg Daily"
+          },
+          "daily_quota": {
+            "type": "integer",
+            "title": "Daily Quota",
+            "description": "좌석당 하루 토큰 한도 (contracts.daily_token_quota)"
+          },
+          "quota_used_pct": {
+            "type": "number",
+            "title": "Quota Used Pct"
+          },
+          "projected_quota_pct": {
+            "type": "number",
+            "title": "Projected Quota Pct"
+          },
+          "ratio": {
+            "type": "number",
+            "title": "Ratio",
+            "description": "예상 ÷ 평균"
+          },
+          "level": {
+            "$ref": "#/components/schemas/PaceLevel"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "employee_name",
+          "dept_name",
+          "contract_id",
+          "product",
+          "tokens_today",
+          "projected_today",
+          "peer_avg_daily",
+          "daily_quota",
+          "quota_used_pct",
+          "projected_quota_pct",
+          "ratio",
+          "level"
+        ],
+        "title": "SeatPace",
+        "description": "예상 = 오늘 사용 ÷ 업무 시간(09~18시 KST) 경과 비율. 평균 = 같은 제품 좌석들의 최근 14일 하루 사용량 평균."
+      },
+      "SeatPaceDetail": {
+        "properties": {
+          "pace": {
+            "$ref": "#/components/schemas/SeatPace"
+          },
+          "by_hour": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownRow"
+            },
+            "type": "array",
+            "title": "By Hour",
+            "description": "오늘 시간대별 (key=KST 시, 예: 14)",
+            "default": []
+          },
+          "by_input_length": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownRow"
+            },
+            "type": "array",
+            "title": "By Input Length",
+            "default": []
+          },
+          "by_model": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownRow"
+            },
+            "type": "array",
+            "title": "By Model",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "pace"
+        ],
+        "title": "SeatPaceDetail"
+      },
       "SetupStatus": {
         "properties": {
           "company_name": {
@@ -9501,139 +9450,6 @@
         ],
         "title": "ToolWithPlan",
         "description": "list_approved_tools 출력: 도구 + 현재 계약 플랜 요약."
-      },
-      "UnmetNeed": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "employee_id": {
-            "type": "string",
-            "title": "Employee Id"
-          },
-          "dept_id": {
-            "type": "string",
-            "title": "Dept Id"
-          },
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          },
-          "capability_tag": {
-            "type": "string",
-            "title": "Capability Tag"
-          },
-          "status": {
-            "$ref": "#/components/schemas/UnmetNeedStatus",
-            "default": "open"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "employee_id",
-          "dept_id",
-          "summary",
-          "capability_tag",
-          "created_at"
-        ],
-        "title": "UnmetNeed"
-      },
-      "UnmetNeedAggregate": {
-        "properties": {
-          "capability_tag": {
-            "type": "string",
-            "title": "Capability Tag"
-          },
-          "count": {
-            "type": "integer",
-            "title": "Count"
-          },
-          "dept_count": {
-            "type": "integer",
-            "title": "Dept Count"
-          },
-          "threshold_met": {
-            "type": "boolean",
-            "title": "Threshold Met"
-          },
-          "sample_summaries": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Sample Summaries",
-            "default": []
-          }
-        },
-        "type": "object",
-        "required": [
-          "capability_tag",
-          "count",
-          "dept_count",
-          "threshold_met"
-        ],
-        "title": "UnmetNeedAggregate"
-      },
-      "UnmetNeedCreate": {
-        "properties": {
-          "summary": {
-            "type": "string",
-            "title": "Summary"
-          },
-          "capability_tag": {
-            "type": "string",
-            "title": "Capability Tag"
-          }
-        },
-        "type": "object",
-        "required": [
-          "summary",
-          "capability_tag"
-        ],
-        "title": "UnmetNeedCreate"
-      },
-      "UnmetNeedCreateResponse": {
-        "properties": {
-          "need": {
-            "$ref": "#/components/schemas/UnmetNeed"
-          },
-          "same_tag_count": {
-            "type": "integer",
-            "title": "Same Tag Count"
-          },
-          "same_tag_dept_count": {
-            "type": "integer",
-            "title": "Same Tag Dept Count"
-          },
-          "threshold_met": {
-            "type": "boolean",
-            "title": "Threshold Met"
-          }
-        },
-        "type": "object",
-        "required": [
-          "need",
-          "same_tag_count",
-          "same_tag_dept_count",
-          "threshold_met"
-        ],
-        "title": "UnmetNeedCreateResponse"
-      },
-      "UnmetNeedStatus": {
-        "type": "string",
-        "enum": [
-          "open",
-          "under_review",
-          "closed"
-        ],
-        "title": "UnmetNeedStatus"
       },
       "UsagePoint": {
         "properties": {

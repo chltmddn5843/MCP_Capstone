@@ -62,41 +62,19 @@ export async function getSeatRequests() {
   }))
 }
 
-// GET /anomalies + GET /anomalies/{id} → 알림 + 추이 + 조사 틀. AI 조사 결과는 알림 상세의 project·breakdown으로 근거만 채우고, 원인 후보는 '원인 조사 실행'(에이전트)으로 받는다.
-export async function getAnomalies() {
-  const [list, names, tools, models] = await Promise.all([get('/anomalies'), getNames(), get('/tools').catch(() => []), get('/models').catch(() => [])])
-  const productOf = (modelId) => tools.find((t) => t.vendor === models.find((m) => m.id === modelId)?.vendor && t.contract?.billing_type === 'api_usage')?.product ?? ''
-  return Promise.all(list.map(async (a) => {
-    const d = await get(`/anomalies/${a.id}`)
-    const daily = d.series.map((p) => p.cost.krw)
-    const now = new Date()
-    const monthToDate = d.series.filter((p) => new Date(p.period_start).getMonth() === now.getMonth()).reduce((s, p) => s + p.cost.krw, 0)
-    return {
-      id: a.id, status: a.status, scopeName: a.scope_name ?? a.scope_id, product: productOf(d.project?.model_id), model: named(names, d.project?.model_id ?? ''), env: d.project?.environment === 'prod' ? '운영' : '테스트', dept: named(names, d.project?.dept_id ?? ''),
-      detectedAt: dt(a.created_at), baseline: Math.round(a.baseline), observed: Math.round(a.observed), ratio: a.ratio, projected: a.projected_monthly_cost?.krw ?? 0,
-      budget: d.project?.monthly_budget_krw ?? 0, monthToDate, daily, dailyStart: d.series[0]?.period_start?.slice(5, 10).replace('-', '/') ?? '',
-      projectId: d.project?.id, purpose: d.project?.purpose,
-      investigation: {
-        doneAt: null, causes: [],
-        evidence: ['프로젝트 등록 목적·예산', ...d.breakdown_by_model.map((b) => `모델 ${b.key} ${Math.round(b.share * 100)}%`), ...d.breakdown_by_input_length.map((b) => `입력 ${b.key} ${Math.round(b.share * 100)}%`)],
-        actions: [
-          { id: 'repeat_check', label: '반복 요청 점검 · 부서 확인 요청' },
-          { id: 'budget_review', label: '예산 검토' },
-          { id: 'model_review', label: '품질 평가 후 모델 검토' },
-        ],
-      },
-    }
-  }))
+// GET /usage/seats → 좌석별 오늘 토큰 소비 속도 (employee_id → pace). 직원 상세는 GET /usage/seats/{id}
+export async function getSeatPaces() {
+  return Object.fromEntries((await get('/usage/seats')).map((p) => [p.employee_id, p]))
 }
+export const getSeatPaceDetail = (employeeId) => get(`/usage/seats/${employeeId}`)
 
-// GET /projects + 프로젝트별 이번 달 GET /usage. 급증 표시는 열린 알림에서.
+// GET /projects + 프로젝트별 이번 달 GET /usage
 export async function getProjects() {
-  const [projects, anomalies, names] = await Promise.all([get('/projects'), get('/anomalies', { status: 'open' }).catch(() => []), getNames()])
+  const [projects, names] = await Promise.all([get('/projects'), getNames()])
   const now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), 1)
   return Promise.all(projects.map(async (p) => {
     const u = await get('/usage', { scope: 'project', scope_id: p.id, start: start.toISOString(), end: now.toISOString() }).catch(() => null)
-    return { id: p.id, name: p.name, dept: named(names, p.dept_id), model: named(names, p.model_id), env: p.environment === 'prod' ? '운영' : '테스트', cost: u?.summary.cost.krw ?? 0, budget: p.monthly_budget_krw,
-      anomaly: anomalies.some((a) => a.scope_id === p.id) }
+    return { id: p.id, name: p.name, dept: named(names, p.dept_id), model: named(names, p.model_id), env: p.environment === 'prod' ? '운영' : '테스트', cost: u?.summary.cost.krw ?? 0, budget: p.monthly_budget_krw }
   }))
 }
 
@@ -174,7 +152,7 @@ async function humanize(k, v) {
   if (k === 'confirmation_id') return '사용 의사 응답 있음'
   return humanValue(k, v)
 }
-const EVIDENCE_KO = { confirmations: '사용 의사 응답', inventory: '이용권 현황', get_license_inventory: '이용권 현황', eval_results: '모델 품질 평가', get_eval_results: '모델 품질 평가', usage_records: '사용량', get_usage_summary: '사용량', get_anomaly_detail: '비용 급증 알림 상세', get_my_profile: '직원 프로필', vendor_update: '제품 업데이트', get_vendor_update: '제품 업데이트', me: '직원 프로필' }
+const EVIDENCE_KO = { confirmations: '사용 의사 응답', inventory: '이용권 현황', get_license_inventory: '이용권 현황', eval_results: '모델 품질 평가', get_eval_results: '모델 품질 평가', usage_records: '사용량', get_usage_summary: '사용량', get_seat_usage: '좌석 사용량', get_my_profile: '직원 프로필', vendor_update: '제품 업데이트', get_vendor_update: '제품 업데이트', me: '직원 프로필' }
 async function evidenceText(e) {
   const label = EVIDENCE_KO[e.source] ?? TOOL_LABEL[e.source] ?? e.source
   const ref = names.contracts?.[e.ref] ?? names.tools?.[e.ref] ?? names.models?.[e.ref] ?? (String(e.ref).startsWith('emp_') ? await employeeName(e.ref) : String(e.ref).startsWith('cfm_') ? '반납 응답' : e.ref)
@@ -191,7 +169,7 @@ function opinionView(p) {
   if (o.asset) lines.push(`자산: ${o.asset.product}${o.asset.purchased != null ? ` ${o.asset.purchased}석 중 배정 ${o.asset.assigned}석, 미배정 ${o.asset.unassigned}석` : ''}${o.asset.seat_price_krw ? ` · 좌석 월 ${Number(o.asset.seat_price_krw).toLocaleString('ko-KR')}원` : ''}${o.asset.note ? ` · ${o.asset.note}` : ''}`)
   return { title: `${RECO[o.recommendation] ?? 'AI 의견'} · ${o.summary}`, body: lines.join('\n'), facts: o.facts ?? [], risks: o.risks ?? [], alternative: o.alternative ?? null, recommendation: o.recommendation }
 }
-const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모', capability_tag: '필요 기능' }
+const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모' }
 export async function getPlans() {
   const page = await get('/plans', { limit: 100 })
   await loadNames()
@@ -245,12 +223,6 @@ export async function getTeamSwitches() {
 }
 export function setTeamSwitch() { return Promise.resolve() }
 
-// GET /unmet-needs
-export async function getUnmetNeeds() {
-  const rows = await get('/unmet-needs')
-  return rows.map((n) => ({ capability: cap(n.capability_tag), count: n.count, depts: Array.from({ length: n.dept_count }, (_, i) => `부서 ${i + 1}`), deptCount: n.dept_count,
-    example: n.sample_summaries[0] ?? '', thresholdMet: n.threshold_met }))
-}
 // GET /adoption/teams
 export async function getTeamAdoption() {
   const rows = await get('/adoption/teams')
@@ -259,8 +231,8 @@ export async function getTeamAdoption() {
 
 // 사이드바 배지
 export async function getCounts() {
-  const [plans, anomalies] = await Promise.all([get('/plans', { status: 'pending_approval' }).catch(() => ({ items: [] })), get('/anomalies', { status: 'open' }).catch(() => [])])
-  return { inbox: plans.items.length, cost: anomalies.length }
+  const [plans, paces] = await Promise.all([get('/plans', { status: 'pending_approval' }).catch(() => ({ items: [] })), get('/usage/seats').catch(() => [])])
+  return { inbox: plans.items.length, seats: paces.filter((p) => p.level === 'over').length }
 }
 
 // POST /confirmations — 사용 의사 확인 요청. 백엔드가 plan_id를 요구하므로 그 직원의 회수 요청이 있으면 그것을, 없으면 먼저 회수 요청(승인 대기)을 만든다.
@@ -275,15 +247,6 @@ export async function requestConfirmation(employeeId) {
   const c = await post('/confirmations', { employee_id: employeeId, plan_id: plan.id, question: '이용권을 계속 사용하시나요?' })
   requestReview(plan.id)
   return c
-}
-
-// POST /plans — 비용 급증 알림 대응 → 처리 요청
-export async function createPlanFromAnomaly(anomalyId, actionId) {
-  const a = (await getAnomalies()).find((x) => x.id === anomalyId)
-  const label = a.investigation.actions.find((x) => x.id === actionId)?.label ?? actionId
-  const plan = await post('/plans', { type: 'budget_review', items: [{ project_id: a.projectId, current_budget_krw: a.budget, note: label }], rationale: `${a.scopeName} 비용 급증(${a.ratio}배) 대응: ${label}`, evidence: [{ source: 'get_anomaly_detail', ref: anomalyId }] })
-  requestReview(plan.id)
-  return plan.id
 }
 
 // POST /plans/{id}/approve → (책임자 결정이 아니면) POST /plans/{id}/execute

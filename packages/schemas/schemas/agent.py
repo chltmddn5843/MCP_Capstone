@@ -29,7 +29,7 @@ class TaskStatus(StrEnum):
 class TaskCreate(BaseModel):
     input: str = Field(description="사용자 질문 또는 요청")
     thread_id: str | None = Field(None, description="있으면 같은 대화(checkpointer thread)를 이어간다")
-    prompt_name: str | None = Field(None, description="MCP Prompt 이름. 예: investigate_anomaly, review_update")
+    prompt_name: str | None = Field(None, description="MCP Prompt 이름. 예: analyze_seat_usage, review_update")
     prompt_args: dict = {}
     channel: Literal["slack", "admin_ui", "system"] = "admin_ui"
 

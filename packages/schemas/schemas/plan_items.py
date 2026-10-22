@@ -49,7 +49,6 @@ class PurchaseReviewItem(BaseModel):
     tool_id: str | None = None
     contract_id: str | None = None
     quantity: int | None = None
-    capability_tag: str | None = Field(None, description="F5 미충족 수요에서 올라온 경우")
     note: str | None = None
 
 

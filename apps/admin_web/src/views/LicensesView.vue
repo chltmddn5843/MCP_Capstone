@@ -76,7 +76,7 @@ async function ask(seat) {
           <span><i class="swatch" style="background: var(--track)" />미배정 {{ product.seatsPurchased - product.seatsAssigned }}</span>
         </div>
       </template>
-      <p v-else class="small muted" style="margin: 0">API 사용량 과금 제품은 좌석이 없습니다. 프로젝트별 비용은 비용·사용량에서 봅니다. <RouterLink to="/cost">비용·사용량으로 이동</RouterLink></p>
+      <p v-else class="small muted" style="margin: 0">API 사용량 과금 제품은 좌석이 없습니다. 좌석별 오늘 토큰 소비는 <RouterLink to="/seats">좌석 배치도</RouterLink>에서 봅니다.</p>
     </section>
 
     <div class="row">

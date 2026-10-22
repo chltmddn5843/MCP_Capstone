@@ -131,12 +131,6 @@ class Reaction(StrEnum):
     question = "question"
 
 
-class UnmetNeedStatus(StrEnum):
-    open = "open"
-    under_review = "under_review"
-    closed = "closed"
-
-
 class Environment(StrEnum):
     test = "test"
     prod = "prod"
@@ -163,6 +157,13 @@ class BreakdownBy(StrEnum):
     model = "model"
     api_key = "api_key"
     input_length = "input_length"
+
+
+class PaceLevel(StrEnum):
+    """좌석 토큰 소비 속도: 오늘 예상량 ÷ 같은 제품 좌석 평균 하루 사용량"""
+    normal = "normal"  # 1.5배 미만
+    caution = "caution"  # 1.5배 이상
+    over = "over"  # 2배 이상 → 경보
 
 
 class AnomalyStatus(StrEnum):

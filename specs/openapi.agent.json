@@ -657,7 +657,7 @@
               }
             ],
             "title": "Prompt Name",
-            "description": "MCP Prompt 이름. 예: investigate_anomaly, review_update"
+            "description": "MCP Prompt 이름. 예: analyze_seat_usage, review_update"
           },
           "prompt_args": {
             "additionalProperties": true,
