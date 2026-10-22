@@ -1,6 +1,6 @@
 # 기업 AI 활용·운영 최적화 에이전트 (Capstone MVP)
 
-설계 문서: `docs/설계문서.md` (v2, 2026-10-21) · 에이전트 설계: `apps/agent_runtime/AGENT_DESIGN.md` · 개발 규칙: `CONTRIBUTING.md`
+설계 문서: `docs/설계문서.md` (v2, 2026-10-21) · 아키텍처: `docs/아키텍처.md` · 추후 개발: `docs/추후개발.md` · 에이전트 설계: `apps/agent_runtime/AGENT_DESIGN.md` · 개발 규칙: `CONTRIBUTING.md`
 
 ## 시작하기
 
@@ -57,9 +57,9 @@ apps/backend/       FastAPI REST API (PostgreSQL 데이터·권한·승인·실�
 apps/agent_runtime/ LangGraph 에이전트: graph.py(StateGraph) · harness/(8요소) · prompts/ · tasks.py(작업·이벤트) · main.py(/ai/tasks API)
 apps/admin_web/     Vue 3 관리자 콘솔 (화면은 backend만 호출, Vite `/api` 프록시 · nginx 이미지). apps/admin_web/README.md
 apps/slack_bot/     Slack 봇 (수신) + 발신 메시지 빌더 send.py. apps/slack_bot/README.md
-apps/admin_ui/      (구) Streamlit 화면. Vue로 대체 중이며 새 기능은 넣지 않는다
 apps/mcp_work, apps/mcp_docs   MCP 서버 (schemas.mcp_tools.TOOLS를 순회해 등록)
-apps/mock_vendor, jobs/, db/   Mock 벤더, 배치, 스키마·시드
+db/                스키마(schema.sql)·시드
+apps/mock_vendor, jobs/   (추후) Mock 벤더·대기열 배치 — docs/추후개발.md
 specs/              export.py가 생성하는 openapi·mcp_tools JSON
 tests/              계약 테스트
 ```
@@ -85,7 +85,7 @@ Vue 화면은 `apps/admin_web/src/api.js`를 통해 백엔드 REST API를 호출
 - 처리 요청 승인·반려·실행
 - 업데이트·제안·팀 활용·미지원 요청 조회
 - 팀별 자동 발송 토글은 아직 백엔드 API(`PATCH /departments/{id}`)가 없어 읽기 전용이다.
-- AI 비서는 Vite·nginx가 `/api/ai/*`를 에이전트로 직접 넘긴다. 레퍼런스대로 backend `/ai/tasks` 중계가 생기면 그 프록시 규칙만 지운다.
+- AI 비서는 backend `/ai/tasks`가 에이전트로 중계한다(SSE 포함). 화면은 에이전트 주소를 모른다.
 
 ## 통신 구조
 

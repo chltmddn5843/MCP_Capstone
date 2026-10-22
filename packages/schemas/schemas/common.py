@@ -30,6 +30,7 @@ class ErrorCode(StrEnum):
     conflict = "conflict"  # 상태 충돌 (409)
     stale = "stale"  # 승인 뒤 상태가 바뀌어 실행 중단 (409)
     internal = "internal"  # 500
+    agent_unavailable = "agent_unavailable"  # backend 중계가 에이전트에 연결 못 함 (503)
 
 
 HTTP_STATUS_BY_CODE: dict[ErrorCode, int] = {
@@ -40,6 +41,7 @@ HTTP_STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.conflict: 409,
     ErrorCode.stale: 409,
     ErrorCode.internal: 500,
+    ErrorCode.agent_unavailable: 503,
 }
 
 

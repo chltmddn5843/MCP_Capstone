@@ -423,4 +423,10 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/notify-outbox", "발송함 (발송 배치가 넣고 Slack 봇 워커가 읽음)", [Role.admin, Role.system]),
     ("PATCH", "/notify-outbox/{outbox_id}/delivered", "Slack 전송 뒤 전달 표시 (멱등)", [Role.admin, Role.system]),
     ("POST", "/internal/jobs/{job_name}/run", "배치 수동 실행", [Role.system, Role.admin]),
+    # AI 작업 중계: 요청·응답은 specs/openapi.agent.json (schemas.agent) 그대로. 세부 권한은 에이전트가 다시 확인
+    ("POST", "/ai/tasks", "에이전트 작업 생성 중계 (202)", [Role.employee, Role.admin, Role.system]),
+    ("GET", "/ai/tasks", "작업 이력 중계", [Role.employee, Role.admin, Role.system]),
+    ("GET", "/ai/tasks/{task_id}", "작업 조회 중계", [Role.employee, Role.admin, Role.system]),
+    ("GET", "/ai/tasks/{task_id}/stream", "진행 이벤트 SSE 중계", [Role.employee, Role.admin, Role.system]),
+    ("POST", "/ai/tasks/{task_id}/approval", "처리 확인 중계 (관리자)", [Role.employee, Role.admin, Role.system]),
 ]

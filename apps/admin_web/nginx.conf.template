@@ -4,22 +4,14 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # 백엔드 중계(/ai/tasks)가 생기면 이 블록을 지우고 /api/ 하나로 합친다. 에이전트는 공개 포트가 아니다.
-    location /api/ai/ {
-        proxy_pass ${AGENT_UPSTREAM}/ai/;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_buffering off;          # SSE
-        proxy_cache off;
-        proxy_read_timeout 600s;
-    }
+    # AI 비서(/ai/tasks)도 백엔드가 에이전트로 중계한다. 에이전트는 공개 포트가 아니다.
     location /api/ {
         proxy_pass ${BACKEND_UPSTREAM}/;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
-        proxy_buffering off;
+        proxy_buffering off;          # SSE
+        proxy_cache off;
         proxy_read_timeout 600s;
     }
     location / {
