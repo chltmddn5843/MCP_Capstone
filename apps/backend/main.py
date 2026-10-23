@@ -1005,19 +1005,15 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
     plan, short = _plan(pid), {}
     if plan.type in SEAT_SQL:  # v2.1: 승인 대기로 들어가기 전에 한 번 검증한다 (중복 배정·휴직자·회수 대상 없음). 실행 직전에 한 번 더 한다
         short = _seat_shortage(plan)
-        problem = _seat_blocker(plan, buy=bool(short))
+        problem = _seat_blocker(plan, allow_short=True)  # 좌석 부족은 여기서 막지 않고 승인 대기로 둔다 (관리자가 반려)
         if problem:
             with db.tx() as c:
                 c.execute(db.text("UPDATE action_plans SET status = 'failed', result = CAST(:r AS jsonb) WHERE id = :id"), dict(r=db.js({"ok": False, "reason": problem}), id=pid))
                 _audit(c, user, "plan.reject_invalid", pid, {"status": status.value}, {"status": "failed", "reason": problem})
             raise ApiError(ErrorCode.conflict, problem, {"plan_id": pid})
-    if plan.type == PlanType.seat_assign and not short:  # F4: 남은 좌석이 있으면 시스템이 바로 승인·배정한다
-        with db.tx() as c:
-            c.execute(db.text("UPDATE action_plans SET status = 'approved', approver_id = 'sys', approved_at = now() WHERE id = :id"), dict(id=pid))
-            _audit(c, user, "plan.auto_approve", pid, {"status": status.value}, {"status": "approved", "reason": "남은 좌석 있음"})
-        plan = _execute(_plan(pid), f"auto_{pid}", user).plan
-    elif short:  # 좌석이 없으면 관리자 승인 대기. 승인하면 모자란 만큼 추가 구매(Mock) 후 배정해 좌석 수를 넘지 않는다
-        note = [Evidence(source="inventory", ref=cid, value={"unassigned": 0, "on_approve": f"{n}석 추가 구매(Mock) 후 배정"}) for cid, n in short.items()]
+    # 이용권 배정은 남은 좌석이 있어도 관리자 승인 뒤에 한다 (PRD S4). 좌석이 없으면 승인 대기로 두되 승인은 막고, 추가 구매는 하지 않는다 (S5)
+    if short:
+        note = [Evidence(source="inventory", ref=cid, value={"unassigned": 0, "shortage": n, "note": "남은 좌석 없음 · 승인 불가, 반려 대상"}) for cid, n in short.items()]
         with db.tx() as c:
             c.execute(db.text("UPDATE action_plans SET evidence = evidence || CAST(:ev AS jsonb) WHERE id = :id"), dict(ev=db.js([e.model_dump() for e in note]), id=pid))
         plan = _plan(pid)
@@ -1105,6 +1101,9 @@ def _decide(plan_id: str, body: PlanDecision, user: Employee, approve: bool) -> 
 
 @app.post("/plans/{plan_id}/approve", response_model=Envelope[ActionPlan], tags=["plans"])
 def approve_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(require(Role.admin))):
+    p = _plan(plan_id)
+    if p and p.status == PlanStatus.pending_approval and (short := _seat_shortage(p)):  # 승인 직전 좌석 재확인. 추가 구매는 하지 않는다
+        raise ApiError(ErrorCode.conflict, "남은 좌석이 없어 승인할 수 없습니다. 반려해 주세요", {"plan_id": plan_id, "shortage": short})
     return ok(_decide(plan_id, body, user, approve=True))
 
 
@@ -1134,8 +1133,8 @@ def _seat_shortage(p: ActionPlan) -> dict[str, int]:
     return out
 
 
-def _seat_blocker(p: ActionPlan, buy: bool = False) -> str | None:
-    """좌석 조치안 실행 직전 재검증. 막을 이유가 없으면 None. buy=True면 좌석 부족은 막지 않는다(관리자 승인으로 추가 구매).
+def _seat_blocker(p: ActionPlan, allow_short: bool = False) -> str | None:
+    """좌석 조치안 재검증. 막을 이유가 없으면 None. allow_short=True면 좌석 부족은 막지 않는다(생성 때: 승인 대기로 두고 관리자가 반려).
     ponytail: 검사와 반영 사이 잠금이 없어 동시 배정 2건이 마지막 1석을 함께 통과할 수 있다. 필요하면 contracts 행을 FOR UPDATE로 잠근다."""
     if p.type not in SEAT_SQL:
         return None
@@ -1143,7 +1142,7 @@ def _seat_blocker(p: ActionPlan, buy: bool = False) -> str | None:
         if not db.one("SELECT 1 AS x FROM contracts WHERE id = :c", c=cid):
             return f"계약 없음: {cid}"
     short = _seat_shortage(p)
-    if short and not buy:
+    if short and not allow_short:
         cid, n = next(iter(short.items()))
         adding = sum(1 for i in p.items if i["contract_id"] == cid)
         return f"{cid} 남은 좌석 {adding - n}석, 요청 {adding}석"
@@ -1211,8 +1210,7 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
         raise ApiError(ErrorCode.forbidden, f"승인 상태가 아님: {p.status.value}")
     if p.risk_level == RiskLevel.high:
         raise ApiError(ErrorCode.forbidden, "높은 위험도 조치는 MVP에서 실행하지 않습니다 (요청만 생성)")
-    buy = _seat_shortage(p) if p.approver_id not in (None, "sys") else {}  # 관리자 승인 = 모자란 좌석 추가 구매 승인. 자동 승인은 사지 않는다
-    why = "승인 뒤 대상 상태가 바뀌었습니다" if any(i.get("_stale") for i in p.items) else _seat_blocker(p, buy=bool(buy)) or _project_blocker(p) or _access_blocker(p)
+    why = "승인 뒤 대상 상태가 바뀌었습니다" if any(i.get("_stale") for i in p.items) else _seat_blocker(p) or _project_blocker(p) or _access_blocker(p)
     if why:  # 재검증 실패: 조치안을 failed로 남기고 멈춘다 (좌석·절감 기록은 건드리지 않음)
         with db.tx() as c:
             c.execute(db.text("UPDATE action_plans SET status = 'failed', result = CAST(:r AS jsonb) WHERE id = :id AND status = 'approved'"),
@@ -1220,11 +1218,7 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
             _audit(c, user, "plan.fail", p.id, {"status": "approved"}, {"status": "failed", "reason": why})
         raise ApiError(ErrorCode.stale, f"실행 전 재검증 실패: {why}", {"plan_id": p.id})
     result = {"vendor": "mock", "ok": True, "items": p.items}
-    if buy:
-        result["purchased_seats"] = buy
     with db.tx() as c:
-        for cid, n in buy.items():  # Mock 벤더에 좌석 추가 구매
-            c.execute(db.text("UPDATE contracts SET seats_purchased = seats_purchased + :n WHERE id = :c"), dict(n=n, c=cid))
         if p.type == PlanType.api_access:
             result["handoffs"] = [_grant_api_access(c, p, i) for i in p.items]
         n = c.execute(db.text("UPDATE action_plans SET status = 'executed', executed_at = now(), execution_key = :k, result = CAST(:r AS jsonb)"
@@ -1240,7 +1234,7 @@ def _execute(p: ActionPlan, idempotency_key: str, user: Employee) -> PlanExecute
         for i in p.items if p.type == PlanType.budget_review else []:
             c.execute(db.text("UPDATE projects SET monthly_budget_krw = :to WHERE id = :p AND monthly_budget_krw = :fr"),
                       dict(to=i["proposed_budget_krw"], p=i["project_id"], fr=i["current_budget_krw"]))
-        if p.type == PlanType.seat_assign and not buy:
+        if p.type == PlanType.seat_assign:
             c.execute(db.text("INSERT INTO savings_ledger (id, plan_id, kind, amount_krw, basis) VALUES (:id, :p, 'purchase_avoided', 90000,"
                               " '미배정 좌석 배정으로 추가 구매 회피 (월 45,000원 × 남은 2개월)')"), dict(id=_new_id("sav"), p=p.id))
         _audit(c, user, "plan.execute", p.id, {"status": "approved"}, {"status": "executed", "key": idempotency_key})
