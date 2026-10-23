@@ -15,7 +15,7 @@
 ```
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
-SLACK_USER_ID=U0XXXX                                             # 팀원 본인의 Slack 프로필 ID
+SLACK_USER_ID=U0XXXX                                             # 운영자(관리자) 본인의 Slack 멤버 ID
 SLACK_EMPLOYEE_ID=emp_mkt_01                                     # 연결할 시드 직원 ID
 SLACK_USER_MAP={"U0XXXX":"emp_mkt_01","U0YYYY":"emp_asset_01"}   # Slack 사용자 id → 직원 id (시드의 slack_user_id는 가짜라 이 매핑이 우선)
 SLACK_ADMIN_USER_IDS=U0YYYY                                        # 처리 확인 DM을 받을 관리자
@@ -25,6 +25,8 @@ SLACK_ADMIN_USER_IDS=U0YYYY                                        # 처리 확�
 Slack 앱 설정: Socket Mode, Bot scopes(chat:write, im:history, im:read, im:write, app_mentions:read, channels:read, channels:join, channels:history, users:read), Events(message.im, app_mention, message.channels), Interactivity On, App Home의 Messages Tab On.
 
 ## 실행
+봇은 **운영 PC 한 대에서만** 띄운다. 같은 앱 토큰으로 두 대 이상 띄우면 Socket Mode가 메시지를 아무 연결에나 보내, 요청이 다른 PC의 DB에 쌓이고 답장 링크도 그 PC 주소가 된다. 팀원은 봇을 띄우지 않고 고정 주소(`WEB_URL`)와 Slack만 쓴다.
+
 ```bash
 uv run python -m apps.slack_bot --check   # 토큰·채널·매핑 점검
 uv run python -m apps.slack_bot           # 백엔드(8000)·에이전트(8002)가 떠 있어야 한다

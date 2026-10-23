@@ -20,13 +20,13 @@ ports=(8000 8002 5173); [ "$MCP" = "1" ] && ports+=(8010 8011)
 for port in "${ports[@]}"; do
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "포트 $port 를 이미 다른 프로세스가 쓰고 있습니다. 이전 실행이 남아 있으면 종료하세요:"
-    echo "  pkill -f 'uvicorn apps\.|apps.mcp_|apps.slack_bot|vite'"
+    echo "  pkill -f 'uvicorn apps\.|apps.mcp_|apps.slack_bot|vite|scripts/tunnel.sh|cloudflared tunnel --url http://localhost:5173'"
     exit 1
   fi
 done
 wait_port() { for i in $(seq 1 60); do lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0; sleep 0.5; done; echo "경고: 포트 $1 이(가) 30초 안에 열리지 않았습니다. logs/ 를 확인하세요."; return 1; }
 pids=()
-PATTERN='uvicorn apps\.|apps\.mcp_|apps\.slack_bot|vite'
+PATTERN='uvicorn apps\.|apps\.mcp_|apps\.slack_bot|vite|scripts/tunnel\.sh|cloudflared tunnel --url http://localhost:5173'
 shutdown() {
   echo; echo "종료 중…"
   kill "${pids[@]}" 2>/dev/null
