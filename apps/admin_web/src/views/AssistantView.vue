@@ -7,17 +7,19 @@ import { QUICK, TASK_STATUS } from '../labels.js'
 import TaskStream from '../components/TaskStream.vue'
 
 const route = useRoute()
-const text = ref(''), newThread = ref(false), threadId = ref(null), tasks = ref([]), history = ref([]), notice = ref('')
+const text = ref(''), newThread = ref(false), threadId = ref(null), tasks = ref([]), history = ref([]), notice = ref(''), sending = ref(false)
 
 async function ask(q, promptName, promptArgs) {
   const input = (q ?? text.value).trim()
-  if (!input) return
+  if (!input || sending.value) return
+  sending.value = true
   try {
     const c = await createTask(input, { promptName, promptArgs, threadId: newThread.value || promptName ? null : threadId.value })
     threadId.value = c.thread_id
-    tasks.value.unshift({ id: c.task_id, key: c.task_id })
-    text.value = ''; notice.value = ''
+    tasks.value.unshift({ id: c.task_id, key: c.task_id, q: input })
+    text.value = ''; notice.value = ''; newThread.value = false
   } catch (e) { notice.value = errorLabel(e) }
+  finally { sending.value = false }
 }
 async function loadHistory() { try { history.value = await getTasks(true, 10) } catch { history.value = [] } }
 onMounted(() => {
@@ -32,19 +34,19 @@ onMounted(() => {
   </header>
   <section class="card" style="gap: 12px">
     <div class="tags" style="gap: 8px">
-      <button v-for="q in QUICK" :key="q" type="button" class="chip" @click="ask(q)">{{ q }}</button>
+      <button v-for="q in QUICK" :key="q" type="button" class="chip" :disabled="sending" @click="ask(q)">{{ q }}</button>
     </div>
     <form class="tags" style="gap: 8px; align-items: flex-end" @submit.prevent="ask()">
       <label class="ask-field" for="ask-input">요청 내용
         <input id="ask-input" v-model="text" class="ask-input" placeholder="예: 오늘 토큰을 많이 쓰는 좌석이 있는지 알려줘" />
       </label>
       <label class="small new-thread"><input v-model="newThread" type="checkbox" />새 대화로 시작</label>
-      <button type="submit" class="btn btn-dark" :disabled="!text.trim()">보내기</button>
+      <button type="submit" class="btn btn-dark" :disabled="!text.trim() || sending">{{ sending ? '보내는 중…' : '보내기' }}</button>
     </form>
-    <span class="xs muted">대화: {{ threadId ?? '새 대화' }} · 대화 내용은 저장하지 않고 주제와 요약만 남깁니다.</span>
-    <p v-if="notice" class="status" role="status">{{ notice }}</p>
+    <span class="xs muted">{{ threadId && !newThread ? '앞 대화에 이어서 묻습니다' : '새 대화로 묻습니다' }} · 대화 내용은 저장하지 않고 주제와 요약만 남깁니다.</span>
+    <p v-if="notice" class="status err" role="alert">{{ notice }}</p>
   </section>
-  <TaskStream v-for="t in tasks" :key="t.key" :task-id="t.id" @done="loadHistory" @approval="loadHistory" />
+  <TaskStream v-for="t in tasks" :key="t.key" :task-id="t.id" :question="t.q" @done="loadHistory" @approval="loadHistory" />
   <section class="card" aria-labelledby="hist-h">
     <h2 id="hist-h">내 요청</h2>
     <details v-for="t in history" :key="t.task_id" class="small">

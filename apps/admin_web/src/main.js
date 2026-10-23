@@ -18,7 +18,8 @@ const routes = [
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
-const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: () => ({ top: 0 }) })
+// 다른 화면으로 가면 맨 위로, 뒤로 가기는 보던 위치로. 같은 화면에서 ?id=·?step=만 바뀔 때는 스크롤을 건드리지 않는다
+const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: (to, from, saved) => saved ?? (to.path === from.path ? false : { top: 0 }) })
 // 로그인하지 않았으면 /login으로. 로그인했는데 /login이면 원래 가려던 곳으로
 // 초기 설정을 마치지 않았으면 설정 마법사로. 끝났다고 확인되면 다시 묻지 않는다.
 let setupDone = false

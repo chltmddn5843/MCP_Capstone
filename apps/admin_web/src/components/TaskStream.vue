@@ -4,7 +4,7 @@ import { ref, onBeforeUnmount } from 'vue'
 import { streamTask, errorLabel } from '../request.js'
 import { TOOL_LABEL } from '../labels.js'
 
-const props = defineProps({ taskId: { type: String, required: true }, after: { type: Number, default: 0 } })
+const props = defineProps({ taskId: { type: String, required: true }, after: { type: Number, default: 0 }, question: { type: String, default: '' } })
 const emit = defineEmits(['done', 'approval', 'failed'])
 const steps = ref([]), answer = ref(''), evidence = ref([]), status = ref('running'), error = ref(''), approval = ref(null)
 const ctrl = new AbortController()
@@ -30,6 +30,7 @@ onBeforeUnmount(() => ctrl.abort())
 
 <template>
   <section class="card" style="gap: 12px" aria-live="polite">
+    <p v-if="question" class="question"><span class="xs muted">내 요청</span>{{ question }}</p>
     <div class="tags" style="align-items: center; gap: 8px">
       <span v-if="status === 'running'" class="pill pill-neutral">AI 비서가 처리하고 있습니다…</span>
       <span v-else-if="status === 'waiting'" class="pill pill-ok">관리자 확인 대기</span>
@@ -55,6 +56,7 @@ onBeforeUnmount(() => ctrl.abort())
 
 <style scoped>
 .steps-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.question { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 600; }
 .answer { margin: 0; white-space: pre-wrap; line-height: 1.65; font-size: 14px; }
 summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
 </style>

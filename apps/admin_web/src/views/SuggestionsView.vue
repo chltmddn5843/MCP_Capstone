@@ -39,8 +39,8 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
 
 <template>
   <header class="page-head">
-    <div><span class="small muted">활용 지원 · F1 · 업데이트 주 1회 수집<template v-if="stats"> (다음 {{ stats.nextRun }})</template></span><h1>자동 제안 기록</h1></div>
-    <button type="button" class="btn btn-dark" :disabled="sim.busy" @click="simulate">출시 시뮬레이션</button>
+    <div><span class="small muted">활용 지원 · 제품 업데이트 주 1회 수집<template v-if="stats"> (다음 {{ stats.nextRun }})</template></span><h1>자동 제안 기록</h1></div>
+    <button type="button" class="btn btn-dark" :disabled="sim.busy" @click="simulate">{{ sim.busy ? '시뮬레이션 진행 중…' : '새 모델 출시 시뮬레이션' }}</button>
   </header>
   <section v-if="sim.msg || sim.taskId" class="card" aria-live="polite" style="gap: 8px">
     <strong class="small">새 모델 출시 시뮬레이션</strong>
@@ -58,6 +58,7 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
   <div class="row">
     <section class="col-3 stack" style="gap: 12px" aria-labelledby="upd-h">
       <h2 id="upd-h">업데이트별 판단</h2>
+      <p v-if="stats && !updates.length" class="card small muted loading">아직 수집한 업데이트가 없습니다. 다음 수집은 {{ stats.nextRun }}입니다.</p>
       <article v-for="u in updates" :key="u.id" class="card">
         <div class="card-head" style="align-items: flex-start">
           <div>

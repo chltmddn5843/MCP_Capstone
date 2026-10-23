@@ -6,7 +6,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, getDepartments, createEmployees } from '../api.js'
-import { FLAG, onTabKeys } from '../labels.js'
+import { FLAG, onTabKeys, revealOnMobile } from '../labels.js'
 import ProductLogo from '../components/ProductLogo.vue'
 
 // 층 이름·회의실은 화면 장식. 층에 어떤 부서 구역이 있는지는 책상(DB)에서 정한다
@@ -24,7 +24,8 @@ const error = ref('')
 const floorId = ref('')
 const deskId = ref('') // 고른 빈 자리
 const mode = ref('') // 'new' = 신입 등록 폼
-const notice = ref('')
+const notice = ref({ text: '', err: false })
+const detailEl = ref(null)
 const today = () => new Date().toISOString().slice(0, 10)
 const form = ref({})
 const toolFilter = ref('all')
@@ -100,21 +101,22 @@ const deskLabel = (p) => `${p.name} · ${p.job_title}${p.status !== 'active' ? `
   + (days(p) != null ? ` · 최근 30일 ${days(p)}일 사용(${LEVEL(days(p))})` : '')
   + (pace(p) ? ` · ${paceLine(pace(p))}` : '')
 function pickFloor(id) { floorId.value = id; selectedId.value = ''; deskId.value = ''; mode.value = '' }
-function pickPerson(id) { selectedId.value = id; deskId.value = ''; mode.value = ''; notice.value = '' }
-function pickDesk(id) { deskId.value = id; selectedId.value = ''; mode.value = ''; notice.value = '' }
+const clearNotice = () => { notice.value = { text: '', err: false } }
+function pickPerson(id) { selectedId.value = id; deskId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
+function pickDesk(id) { deskId.value = id; selectedId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
 
 // 신입 등록: 직원 추가(POST /employees) → 고른 빈 자리에 앉히기(PUT /desks). Slack 회원 ID를 넣으면 봇이 바로 알아본다
 function openNew(desk = '') {
   const d = desks.value.find((x) => x.id === desk)
   form.value = { name: '', email: '', dept_id: d?.dept_id ?? depts.value[0]?.id ?? '', job_title: '', hire_date: today(), slack_user_id: '', desk: desk }
-  mode.value = 'new'; selectedId.value = ''; notice.value = ''
+  mode.value = 'new'; selectedId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
 }
 const formDesks = computed(() => [...emptyDesks.value].sort((a, b) => (a.dept_id === form.value.dept_id ? 0 : 1) - (b.dept_id === form.value.dept_id ? 0 : 1)))
 watch(() => form.value.dept_id, () => { if (mode.value === 'new' && !emptyDesks.value.some((d) => d.id === form.value.desk && d.dept_id === form.value.dept_id)) form.value.desk = formDesks.value[0]?.id ?? '' })
 const busy = ref(false)
 async function run(fn, ok) {
-  busy.value = true; notice.value = ''
-  try { await fn(); await load(); notice.value = ok } catch (e) { notice.value = `실패: ${e.message}` }
+  busy.value = true; clearNotice()
+  try { await fn(); await load(); notice.value = { text: ok, err: false } } catch (e) { notice.value = { text: `실패: ${e.message}`, err: true } }
   busy.value = false
 }
 const registerNew = () => run(async () => {
@@ -134,11 +136,13 @@ watch(selectedId, () => { moveTo.value = '' })
 <template>
   <header class="page-head">
     <div><span class="small muted">운영 · 관리자 보기</span><h1>좌석 배치도</h1></div>
-    <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
-    <div role="tablist" aria-label="층" class="segment" @keydown="onTabKeys">
-      <button v-for="f in FLOORS" :key="f.id" type="button" role="tab" :aria-selected="f.id === floorId" :tabindex="f.id === floorId ? 0 : -1" @click="pickFloor(f.id)">
-        {{ f.label }} <span class="xs">{{ floorPeople(f) }}명</span>
-      </button>
+    <div class="head-actions">
+      <div role="tablist" aria-label="층" class="segment" @keydown="onTabKeys">
+        <button v-for="f in FLOORS" :key="f.id" type="button" role="tab" :aria-selected="f.id === floorId" :tabindex="f.id === floorId ? 0 : -1" @click="pickFloor(f.id)">
+          {{ f.label }} <span class="xs">{{ floorPeople(f) }}명</span>
+        </button>
+      </div>
+      <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
     </div>
   </header>
 
@@ -207,8 +211,8 @@ watch(selectedId, () => { moveTo.value = '' })
       <p class="xs muted" style="margin: 0">직원·부서·도구·사용일·책상은 DB 값입니다. 사용일은 이용권 관리에만 쓰고 인사평가에 쓰지 않습니다. Acrobat·Canva는 공급사가 사용 기록을 주지 않아 마지막 사용일만 보입니다. 토큰 소비 속도 = 오늘 예상량 ÷ 같은 제품 좌석의 최근 14일 평균 하루 사용량(근무 9–18시 기준).</p>
     </section>
 
-    <aside class="card col-1 detail" aria-live="polite" aria-labelledby="who-h">
-      <p v-if="notice" class="status" role="status">{{ notice }}</p>
+    <aside ref="detailEl" class="card col-1 detail" aria-live="polite" aria-labelledby="who-h">
+      <p v-if="notice.text" class="status" :class="{ err: notice.err }" :role="notice.err ? 'alert' : 'status'">{{ notice.text }}</p>
       <form v-if="mode === 'new'" class="new-form" @submit.prevent="registerNew">
         <h2 id="who-h">신입 등록</h2>
         <label class="field">이름<input v-model="form.name" required maxlength="50" autocomplete="off" /></label>
@@ -288,6 +292,7 @@ watch(selectedId, () => { moveTo.value = '' })
 </template>
 
 <style scoped>
+.page-head > .head-actions { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; }
 .segment { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 12px; background: var(--white); border: 1px solid var(--line); }
 .segment button { min-height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; font-size: 14px; }
 .segment button[aria-selected='true'] { background: var(--ink); color: var(--white); font-weight: 600; }

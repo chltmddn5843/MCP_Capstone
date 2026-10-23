@@ -112,3 +112,8 @@ button { cursor: pointer; }
 .feed-title { font-size: 15px; font-weight: 600; }
 
 .status { font-size: 13px; padding: 10px 14px; border-radius: 10px; background: var(--lime); }
+.status.err { background: var(--ink); color: var(--lime); } /* 실패 알림: 성공(라임)과 같은 색으로 보이지 않게 */
+.loading { margin: 0; }
+
+/* 누를 수 있는 카드·칩은 마우스를 올렸을 때 테두리로 알려 준다 */
+a.card:hover, .chip:hover:not(:disabled) { border-color: var(--ink); }

@@ -8,12 +8,14 @@ const products = ref([])
 const requests = ref([])
 const activeId = ref('')
 const flagFilter = ref('all')
-const notice = ref('')
+const notice = ref({ text: '', err: false })
+const loaded = ref(false)
 const asking = ref('') // 확인 요청 보내는 중인 직원 id (중복 클릭 방지)
 
 async function load() {
   ;[products.value, requests.value] = await Promise.all([getProducts(), getSeatRequests()])
   activeId.value ||= products.value[0]?.id
+  loaded.value = true
 }
 onMounted(() => {
   load()
@@ -34,8 +36,8 @@ const filters = computed(() => [
 function selectProduct(id) { activeId.value = id; flagFilter.value = 'all' }
 async function ask(seat) {
   asking.value = seat.id
-  try { await requestConfirmation(seat.id); notice.value = `${seat.name} 님에게 사용 의사 확인을 보냈습니다.` }
-  catch (e) { notice.value = `확인 요청 실패: ${e.message}` }
+  try { await requestConfirmation(seat.id); notice.value = { text: `${seat.name} 님에게 사용 의사 확인을 보냈습니다.`, err: false } }
+  catch (e) { notice.value = { text: `확인 요청 실패: ${e.message}`, err: true } }
   finally { asking.value = '' }
   await load()
 }
@@ -43,7 +45,7 @@ async function ask(seat) {
 
 <template>
   <header class="page-head">
-    <div><span class="small muted">운영 · F4</span><h1>구독·이용권</h1></div>
+    <div><span class="small muted">운영 · 좌석 배정과 사용 의사 확인</span><h1>구독·이용권</h1></div>
   </header>
 
   <div role="tablist" aria-label="제품" class="tags" style="gap: 8px" @keydown="onTabKeys">
@@ -90,7 +92,7 @@ async function ask(seat) {
             <button v-for="f in filters" :key="f.id" type="button" class="chip" :aria-pressed="flagFilter === f.id" @click="flagFilter = f.id">{{ f.label }} {{ f.n }}</button>
           </div>
         </div>
-        <p v-if="notice" class="status" role="status">{{ notice }}</p>
+        <p v-if="notice.text" class="status" :class="{ err: notice.err }" :role="notice.err ? 'alert' : 'status'">{{ notice.text }}</p>
         <div v-if="visible.length" class="table-wrap">
           <table class="table" style="min-width: 680px">
             <thead><tr><th scope="col">직원</th><th scope="col">상태</th><th scope="col">마지막 사용</th><th scope="col">사용 의사 확인</th><th scope="col" class="num"><span class="sr-only">동작</span></th></tr></thead>
@@ -133,6 +135,8 @@ async function ask(seat) {
       </aside>
     </div>
   </template>
+  <p v-else-if="loaded" class="card small muted loading">아직 등록한 구독 제품이 없습니다. <RouterLink to="/setup?step=assets">회사 설정에서 제품 등록하기</RouterLink></p>
+  <p v-else class="card small muted loading" aria-busy="true">이용권 현황을 불러오는 중…</p>
 </template>
 
 <style scoped>
