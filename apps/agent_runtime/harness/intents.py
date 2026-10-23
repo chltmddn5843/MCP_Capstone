@@ -7,16 +7,17 @@ from __future__ import annotations
 
 import re
 
-INTENTS = ["access_request", "release_request", "recommendation", "policy_question", "status_or_other"]
+INTENTS = ["access_request", "release_request", "recommendation", "policy_question", "off_topic", "status_or_other"]
 
-LABEL = {"access_request": "사용 신청", "release_request": "반납·중단", "recommendation": "제품·모델 추천", "policy_question": "사용 가능 여부·정책", "status_or_other": "상태 문의·기타", "system": "시스템 작업"}
+LABEL = {"off_topic": "기능 밖 요청", "access_request": "사용 신청", "release_request": "반납·중단", "recommendation": "제품·모델 추천", "policy_question": "사용 가능 여부·정책", "status_or_other": "상태 문의·기타", "system": "시스템 작업"}
 
-CLASSIFY_PROMPT = """다음 요청의 의도를 아래 다섯 가지 중 하나의 영어 코드로만 답하라. 설명 없이 코드만.
+CLASSIFY_PROMPT = """다음 요청의 의도를 아래 여섯 가지 중 하나의 영어 코드로만 답하라. 설명 없이 코드만.
 - access_request: 어떤 제품(AI 채팅, API, 소프트웨어)을 쓰고 싶다 / 사용 신청·권한·이용권을 달라 / 사용할 수 있게 해달라
 - release_request: 더 안 쓴다 / 반납 / 해지 / 중단
 - recommendation: 어떤 제품·모델을 쓰는 게 좋은지, 비용을 줄일 수 있는지, 조건 비교
 - policy_question: 이 기능·제품을 써도 되는지, 정책·보안 규정, 데이터 넣어도 되는지
-- status_or_other: 내 요청·업무 상태 확인, 업무 등록, 인사, 그 외
+- off_topic: 업무용 AI·소프트웨어 제품, 모델, 이용권, 사용량·비용, 사내 AI 정책과 관계없는 요청 (잡담, 장난, 인사만, 맛집·날씨·뉴스, 일반 상식, 업무 자체를 대신 해 달라는 요청)
+- status_or_other: 내 요청·업무 상태 확인, 업무 등록·수정, 이 서비스 사용법
 
 직전 대화 맥락이 있으면 참고하되, 이번 메시지의 요구가 우선이다. "사용할 수 있게 해달라", "써야 한다", "요청 보내줘"는 질문이 아니라 access_request다.
 
@@ -59,6 +60,28 @@ _KW = [
     ("policy_question", r"써도\s*되|사용해도\s*되|정책|보안|규정|넣어도\s*되"),
     ("recommendation", r"추천|비용|줄일|어떤\s*모델|어떤\s*제품|뭐가\s*좋|비교"),
 ]
+
+
+# 하네스 입력 경계: 기능과 무관한 요청은 본 AI(도구를 쓰는 답변 루프)를 돌리지 않고 이 문구로 거부한다
+OFF_TOPIC_ANSWER = ("저는 업무용 AI·소프트웨어 이용권과 사용 관리를 돕는 비서예요. 이 요청은 도와드릴 수 없어요.\n"
+                    "이런 걸 말씀해 주세요: '이용권 신청할래요', '캔바 반납할게요', '보고서 요약에 맞는 모델 추천해줘', '메뉴'")
+# 업무 단어: 하나라도 있으면 규칙으로 거부하지 않고 의도 분류에 맡긴다
+_DOMAIN = re.compile(r"ai|gpt|챗|chat|claude|클로드|canva|캔바|adobe|어도비|acrobat|아크로뱃|grok|api|모델|제품|이용권|좌석|라이선스|라이센스|구독|"
+                     r"신청|반납|비용|요금|사용량|토큰|정책|보안|승인|키|업무|요약|번역|분석|보고서|문서|메뉴|도와|도움|사용법|help", re.IGNORECASE)
+_ASKED = re.compile(r"\?|알려\s*주|어느|어떤 것|골라|말씀해")
+
+
+def off_topic_by_rule(text: str, last_ai: str | None = None) -> bool:
+    """모델을 부르지 않는 1차 필터. 이모지·기호뿐이거나, 업무 단어 없이 아주 짧은 말(메롱, ㅋㅋ, 하이)이면 기능 밖.
+    직전 AI 답이 되물음이면 짧은 대답(네, 그거요, 2번)일 수 있으므로 거르지 않는다. 애매하면 의도 분류(모델)에 넘긴다."""
+    if last_ai and _ASKED.search(last_ai):
+        return False
+    core = re.sub(r"[\W_]+", "", text or "")
+    if not core:
+        return True
+    if _DOMAIN.search(text) or any(re.search(pat, text) for _, pat in _KW):
+        return False
+    return len(core) <= 6
 
 
 def classify_by_keywords(text: str) -> str:

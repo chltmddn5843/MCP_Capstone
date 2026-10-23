@@ -1,6 +1,7 @@
 """LangGraph StateGraph. 노드·분기·반복은 AGENT_DESIGN.md의 그래프 그림과 같다.
 
-prepare → classify_intent → call_model → check_limits ─┬─ tools ──────────┐
+prepare → classify_intent ─┬─ (기능 밖) refuse → finalize → END   (본 모델 루프를 돌리지 않는다)
+                           └─ call_model → check_limits ─┬─ tools ──────────┐
                                       ├─ approval_gate ─┤ (승인 → tools / 거절 → call_model)
                                       └─ finalize → END │
                  ▲────────────────────────────────────────┘
@@ -22,7 +23,16 @@ from langgraph.types import interrupt
 from apps.agent_runtime.config import MAX_SAME_TOOL, MAX_SECONDS, MAX_TURNS
 from apps.agent_runtime.harness.context import fit_context
 from apps.agent_runtime.harness.guardrails import approval_summary, is_destructive, public_channel, sanitize_public_answer
-from apps.agent_runtime.harness.intents import CLAIM_WORDS, CLASSIFY_PROMPT, PROCEDURE, TOOLS_BY_INTENT, classify_by_keywords, parse_intent
+from apps.agent_runtime.harness.intents import (
+    CLAIM_WORDS,
+    CLASSIFY_PROMPT,
+    OFF_TOPIC_ANSWER,
+    PROCEDURE,
+    TOOLS_BY_INTENT,
+    classify_by_keywords,
+    off_topic_by_rule,
+    parse_intent,
+)
 from langchain_core.messages import HumanMessage, SystemMessage
 from apps.agent_runtime.harness.observability import record, usage_of
 from apps.agent_runtime.harness.recovery import call_with_recovery
@@ -79,6 +89,11 @@ async def classify_intent(state: AgentState) -> dict:
     rt = _rt(state)
     last = next((m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), None)
     text = last.content if last and isinstance(last.content, str) else ""
+    idx = next((i for i in range(len(state["messages"]) - 1, -1, -1) if state["messages"][i] is last), len(state["messages"]))
+    prev_ai = next((m for m in reversed(state["messages"][:idx]) if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content), None)
+    if off_topic_by_rule(text, prev_ai.content if prev_ai else None):  # 1차: 규칙. 모델을 한 번도 부르지 않는다
+        record(rt.trace_id, "intent", intent="off_topic", by="rule", text=text[:60])
+        return {"intent": "off_topic"}
     try:
         resp, _ = await call_with_recovery(rt.model, rt.fallback, [HumanMessage(content=CLASSIFY_PROMPT.format(text=text))], trace_id=rt.trace_id)
         raw = resp.content if isinstance(resp.content, str) else ""
@@ -88,6 +103,16 @@ async def classify_intent(state: AgentState) -> dict:
         intent = classify_by_keywords(text)
     record(rt.trace_id, "intent", intent=intent, text=text[:60])
     return {"intent": intent}
+
+
+def route_after_intent(state: AgentState) -> str:
+    return "refuse" if state.get("intent") == "off_topic" else "call_model"
+
+
+async def refuse(state: AgentState) -> dict:
+    """하네스 입력 경계: 기능과 무관한 요청은 정해진 문구로 거부한다. 도구·본 모델을 쓰지 않는다."""
+    record(_rt(state).trace_id, "guardrail.off_topic")
+    return {"messages": [AIMessage(content=OFF_TOPIC_ANSWER)]}
 
 
 def _with_procedure(state: AgentState, msgs: list) -> list:
@@ -224,6 +249,7 @@ def build_graph(checkpointer):
     g = StateGraph(AgentState)
     g.add_node("prepare", prepare)
     g.add_node("classify_intent", classify_intent)
+    g.add_node("refuse", refuse)
     g.add_node("call_model", call_model)
     g.add_node("check_limits", check_limits)
     g.add_node("approval_gate", approval_gate)
@@ -231,7 +257,8 @@ def build_graph(checkpointer):
     g.add_node("finalize", finalize)
     g.add_edge(START, "prepare")
     g.add_edge("prepare", "classify_intent")
-    g.add_edge("classify_intent", "call_model")
+    g.add_conditional_edges("classify_intent", route_after_intent, {"refuse": "refuse", "call_model": "call_model"})
+    g.add_edge("refuse", "finalize")
     g.add_edge("call_model", "check_limits")
     g.add_conditional_edges("check_limits", route_after_limits, {"tools": "tools", "approval_gate": "approval_gate", "finalize": "finalize"})
     g.add_conditional_edges("approval_gate", route_after_approval, {"tools": "tools", "call_model": "call_model"})
