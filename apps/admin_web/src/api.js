@@ -170,12 +170,13 @@ function opinionView(p) {
   if (o.asset) lines.push(`자산: ${o.asset.product}${o.asset.purchased != null ? ` ${o.asset.purchased}석 중 배정 ${o.asset.assigned}석, 미배정 ${o.asset.unassigned}석` : ''}${o.asset.seat_price_krw ? ` · 좌석 월 ${Number(o.asset.seat_price_krw).toLocaleString('ko-KR')}원` : ''}${o.asset.note ? ` · ${o.asset.note}` : ''}`)
   return { title: `${RECO[o.recommendation] ?? 'AI 의견'} · ${o.summary}`, body: lines.join('\n'), facts: o.facts ?? [], risks: o.risks ?? [], alternative: o.alternative ?? null, recommendation: o.recommendation }
 }
-const KEY_KO = { employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모' }
+const KEY_KO = { product_name: '신청 제품', employee_id: '직원', contract_id: '계약', project_id: '프로젝트', tool_id: '제품', purpose: '용도', model_id: '모델', expected_requests_per_day: '예상 일 요청 수', from_model_id: '현재 모델', to_model_id: '변경 모델', environment: '환경', confirmation_id: '사용 의사 응답', reassign_to_employee_id: '재배정 대상', tool_id: '제품', quantity: '수량', current_budget_krw: '현재 예산', proposed_budget_krw: '제안 예산', note: '메모' }
 export async function getPlans() {
   const page = await get('/plans', { limit: 100 })
   await loadNames()
   return Promise.all(page.items.map(async (p) => ({
     id: p.id, type: p.type, risk: p.risk_level, status: p.status, createdAt: dt(p.created_at),
+    short: (p.evidence ?? []).some((e) => e.value?.shortage),  // 남은 좌석 없음: 승인 불가, '좌석 부족'으로 반려 (PRD S5)
     title: PLAN_TYPE[p.type] ?? p.type,
     subtitle: '',  // 아래 changes에서 채운다 (이름 기준)
     requester: p.ai_opinion?.requester ? `${p.ai_opinion.requester.name} (${p.ai_opinion.requester.dept})` : await employeeName(p.requested_by), summary: p.rationale, steps: PLAN_STEPS(p),

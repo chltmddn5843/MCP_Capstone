@@ -152,6 +152,12 @@ async def attach_plan_opinion(i: M.AttachPlanOpinionIn) -> dict:
     return {"plan_id": p["id"], "status": p["status"]}
 
 
+@adapter("request_unlisted_product")
+async def request_unlisted_product(i: M.RequestUnlistedProductIn) -> dict:
+    p = await call("POST", "/requests/unlisted", json_body=i.model_dump())
+    return {"plan_id": p["id"], "status": p["status"], "reject_reason": p.get("reject_reason")}
+
+
 @adapter("create_action_plan")
 async def create_action_plan(i: M.CreateActionPlanIn) -> dict:
     plan = await call("POST", "/plans", json_body=i.model_dump(mode="json"))

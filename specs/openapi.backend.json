@@ -5102,6 +5102,7 @@
           "plans"
         ],
         "summary": "Reject Plan",
+        "description": "PRD S5: 남은 좌석이 없는 이용권 신청은 입력한 사유와 관계없이 '좌석 부족'으로 기록한다(직원 안내문과 같은 사유).\n좌석이 남아 있는 신청에는 '좌석 부족' 사유를 붙이지 못한다.",
         "operationId": "reject_plan_plans__plan_id__reject_post",
         "parameters": [
           {
@@ -5142,6 +5143,106 @@
         },
         "responses": {
           "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ActionPlan_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/requests/unlisted": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Request Unlisted",
+        "description": "PRD S9: 사내 등록 제품 목록에 없는 제품 신청. 신청 이력(purchase_review)에 남기고 시스템이 '사내 미도입'으로 바로 반려한다.\n구매·도입·배정으로 이어지지 않는다. 등록된 제품이면 일반 사용 신청(POST /plans)을 쓰도록 409.",
+        "operationId": "request_unlisted_requests_unlisted_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlistedProductRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -10753,6 +10854,28 @@
         ],
         "title": "ToolWithPlan",
         "description": "list_approved_tools 출력: 도구 + 현재 계약 플랜 요약."
+      },
+      "UnlistedProductRequest": {
+        "properties": {
+          "product_name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Product Name"
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Purpose",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_name"
+        ],
+        "title": "UnlistedProductRequest",
+        "description": "사내 등록 제품 목록에 없는 제품 신청 (PRD S9). 이력에 남기고 '사내 미도입'으로 반려한다. 구매·도입으로 이어지지 않는다."
       },
       "UsagePoint": {
         "properties": {

@@ -174,7 +174,7 @@ def test_employee_usage_self_only():
 
 def test_mcp_registry_roles_and_schemas():
     names = [t.name for t in TOOLS]
-    assert len(names) == len(set(names)) == 24
+    assert len(names) == len(set(names)) == 25
     assert "execute_approved_plan" not in {t.name for t in tools_for_role(Role.employee)}
     assert "get_usage_breakdown" in {t.name for t in tools_for_role(Role.admin)}
     for t in TOOLS:

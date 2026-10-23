@@ -301,3 +301,24 @@ def test_overdue_no_response_reclaims_seat():
     assert actions[-2:] == ["plan.auto_approve", "plan.execute"]
     again = run("reclaim_overdue", WORK_HOUR)  # 다시 돌려도 두 번 회수하지 않는다
     assert again["reclaimed"] == [] and again["skipped"][0]["reason"] == "이미 회수된 좌석입니다"
+
+
+def test_shortage_reject_reason_and_unlisted_request():
+    """PRD S5: 좌석 부족 신청을 반려하면 사유가 '좌석 부족'으로 기록된다. 좌석이 남은 신청에는 이 사유를 못 쓴다.
+    S9: 사내 미도입 제품 신청은 이력에 남고 '사내 미도입'으로 반려된다. 등록 제품이면 409."""
+    ok_plan = assign("emp_mkt_01").json()["data"]  # 좌석 있음
+    r = client.post(f"/plans/{ok_plan['id']}/reject", headers=ADMIN, json={"reason": "좌석 부족"})
+    assert r.status_code == 409 and "남은 좌석이 있어" in r.json()["error"]["message"]
+    with db.tx() as c:
+        c.execute(db.text("UPDATE contracts SET seats_purchased = 58 WHERE id = 'ctr_chatgpt_2026'"))
+    full = assign("emp_mkt_01").json()["data"]  # 같은 직원의 두 번째 신청: 이번엔 좌석 없음
+    rejected = client.post(f"/plans/{full['id']}/reject", headers=ADMIN, json={"reason": "Slack에서 반려"}).json()["data"]
+    assert rejected["status"] == "rejected" and rejected["reject_reason"] == "좌석 부족"  # 입력과 관계없이 정형 사유
+
+    emp = {"Authorization": "Bearer dev.emp_mkt_01"}
+    assert client.post("/requests/unlisted", headers=emp, json={"product_name": "chatgpt", "purpose": "x"}).status_code == 409  # 등록 제품
+    p = client.post("/requests/unlisted", headers=emp, json={"product_name": "Notion AI", "purpose": "회의록 정리"}).json()["data"]
+    assert p["type"] == "purchase_review" and p["status"] == "rejected" and p["reject_reason"] == "사내 미도입"
+    assert p["items"] == [{"product_name": "Notion AI", "purpose": "회의록 정리"}] and p["requested_by"] == "emp_mkt_01"
+    assert [a["action"] for a in db.rows("SELECT action FROM audit_log WHERE target = :t ORDER BY created_at", t=p["id"])] == ["plan.create", "plan.reject"]
+    assert any(x["id"] == p["id"] for x in client.get("/plans", headers=ADMIN).json()["data"]["items"])  # 관리자 신청 이력에 보인다

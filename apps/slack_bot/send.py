@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "budget_review": "예산 검토", "purchase_review": "구매 검토"}
+PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "budget_review": "예산 검토", "purchase_review": "미도입 제품 신청"}
 
 
 def _section(text: str) -> dict:
@@ -156,10 +156,18 @@ def build_api_purpose_modal(tool_id: str, product: str, channel: str) -> dict:
 
 
 # ---------- 5. 좌석 토큰 소비 경보 (F3, 본인에게만) ----------
+SEAT_CHECKLIST = (  # PRD S2: 직원이 직접 할 수 있는 점검 행동. 완료 보고를 요구하지 않는다
+    "긴 문서·대화를 통째로 다시 넣고 있지 않은지 점검해 보세요",
+    "같은 질문을 여러 번 반복해서 보내고 있지 않은지 점검해 보세요",
+    "간단한 작업에 무거운 모델을 쓰고 있지 않은지 점검해 보세요 (가벼운 모델로 충분할 수 있어요)",
+)
+
+
 def build_seat_alert(anomaly: dict) -> list[dict]:
+    checks = "\n".join(f"• {c}" for c in SEAT_CHECKLIST)
     return [
         _section(f"*토큰 사용량이 많은 작업 중이에요!*\n지금 속도면 오늘 약 *{round(anomaly['observed']):,} 토큰*을 쓰게 돼요 "
-                 f"(평소 평균 {round(anomaly['baseline']):,} 토큰의 *{anomaly['ratio']}배*).\n모델 변경을 권해 드려요. 진행 중인 작업도 한 번 확인 부탁드려요."),
+                 f"(평소 평균 {round(anomaly['baseline']):,} 토큰의 *{anomaly['ratio']}배*).\n{checks}\n점검 결과를 따로 알려 주실 필요는 없어요."),
         {"type": "context", "elements": [{"type": "mrkdwn", "text": "이 알림은 본인에게만 갑니다. 사용량은 이용권 관리에만 쓰고 인사평가에 쓰지 않습니다."}]},
         _buttons([("현재 작업 분석", "seat_analyze", anomaly["scope_id"], "primary")]),
     ]
@@ -167,6 +175,17 @@ def build_seat_alert(anomaly: dict) -> list[dict]:
 
 def send_seat_alert(client, channel: str, anomaly: dict) -> dict:
     return client.chat_postMessage(channel=channel, text="토큰 사용량이 많은 작업 중이에요!", blocks=build_seat_alert(anomaly))
+
+
+def build_cost_alert(teams: dict[str, int], link: str) -> list[dict]:
+    """PRD S3: 관리자(HRD)에게 비용 이상 팀 요약과 대시보드 링크. 개인 이름은 쓰지 않는다."""
+    rows = "\n".join(f"• {t}: {n}석" for t, n in sorted(teams.items(), key=lambda x: -x[1]))
+    return [_section(f"*비용 이상 알림*\n평소보다 토큰을 2배 이상 빠르게 쓰는 좌석이 있는 팀이에요.\n{rows}\n"
+                     f"<{link}|비용 관리 대시보드>에서 팀을 누르면 원인 분석과 대응 방법을 볼 수 있어요.")]
+
+
+def send_cost_alert(client, channel: str, teams: dict[str, int], link: str) -> dict:
+    return client.chat_postMessage(channel=channel, text="비용 이상 알림", blocks=build_cost_alert(teams, link))
 
 
 # ---------- 2. 답변 (F2 등, 봇이 직접) ----------

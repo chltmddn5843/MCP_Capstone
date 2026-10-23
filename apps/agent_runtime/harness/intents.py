@@ -25,7 +25,7 @@ CLASSIFY_PROMPT = """다음 요청의 의도를 아래 다섯 가지 중 하나�
 
 # 의도별 도구 부분집합 (직원 기준. 역할에 없는 도구는 서버가 이미 걸러 준다)
 TOOLS_BY_INTENT = {
-    "access_request": ["get_my_profile", "list_approved_tools", "list_approved_models", "create_action_plan", "get_plan_status"],
+    "access_request": ["get_my_profile", "list_approved_tools", "list_approved_models", "create_action_plan", "request_unlisted_product", "get_plan_status"],
     "release_request": ["get_my_profile", "list_approved_tools", "create_action_plan", "get_plan_status"],
     "recommendation": ["get_my_profile", "list_approved_tools", "list_approved_models", "get_eval_results", "estimate_task_cost", "get_usage_summary", "search_vendor_docs", "create_action_plan"],
     "policy_question": ["get_my_profile", "list_approved_tools", "search_internal_policy", "search_vendor_docs", "get_vendor_update"],
@@ -35,7 +35,8 @@ TOOLS_BY_INTENT = {
 PROCEDURE = {
     "access_request": """[이번 요청의 의도: 사용 신청] 반드시 아래 순서로 행동한다. 상담으로 빠지지 않는다.
 1. get_my_profile로 본인 정보(employee_id)와 이미 쓰는 제품을 본다. list_approved_tools로 승인 제품 목록을 본다.
-2. 어떤 제품인지 분명하면 바로 처리 요청을 만든다. 분명하지 않으면 승인 제품 이름을 2~3개 보여 주고 "어느 것을 쓰고 싶은지" 딱 하나만 묻고 끝낸다 (조건·용도를 더 묻지 않는다).
+2. 요청한 제품이 승인 제품 목록에 없으면(사내 미도입) request_unlisted_product(product_name: 요청한 제품 이름, purpose: 한 줄 용도)를 부르고, 반려 결과가 오면 "[제품명]은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다."라고만 답한다. 구매·도입 예정을 약속하지 않는다. 목록에 있는 제품이면 아래로.
+   어떤 제품인지 분명하면 바로 처리 요청을 만든다. 분명하지 않으면 승인 제품 이름을 2~3개 보여 주고 "어느 것을 쓰고 싶은지" 딱 하나만 묻고 끝낸다 (조건·용도를 더 묻지 않는다).
 3. 처리 요청 만들기:
    - 좌석형 제품(채팅, 소프트웨어): create_action_plan(type=seat_assign, items=[{employee_id: 본인, contract_id: 그 제품의 계약 id}])
    - 사용량 과금 제품(API): create_action_plan(type=api_access, items=[{tool_id, purpose: 한 줄 용도, model_id?, expected_requests_per_day?}]). 용도를 모르면 요청 문장에서 추정해 한 줄로 쓴다.

@@ -228,6 +228,17 @@ class RequestConfirmationOut(BaseModel):
     due_at: datetime
 
 
+class RequestUnlistedProductIn(BaseModel):
+    product_name: str = Field(description="사내 등록 제품 목록(list_approved_tools)에 없는 제품 이름")
+    purpose: str = Field("", description="신청 용도 한 줄")
+
+
+class RequestUnlistedProductOut(BaseModel):
+    plan_id: str
+    status: PlanStatus
+    reject_reason: str | None = None
+
+
 class CreateActionPlanOut(BaseModel):
     plan_id: str
     risk_level: RiskLevel
@@ -318,6 +329,7 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_employee_assets", "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.", GetEmployeeAssetsIn, MyProfileOut, [Role.admin, Role.system], backend="GET /employees/{id}/assets", features=["F4"]),
     ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.admin], read_only=False, backend="POST /confirmations", features=["F4"]),
     ToolSpec("create_action_plan", "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어간다(status=pending_approval). seat_assign은 남은 좌석이 없으면 승인할 수 없고 관리자가 반려한다(추가 구매 없음). 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
+    ToolSpec("request_unlisted_product", "사내 등록 제품 목록(list_approved_tools)에 없는 제품 신청을 기록한다. 서버가 신청 이력에 남기고 '사내 미도입'으로 반려한다. 구매·도입 약속이 아니다. 등록된 제품이면 conflict로 거절되므로 create_action_plan으로 신청한다.", RequestUnlistedProductIn, RequestUnlistedProductOut, [Role.employee], read_only=False, backend="POST /requests/unlisted", features=["F3"]),
     ToolSpec("get_plan_status", "조치안 상태, 승인자, 결과.", GetPlanStatusIn, PlanStatusOut, ALL, backend="GET /plans/{id}", features=["common"]),
     ToolSpec("get_employee_profile", "검토용 직원 프로필: 이름·부서·직무·재직 상태·등록 업무·배정된 제품. 사용량·비밀번호는 없다.", GetEmployeeProfileIn, EmployeeProfile, [Role.system, Role.admin], backend="GET /employees/{id}", features=["F4"]),
     ToolSpec("attach_plan_opinion", "승인 대기 중인 처리 요청에 AI 검토 의견을 붙인다. 관리자가 읽으므로 전부 자연어·이름으로 쓴다.", AttachPlanOpinionIn, AttachPlanOpinionOut, [Role.system, Role.admin], read_only=False, backend="PATCH /plans/{id}/opinion", features=["F4"]),

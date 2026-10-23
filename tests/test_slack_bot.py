@@ -367,3 +367,41 @@ def test_plan_mismatch_is_rule_not_ai(monkeypatch):
     monkeypatch.setattr(api, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("에이전트를 부르면 안 된다")))
     assert worker.review_updates(wait=1) == [{"update_id": "upd_edu", "status": "on_hold", "reason": "회사 플랜에 없는 기능: Edu"}]
     assert posted == [{"update_id": "upd_edu", "target_type": "all", "status": "on_hold", "hold_reason": "회사 플랜에 없는 기능: Edu"}]
+
+
+def test_fixed_reject_messages_and_checklist():
+    """PRD S5·S9 정형 반려 안내문, S2 점검 체크리스트(완료 요구 없음), S3 관리자 팀별 비용 알림."""
+    from apps.slack_bot import worker
+    names = {"ctr_chatgpt_2026": "ChatGPT Enterprise"}
+    short = worker.outcome_messages({"type": "seat_assign", "status": "rejected", "requested_by": "emp_md_01", "reject_reason": "좌석 부족",
+                                     "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]}, names)
+    assert short["emp_md_01"] == "ChatGPT Enterprise 사용 신청이 반려되었습니다. 현재 배정 가능한 이용권이 부족합니다."
+    unlisted = worker.outcome_messages({"type": "purchase_review", "status": "rejected", "requested_by": "emp_md_01", "reject_reason": "사내 미도입",
+                                        "items": [{"product_name": "Notion AI", "purpose": "회의록 정리"}]}, names)
+    assert unlisted["emp_md_01"] == "Notion AI은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다."
+    text = send.build_seat_alert({"scope_id": "emp_md_01", "observed": 1, "baseline": 1, "ratio": 2.0})[0]["text"]["text"]
+    assert text.count("점검해 보세요") == 3 and "알려 주실 필요는 없어요" in text and "모델 변경을 권해" not in text
+    cost = send.build_cost_alert({"마케팅": 2, "영업": 1}, "http://web/cost/teams")[0]["text"]["text"]
+    assert cost.index("마케팅: 2석") < cost.index("영업: 1석") and "<http://web/cost/teams|비용 관리 대시보드>" in cost
+
+
+def test_run_f3_sends_team_summary_to_admins(monkeypatch):
+    """S3: 새 경보가 있으면 본인 DM과 별개로 관리자에게 팀별 요약 + 대시보드 링크를 한 번 보낸다."""
+    from apps.slack_bot import worker
+    anomalies = [{"id": "anm_1", "scope_type": "employee", "scope_id": "emp_mkt_02", "scope_name": "a", "observed": 2, "baseline": 1, "ratio": 2.0},
+                 {"id": "anm_2", "scope_type": "employee", "scope_id": "emp_mkt_03", "scope_name": "b", "observed": 2, "baseline": 1, "ratio": 2.0}]
+    def backend(method, path, token, **kw):
+        if path == "/anomalies":
+            return anomalies
+        if path.startswith("/employees/"):
+            return {"employee": {"id": path.rsplit("/", 1)[1], "name": "x", "dept_name": "마케팅", "role": "employee", "slack_user_id": None}}
+        return {}
+    monkeypatch.setattr(api, "backend", backend)
+    monkeypatch.setattr(identity, "admin_slack_ids", lambda: ["U0ADMIN001"])
+    monkeypatch.setattr(worker, "save_state", lambda state: None)
+    worker._emp_cache.clear()
+    slack = FakeSlack()
+    assert worker.run_f3(slack, {"anomalies": []}) == ["anm_1", "anm_2"]
+    admin = [m for m in slack.posted if m["channel"] == "D_U0ADMIN001"]
+    assert len(admin) == 1 and "마케팅: 2석" in admin[0]["blocks"][0]["text"]["text"]
+    assert worker.run_f3(slack, {"anomalies": ["anm_1", "anm_2"]}) == [] and len(slack.posted) == 1  # 이미 보낸 경보는 다시 안 보냄
