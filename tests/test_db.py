@@ -199,6 +199,31 @@ def test_new_hire_registered_and_placed_on_desk():
     assert client.put(f"/desks/{empty[1]}", headers={"Authorization": "Bearer dev.emp_mkt_01"}, json={"employee_id": None}).status_code == 403
 
 
+def test_seat_layout_created_and_removed():
+    """새 층·구역 만들기 → 빈 책상 하나 없애기 → 층 없애기. 사람이 앉은 책상·구역은 지우지 않는다."""
+    made = client.post("/desks", headers=ADMIN, json={"floor": "7F", "dept_id": "dept_mkt", "count": 3}).json()["data"]
+    assert [d["id"] for d in made] == ["7F-mkt-01", "7F-mkt-02", "7F-mkt-03"]
+    emp = next(d["employee_id"] for d in client.get("/desks", headers=ADMIN).json()["data"] if d["employee_id"])
+    client.put("/desks/7F-mkt-01", headers=ADMIN, json={"employee_id": emp})
+    assert client.delete("/desks/7F-mkt-01", headers=ADMIN).status_code == 409                                  # 앉은 자리
+    assert client.delete("/desks", headers=ADMIN, params={"floor": "7F", "dept_id": "dept_mkt"}).status_code == 409
+    assert client.delete("/desks/7F-mkt-03", headers=ADMIN).json()["data"]["id"] == "7F-mkt-03"
+    client.put("/desks/7F-mkt-01", headers=ADMIN, json={"employee_id": None})
+    assert len(client.delete("/desks", headers=ADMIN, params={"floor": "7F"}).json()["data"]) == 2
+    assert not [d for d in client.get("/desks", headers=ADMIN).json()["data"] if d["floor"] == "7F"]
+    assert client.delete("/desks", headers=ADMIN, params={"floor": "7F"}).status_code == 404
+    assert client.delete("/desks/4F-mkt-01", headers={"Authorization": "Bearer dev.emp_mkt_01"}).status_code == 403
+
+
+def test_team_usage_sums_seat_paces_by_team():
+    teams = client.get("/usage/teams", headers=ADMIN).json()["data"]
+    paces = client.get("/usage/seats", headers=ADMIN).json()["data"]
+    assert sum(t["seats_tracked"] for t in teams) == len(paces)
+    assert sum(t["tokens_today"] for t in teams) == sum(p["tokens_today"] for p in paces)
+    assert sum(t["seats_over"] for t in teams) == sum(p["level"] == "over" for p in paces)
+    assert client.get("/usage/teams", headers={"Authorization": "Bearer dev.emp_mkt_01"}).status_code == 403
+
+
 def test_model_release_detected_once_per_model_and_card_sent_to_all():
     """새 모델 감지: 평소 폴링은 새것 없음, 시뮬레이션마다 승인 공급사 모델 하나씩. 승인 전 공급사(xAI)는 알리지 않는다.
     전사 카드는 팀 주간 상한 없이 업무 시간에 발송함으로 간다."""
