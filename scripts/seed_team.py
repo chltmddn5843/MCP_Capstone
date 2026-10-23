@@ -140,6 +140,8 @@ def main() -> None:
 
     from apps.backend.main import app
     password = os.getenv("TEAM_ADMIN_PASSWORD") or secrets.token_urlsafe(9)
+    if len(password) < 8:  # 가입 API가 거절하면 스키마만 지워진 채 끝난다. 지우기 전에 막는다
+        raise SystemExit("TEAM_ADMIN_PASSWORD는 8자 이상이어야 합니다. DB는 건드리지 않았습니다.")
     reset_schema()
     out = build(TestClient(app), os.getenv("SYSTEM_TOKEN", "dev.sys"), password)
     print("만들었습니다:", out)
