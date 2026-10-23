@@ -221,6 +221,9 @@ def test_team_usage_sums_seat_paces_by_team():
     assert sum(t["seats_tracked"] for t in teams) == len(paces)
     assert sum(t["tokens_today"] for t in teams) == sum(p["tokens_today"] for p in paces)
     assert sum(t["seats_over"] for t in teams) == sum(p["level"] == "over" for p in paces)
+    alert = [s for t in teams for s in t["alert_seats"]]  # 화면에서 바로 고르는 경보 좌석 = 빠름·2배 이상 좌석 전부
+    assert sorted(s["employee_id"] for s in alert) == sorted(p["employee_id"] for p in paces if p["level"] != "normal")
+    assert all(t["alert_seats"] == sorted(t["alert_seats"], key=lambda s: -s["ratio"]) for t in teams)
     assert client.get("/usage/teams", headers={"Authorization": "Bearer dev.emp_mkt_01"}).status_code == 403
 
 

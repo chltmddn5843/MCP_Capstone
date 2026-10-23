@@ -11,8 +11,13 @@ const routes = [
   { path: '/', name: 'home', component: () => import('./views/HomeView.vue'), meta: { title: '홈' } },
   { path: '/inbox', name: 'inbox', component: () => import('./views/InboxView.vue'), meta: { title: '승인 대기' } },
   { path: '/licenses', name: 'licenses', component: () => import('./views/LicensesView.vue'), meta: { title: '구독·이용권' } },
-  { path: '/seats', name: 'seats', component: () => import('./views/SeatsView.vue'), meta: { title: '좌석 배치도' } },
+  // 비용·사용량: 벤더별 / 팀별(팀별 사용량 + 좌석 배치도). 옛 /seats 링크(홈·Slack 안내)는 팀별로 보낸다
+  { path: '/cost', redirect: '/cost/teams' },
+  { path: '/cost/vendors', name: 'cost-vendors', component: () => import('./views/CostVendorsView.vue'), meta: { title: '벤더별 비용' } },
+  { path: '/cost/teams', name: 'cost-teams', component: () => import('./views/SeatsView.vue'), meta: { title: '팀별 사용량 · 좌석 배치도' } },
+  { path: '/seats', redirect: (to) => ({ path: '/cost/teams', query: to.query }) },
   { path: '/suggestions', name: 'suggestions', component: () => import('./views/SuggestionsView.vue'), meta: { title: '자동 제안 기록' } },
+  { path: '/needs', name: 'needs', component: () => import('./views/NeedsView.vue'), meta: { title: '미지원 요청' } }, // 추후 개발 자리
   { path: '/assistant', name: 'assistant', component: () => import('./views/AssistantView.vue'), meta: { title: 'AI 비서' } },
   { path: '/key/:id', name: 'key', component: () => import('./views/KeyView.vue'), meta: { title: 'API 키 확인', bare: true } }, // 직원용: 사이드바 없이
   { path: '/:pathMatch(.*)*', redirect: '/' },

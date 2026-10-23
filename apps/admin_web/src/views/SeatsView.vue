@@ -1,14 +1,18 @@
 <script setup>
-// 층별 좌석 배치도 (관리자). 직원·부서·도구는 GET /org/members, 층·구역·책상은 GET /desks (DB). 신입 등록과 자리 배치·이동도 여기서 한다.
+// 비용·사용량 › 팀별: 팀별 실시간 사용량(위) + 층별 좌석 배치도(아래). 직원·부서·도구는 GET /org/members, 층·구역·책상은 GET /desks (DB).
+// 신입 등록과 자리 배치·이동, 좌석 구조 편집도 여기서 한다. 층 탭·구조 편집·신입 등록은 배치도 바로 위 툴바에 있다.
 // 도구는 '쓸 수 있는 것'(배정 좌석 + 팀 프로젝트 API). 좌석은 최근 30일 사용일 수도 보인다 — 관리자는 개인별 사용량을 볼 수 있지만(설계문서 3절)
 // 이용권 관리 목적으로만 쓰고 인사평가에 쓰지 않는다. 팀 프로젝트 API는 개인 기록이 아니라 숫자가 없다.
 // 토큰 좌석(ChatGPT 등)은 오늘 소비 속도(GET /usage/seats)로 색을 입힌다: 오늘 예상량이 같은 제품 좌석 평균 하루 사용량의 2배 이상이면 경보. 30초마다 갱신.
+// 확인이 필요한 팀·자리를 고르면 오른쪽에 '왜 → 이렇게 → AI 분석'(SeatInsight, insight.js 규칙)이 바로 뜬다.
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, createEmployees } from '../api.js'
-import { FLAG, onTabKeys, revealOnMobile } from '../labels.js'
+import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, createEmployees, getModels } from '../api.js'
+import { FLAG, won, pct, onTabKeys, revealOnMobile } from '../labels.js'
+import { seatInsight, teamBadge, teamPattern } from '../insight.js'
 import ProductLogo from '../components/ProductLogo.vue'
 import TeamUsage from '../components/TeamUsage.vue'
+import SeatInsight from '../components/SeatInsight.vue'
 
 // 회의실은 화면 장식. 층·구역·책상과 층 제목(그 층 구역 이름)은 책상(DB)에서 정한다
 const ROOMS = { '5F': ['경영진실', '회의실 A'], '4F': ['회의실 B', '고객 상담실'], '3F': ['회의실 C', '탕비실'] }
@@ -17,10 +21,13 @@ const CLUSTER = 6 // 책상 6개(3×2 마주 보기)가 한 섬
 const members = ref([])
 const desks = ref([])
 const depts = ref([])
+const models = ref([]) // 승인 모델·단가 (가벼운 모델 추천용)
+const teams = ref([]) // TeamUsage가 받은 팀별 사용량 (구역 배지·팀 카드용)
 const error = ref('')
 const floorId = ref('')
 const deskId = ref('') // 고른 빈 자리
-const mode = ref('') // 'new' = 신입 등록 폼, 'layout' = 좌석 구조 편집
+const teamId = ref('') // 고른 팀 (팀 카드)
+const mode = ref('') // 'new' = 신입 등록 폼, 'layout' = 좌석 구조 편집, 'team' = 팀 카드
 const notice = ref({ text: '', err: false })
 const detailEl = ref(null)
 const today = () => new Date().toISOString().slice(0, 10)
@@ -38,6 +45,7 @@ async function load() {
 onMounted(async () => {
   await load()
   depts.value = await getDepartments().catch(() => [])
+  getModels().then((m) => (models.value = m)).catch(() => {})
   floorId.value = deskOf.value.get(selectedId.value)?.floor ?? FLOORS.value[0]?.id ?? '' // 홈에서 ?id=로 들어오면 그 사람 층으로
   await loadPaces()
   timer = setInterval(loadPaces, 30000)
@@ -61,7 +69,17 @@ const tools = computed(() => {
   return [...m].map(([id, product]) => ({ id, product }))
 })
 const uses = (p, toolId) => p.tools.some((t) => t.tool_id === toolId)
+const STATUS = { active: '재직', on_leave: '휴직 중', resigned: '퇴사' }
 const needsCheck = (p) => p.status !== 'active' || p.tools.some((t) => t.flag && t.flag !== 'recent_hire')
+const checkLabel = (p) => (p.status !== 'active' ? STATUS[p.status] : FLAG[p.tools.find((t) => t.flag && t.flag !== 'recent_hire')?.flag]?.label ?? '확인 필요')
+// 이용권 확인이 필요한 직원을 부서별로 (팀 표의 칩·구역 배지·팀 카드가 같이 쓴다)
+const checksByDept = computed(() => {
+  const out = {}
+  for (const p of members.value) if (p.status !== 'resigned' && needsCheck(p)) (out[p.dept_id] ??= []).push({ id: p.id, name: p.name, label: checkLabel(p) })
+  return out
+})
+const teamOf = (deptId) => teams.value.find((t) => t.dept_id === deptId)
+const apiOver = (t) => !!t?.api_budget_month_krw && t.api_cost_month_krw > t.api_budget_month_krw
 
 // 층의 책상을 부서 구역별로 모아 6개씩 섬으로 자른다
 const zones = computed(() => {
@@ -74,7 +92,13 @@ const zones = computed(() => {
     return { id, name: deptName(id), people, clusters, count, empty: ds.length - people.length }
   })
 })
+// 구역 머리 배지: 이 구역에 앉은 사람 기준 (2배 이상 > API 예산 초과 > 빠름 > 이용권 확인)
+const zoneBadge = (z) => teamBadge({
+  over: z.people.filter((p) => pace(p)?.level === 'over').length, caution: z.people.filter((p) => pace(p)?.level === 'caution').length,
+  checks: z.people.filter(needsCheck).length, apiOver: apiOver(teamOf(z.id)),
+})
 const floorPeople = (f) => desks.value.filter((d) => d.floor === f.id && d.employee_id).length
+const floorFlags = (f) => desks.value.filter((d) => d.floor === f.id && d.employee_id).map((d) => byId.value.get(d.employee_id)).filter((p) => p && (pace(p)?.level === 'over' || needsCheck(p))).length
 const selected = computed(() => members.value.find((p) => p.id === selectedId.value))
 // 고른 직원의 오늘 시간대·입력 길이·모델 분포. 토큰 좌석이 없으면 not_found → 비움
 watch(selectedId, async (id) => { detail.value = null; if (id && paces.value[id]) detail.value = await getSeatPaceDetail(id).catch(() => null) }, { immediate: true })
@@ -93,23 +117,24 @@ const days = (p) => {
 const LEVEL = (d) => (d === 0 ? '30일 미사용' : d < 5 ? '가끔' : d < 12 ? '보통' : '자주')
 const zoneAvg = (z) => { const ds = z.people.map(days).filter((d) => d != null); return ds.length ? Math.round(ds.reduce((a, b) => a + b, 0) / ds.length) : null }
 
-const STATUS = { active: '재직', on_leave: '휴직 중', resigned: '퇴사' }
 const VIA = { seat: '배정 좌석', project: '팀 프로젝트 API' }
 const ago = (s) => (s ? `${Math.max(0, Math.round((Date.now() - new Date(s)) / 86400000))}일 전` : '기록 없음')
+// 호버 툴팁·스크린리더용 한 줄: 경보 자리는 첫 번째 이유까지
+const firstReason = (p) => (pace(p) && pace(p).level !== 'normal' ? seatInsight({ pace: pace(p), detail: p.id === selectedId.value ? detail.value : null, models: models.value }).reasons[0] : null)
 const deskLabel = (p) => `${p.name} · ${p.job_title}${p.status !== 'active' ? ` · ${STATUS[p.status]}` : ''} · `
   + (p.tools.length ? p.tools.map((t) => t.product + (t.flag ? `(${FLAG[t.flag]?.label})` : '')).join(', ') : '쓰는 도구 없음')
   + (days(p) != null ? ` · 최근 30일 ${days(p)}일 사용(${LEVEL(days(p))})` : '')
   + (pace(p) ? ` · ${paceLine(pace(p))}` : '')
-function pickFloor(id) { floorId.value = id; selectedId.value = ''; deskId.value = ''; mode.value = '' }
 const clearNotice = () => { notice.value = { text: '', err: false } }
-function pickPerson(id) { selectedId.value = id; deskId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
-function pickDesk(id) { deskId.value = id; selectedId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
+function pickFloor(id) { floorId.value = id; selectedId.value = ''; deskId.value = ''; teamId.value = ''; mode.value = '' }
+function pickPerson(id) { selectedId.value = id; deskId.value = ''; teamId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
+function pickDesk(id) { deskId.value = id; selectedId.value = ''; teamId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
 
 // 신입 등록: 직원 추가(POST /employees) → 고른 빈 자리에 앉히기(PUT /desks). Slack 회원 ID를 넣으면 봇이 바로 알아본다
 function openNew(desk = '') {
   const d = desks.value.find((x) => x.id === desk)
   form.value = { name: '', email: '', dept_id: d?.dept_id ?? depts.value[0]?.id ?? '', job_title: '', hire_date: today(), slack_user_id: '', desk: desk }
-  mode.value = 'new'; selectedId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
+  mode.value = 'new'; selectedId.value = ''; teamId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
 }
 const formDesks = computed(() => [...emptyDesks.value].sort((a, b) => (a.dept_id === form.value.dept_id ? 0 : 1) - (b.dept_id === form.value.dept_id ? 0 : 1)))
 watch(() => form.value.dept_id, () => { if (mode.value === 'new' && !emptyDesks.value.some((d) => d.id === form.value.desk && d.dept_id === form.value.dept_id)) form.value.desk = formDesks.value[0]?.id ?? '' })
@@ -137,7 +162,7 @@ const clearDesk = (desk) => run(() => putDesk(desk, null), `${desk} 자리를 �
 const lf = ref({ floor: '', newFloor: '', dept_id: '', count: CLUSTER })
 function openLayout(z) {
   lf.value = { floor: floor.value.id || '_new', newFloor: '', dept_id: z?.id ?? depts.value[0]?.id ?? '', count: CLUSTER }
-  mode.value = 'layout'; selectedId.value = ''; deskId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
+  mode.value = 'layout'; selectedId.value = ''; deskId.value = ''; teamId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
 }
 const lfFloor = computed(() => (lf.value.floor === '_new' ? lf.value.newFloor.trim().toUpperCase().replace(/층$/, 'F').replace(/^(\d+)$/, '$1F') : lf.value.floor))
 const lfExisting = computed(() => desks.value.filter((d) => d.floor === lfFloor.value && d.dept_id === lf.value.dept_id).length)
@@ -160,46 +185,65 @@ function removeFloor() {
 }
 const removeOne = (id) => run(async () => { await removeDesk(id); deskId.value = '' }, `${id} 책상을 없앴어요.`)
 
-// 팀별 사용량에서 팀을 누르면: 그 팀 구역이 있는 층으로 가서 구역을 보여 준다
+// ── 팀 카드: 팀별 사용량에서 팀을 누르면 그 구역으로 가고, 오른쪽에 확인이 필요한 자리·팀 패턴·해결책을 보여 준다 ──
+const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+const teamDetails = ref({}) // employee_id → SeatPaceDetail (팀 패턴용, 경보 좌석만)
 async function pickTeam(deptId) {
+  teamId.value = deptId; mode.value = 'team'; selectedId.value = ''; deskId.value = ''; clearNotice()
   const d = desks.value.find((x) => x.dept_id === deptId)
-  if (!d) { notice.value = { text: `${deptName(deptId)}은(는) 아직 자리 구역이 없어요. '좌석 구조 편집'에서 만들 수 있어요.`, err: false }; revealOnMobile(detailEl.value); return }
-  pickFloor(d.floor)
+  if (!d) notice.value = { text: `${deptName(deptId)}은(는) 아직 자리 구역이 없어요. '좌석 구조 편집'에서 만들 수 있어요.`, err: false }
+  else { floorId.value = d.floor; await nextTick(); scrollTo(`zone-${deptId}`) }
+  revealOnMobile(detailEl.value)
+  const alerts = (teamOf(deptId)?.alert_seats ?? []).slice(0, 6).filter((s) => !teamDetails.value[s.employee_id])
+  await Promise.all(alerts.map(async (s) => { teamDetails.value[s.employee_id] = await getSeatPaceDetail(s.employee_id).catch(() => null) }))
+}
+const PICK_TONE = { over: 'alert', caution: 'ok' }
+const team = computed(() => {
+  if (!teamId.value) return null
+  const t = teamOf(teamId.value), id = teamId.value
+  const alerts = (t?.alert_seats ?? []).map((s) => ({ id: s.employee_id, name: s.employee_name, label: `${PACE[s.level]} ×${s.ratio}`, tone: PICK_TONE[s.level], note: `${s.product} · 오늘 예상 ${n(s.projected_today)} 토큰` }))
+  for (const c of checksByDept.value[id] ?? []) if (!alerts.some((a) => a.id === c.id)) alerts.push({ id: c.id, name: c.name, label: c.label, tone: 'neutral', note: '이용권 확인 필요' })
+  const insights = (t?.alert_seats ?? []).map((s) => seatInsight({ pace: paces.value[s.employee_id], detail: teamDetails.value[s.employee_id], models: models.value }))
+  const pattern = teamPattern(insights)
+  const fixes = [...pattern.fixes]
+  if (apiOver(t)) fixes.push(`API 프로젝트 비용이 월 예산을 ${won(t.api_cost_month_krw - t.api_budget_month_krw)} 넘었어요. 벤더별 비용에서 프로젝트 예산을 검토하세요`)
+  if ((checksByDept.value[id] ?? []).length) fixes.push('이용권 확인이 필요한 직원은 구독·이용권에서 사용 의사 확인 요청을 보내세요')
+  return { id, name: deptName(id), t, alerts, badge: t ? teamBadge({ over: t.seats_over, caution: t.seats_caution, checks: (checksByDept.value[id] ?? []).length, apiOver: apiOver(t) }) : null, common: pattern.common, fixes }
+})
+// 팀 표·팀 카드에서 자리를 누르면: 그 사람 층으로 가서 책상을 고르고 보이게 한다
+async function pickSeat(empId) {
+  floorId.value = deskOf.value.get(empId)?.floor ?? floorId.value
+  pickPerson(empId)
   await nextTick()
-  document.getElementById(`zone-${deptId}`)?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  if (!matchMedia('(max-width: 900px)').matches) scrollTo(`desk-${empId}`)
 }
 watch(selectedId, () => { moveTo.value = '' })
 </script>
 
 <template>
   <header class="page-head">
-    <div><span class="small muted">운영 · 관리자 보기</span><h1>좌석 배치도</h1></div>
-    <div class="head-actions">
-      <div role="tablist" aria-label="층" class="segment" @keydown="onTabKeys">
-        <button v-for="f in FLOORS" :key="f.id" type="button" role="tab" :aria-selected="f.id === floorId" :tabindex="f.id === floorId ? 0 : -1" @click="pickFloor(f.id)">
-          {{ f.label }} <span class="xs">{{ floorPeople(f) }}명</span>
-        </button>
-      </div>
-      <button type="button" class="btn" :aria-pressed="mode === 'layout'" @click="openLayout()">좌석 구조 편집</button>
-      <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
-    </div>
+    <div><span class="small muted">비용·사용량 · 팀별</span><h1>팀별 사용량 · 좌석 배치도</h1></div>
   </header>
 
   <p v-if="error" class="status err" role="alert">좌석 정보를 불러오지 못했습니다: {{ error }}</p>
 
-  <TeamUsage @pick="pickTeam" />
-
-  <div class="tags filter" role="group" aria-label="도구로 강조">
-    <button type="button" class="chip chip-lg" :aria-pressed="toolFilter === 'all'" @click="toolFilter = 'all'">전체 보기</button>
-    <button v-for="t in tools" :key="t.id" type="button" class="chip chip-lg tool-chip" :aria-pressed="toolFilter === t.id" @click="toolFilter = t.id">
-      <ProductLogo :tool-id="t.id" :name="t.product" :size="22" />{{ t.product }}
-    </button>
-  </div>
+  <TeamUsage :checks="checksByDept" @pick="pickTeam" @pick-seat="pickSeat" @load="teams = $event" />
 
   <div class="row">
     <section class="card col-3 plan" :aria-label="`${floor.label} ${floor.title} 배치도`">
+      <div class="toolbar">
+        <div role="tablist" aria-label="층" class="segment" @keydown="onTabKeys">
+          <button v-for="f in FLOORS" :key="f.id" type="button" role="tab" :aria-selected="f.id === floorId" :tabindex="f.id === floorId ? 0 : -1" @click="pickFloor(f.id)">
+            {{ f.label }} <span class="xs">{{ floorPeople(f) }}명</span><b v-if="floorFlags(f)" class="flag-n" :title="`확인 필요 ${floorFlags(f)}명`">{{ floorFlags(f) }}<span class="sr-only">명 확인 필요</span></b>
+          </button>
+        </div>
+        <div class="tags" style="gap: 8px">
+          <button type="button" class="btn" :aria-pressed="mode === 'layout'" @click="openLayout()">좌석 구조 편집</button>
+          <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
+        </div>
+      </div>
       <div class="card-head">
-        <div><h2>{{ floor.id ? `${floor.label} · ${floor.title}` : '좌석 배치도' }}</h2><span class="small muted">책상을 누르면 오른쪽에 쓰는 도구가 나오고, 마우스를 올리면 오늘 토큰 소비가 보입니다. 빈 자리를 누르면 사람을 앉히거나 책상을 없앨 수 있어요</span></div>
+        <div><h2>{{ floor.id ? `${floor.label} · ${floor.title}` : '좌석 배치도' }}</h2><span class="small muted">책상을 누르면 오른쪽에 쓰는 도구와 확인이 필요한 이유가 나오고, 마우스를 올리면 오늘 토큰 소비가 보입니다. 빈 자리를 누르면 사람을 앉히거나 책상을 없앨 수 있어요</span></div>
         <div class="legend">
           <span><i class="swatch" style="background: var(--white); outline: 1px solid var(--line-strong)" />재직</span>
           <span><i class="swatch hatch" />휴직·퇴사</span>
@@ -209,6 +253,12 @@ watch(selectedId, () => { moveTo.value = '' })
           <span><i class="swatch pace-over" />토큰 소비 2배 이상 · 본인 Slack 안내</span>
         </div>
       </div>
+      <div class="tags filter" role="group" aria-label="도구로 강조">
+        <button type="button" class="chip" :aria-pressed="toolFilter === 'all'" @click="toolFilter = 'all'">전체 보기</button>
+        <button v-for="t in tools" :key="t.id" type="button" class="chip tool-chip" :aria-pressed="toolFilter === t.id" @click="toolFilter = t.id">
+          <ProductLogo :tool-id="t.id" :name="t.product" :size="18" />{{ t.product }}
+        </button>
+      </div>
 
       <div v-if="!FLOORS.length && !error" class="inset empty-plan">
         <strong>아직 좌석 구조가 없습니다</strong>
@@ -216,9 +266,10 @@ watch(selectedId, () => { moveTo.value = '' })
         <button type="button" class="btn btn-dark" style="align-self: flex-start" @click="openLayout()">좌석 구조 만들기</button>
       </div>
       <div v-else class="floor">
-        <div v-for="z in zones" :id="`zone-${z.id}`" :key="z.id" class="zone">
+        <div v-for="z in zones" :id="`zone-${z.id}`" :key="z.id" class="zone" :class="{ 'zone-picked': z.id === teamId }">
           <div class="zone-head">
             <strong>{{ z.name }}</strong><span class="xs muted">{{ z.people.length }}명<template v-if="zoneAvg(z) != null"> · 평균 {{ zoneAvg(z) }}일 사용</template></span>
+            <button v-if="zoneBadge(z)" type="button" class="pill zone-badge" :class="`pill-${zoneBadge(z).tone}`" @click="pickTeam(z.id)">{{ zoneBadge(z).label }}<span class="sr-only"> · 팀 카드 열기</span></button>
             <span v-for="c in z.count" :key="c.id" class="zone-count xs"><ProductLogo :tool-id="c.id" :name="c.product" :size="14" />{{ c.n }}</span>
             <span class="xs muted">빈 자리 {{ z.empty }}</span>
             <button type="button" class="link-btn xs" :disabled="busy" @click="openLayout(z)">책상 추가·구역 편집</button>
@@ -226,7 +277,7 @@ watch(selectedId, () => { moveTo.value = '' })
           <div class="islands">
             <div v-for="(cl, ci) in z.clusters" :key="ci" class="island">
               <template v-for="{ id: did, p } in cl" :key="did">
-                <button v-if="p" type="button" class="desk" :class="[{ leave: p.status !== 'active', check: needsCheck(p), dim: dim(p) }, pace(p) && `pace-${pace(p).level}`]"
+                <button v-if="p" :id="`desk-${p.id}`" type="button" class="desk" :class="[{ leave: p.status !== 'active', check: needsCheck(p), dim: dim(p) }, pace(p) && `pace-${pace(p).level}`]"
                   :aria-pressed="p.id === selectedId" :aria-label="deskLabel(p)" @click="pickPerson(p.id)">
                   <span class="desk-name">{{ p.name }}<b v-if="pace(p) && pace(p).level !== 'normal'" class="pace-x">×{{ pace(p).ratio }}</b></span>
                   <span class="desk-tools">
@@ -242,6 +293,7 @@ watch(selectedId, () => { moveTo.value = '' })
                     <span>지금까지 {{ n(pace(p).tokens_today) }} 토큰</span>
                     <span>이 속도면 {{ n(pace(p).projected_today) }} 토큰</span>
                     <span>평균 {{ n(pace(p).peer_avg_daily) }}의 {{ pace(p).ratio }}배 · 하루 한도 {{ Math.round(pace(p).projected_quota_pct) }}% 예상</span>
+                    <span v-if="firstReason(p)">{{ firstReason(p).title }} · 눌러서 이유와 해결책 보기</span>
                   </span>
                 </button>
                 <button v-else type="button" class="desk empty" :aria-pressed="did === deskId" :aria-label="`빈 자리 ${did}`" @click="pickDesk(did)"><span class="xs">빈 자리</span></button>
@@ -270,7 +322,7 @@ watch(selectedId, () => { moveTo.value = '' })
         <label class="field">자리
           <select v-model="form.desk"><option value="">나중에 정하기</option><option v-for="d in formDesks" :key="d.id" :value="d.id">{{ d.id }} · {{ deptName(d.dept_id) }}</option></select>
         </label>
-        <p v-if="!emptyDesks.length" class="xs muted" style="margin: 0">빈 자리가 없어요. 위 '좌석 구조 편집'에서 책상을 늘릴 수 있어요.</p>
+        <p v-if="!emptyDesks.length" class="xs muted" style="margin: 0">빈 자리가 없어요. '좌석 구조 편집'에서 책상을 늘릴 수 있어요.</p>
         <div class="tags" style="gap: 8px"><button type="submit" class="btn btn-dark" :disabled="busy">등록하고 앉히기</button><button type="button" class="btn" @click="mode = ''">취소</button></div>
       </form>
       <template v-else-if="mode === 'layout'">
@@ -303,6 +355,44 @@ watch(selectedId, () => { moveTo.value = '' })
         </section>
         <button type="button" class="btn" style="align-self: flex-start" @click="mode = ''">편집 마치기</button>
       </template>
+      <template v-else-if="mode === 'team' && team">
+        <div class="who">
+          <div class="avatar" aria-hidden="true">{{ team.name.slice(0, 1) }}</div>
+          <div><h2 id="who-h">{{ team.name }}</h2>
+            <span class="small muted"><template v-if="team.t">{{ team.t.headcount }}명 · 토큰 좌석 {{ team.t.seats_tracked }}석<template v-if="team.t.seats_tracked && team.t.tokens_today"> · 오늘 팀 평균의 {{ team.t.ratio }}배</template></template><template v-else>오늘 사용 기록 없음</template></span>
+          </div>
+        </div>
+        <span v-if="team.badge" class="pill" :class="`pill-${team.badge.tone}`" style="align-self: flex-start">{{ team.badge.label }}</span>
+        <section v-if="team.alerts.length" class="pace-box" aria-labelledby="alerts-h">
+          <h3 id="alerts-h" class="small">확인이 필요한 자리 {{ team.alerts.length }}</h3>
+          <ul class="tool-list">
+            <li v-for="a in team.alerts" :key="a.id">
+              <button type="button" class="seat-row" @click="pickSeat(a.id)">
+                <div class="cell-2"><span>{{ a.name }}</span><span>{{ a.note }}</span></div>
+                <span class="pill" :class="`pill-${a.tone}`">{{ a.label }}</span>
+              </button>
+            </li>
+          </ul>
+          <span class="xs muted">자리를 누르면 이유와 해결책, AI 분석이 열립니다.</span>
+        </section>
+        <p v-else class="small muted" style="margin: 0">지금 확인이 필요한 자리가 없어요.</p>
+        <section v-if="team.common.length || team.fixes.length" class="pace-box" aria-labelledby="pattern-h">
+          <template v-if="team.common.length">
+            <h3 id="pattern-h" class="small">팀에서 보이는 패턴</h3>
+            <ul class="why"><li v-for="c in team.common" :key="c.key"><strong>{{ c.title }}</strong><span class="small">{{ c.body }}</span></li></ul>
+          </template>
+          <template v-if="team.fixes.length">
+            <h3 class="small">이렇게 해 보세요</h3>
+            <ol class="how small"><li v-for="f in team.fixes" :key="f">{{ f }}</li></ol>
+          </template>
+        </section>
+        <section v-if="team.t?.api_cost_month_krw || team.t?.api_budget_month_krw" class="pace-box" :class="{ 'pace-over': apiOver(team.t) }" aria-labelledby="api-h">
+          <h3 id="api-h" class="small">API 프로젝트 비용</h3>
+          <span class="small">이번 달 {{ won(team.t.api_cost_month_krw) }}<template v-if="team.t.api_budget_month_krw"> / 월 예산 {{ won(team.t.api_budget_month_krw) }} ({{ pct(team.t.api_cost_month_krw, team.t.api_budget_month_krw) }}%)</template> · 오늘 {{ won(team.t.api_cost_today_krw) }}</span>
+          <RouterLink to="/cost/vendors" class="btn btn-sm" style="align-self: flex-start">벤더별 비용에서 보기</RouterLink>
+        </section>
+        <button type="button" class="btn" style="align-self: flex-start" @click="mode = ''; teamId = ''">닫기</button>
+      </template>
       <template v-else-if="deskId">
         <h2 id="who-h">빈 자리 {{ deskId }}</h2>
         <span class="small muted">{{ deptName(desks.find((d) => d.id === deskId)?.dept_id) }} 구역</span>
@@ -323,6 +413,19 @@ watch(selectedId, () => { moveTo.value = '' })
           <div><h2 id="who-h">{{ selected.name }}</h2><span class="small muted">{{ selected.dept_name }} · {{ selected.job_title }}</span></div>
         </div>
         <span class="pill" :class="selected.status === 'active' ? 'pill-neutral' : 'pill-alert'" style="align-self: flex-start">{{ STATUS[selected.status] }}</span>
+        <section v-if="pace(selected)" class="pace-box" :class="`pace-${pace(selected).level}`" aria-labelledby="pace-h">
+          <h3 id="pace-h" class="small">오늘 토큰 소비 · {{ PACE[pace(selected).level] }}</h3>
+          <span class="small">{{ paceLine(pace(selected)) }}</span>
+          <span class="act-bar" role="img" :aria-label="`하루 한도의 ${Math.round(pace(selected).projected_quota_pct)}% 예상`"><i :style="{ width: `${Math.min(100, pace(selected).projected_quota_pct)}%` }" /></span>
+          <span class="xs muted">하루 한도 {{ n(pace(selected).daily_quota) }} 토큰 중 {{ Math.round(pace(selected).quota_used_pct) }}% 사용, {{ Math.round(pace(selected).projected_quota_pct) }}% 예상</span>
+          <template v-if="detail">
+            <span class="xs">모델: {{ top(detail.by_model) || '없음' }}</span>
+            <span class="xs">입력 길이: {{ top(detail.by_input_length) || '없음' }}</span>
+            <span class="xs">많이 쓴 시간: {{ top(detail.by_hour.map((b) => ({ ...b, key: `${b.key}시` }))) || '없음' }}</span>
+          </template>
+        </section>
+        <SeatInsight :employee="{ id: selected.id, name: selected.name }" :pace="pace(selected)" :detail="detail" :tools="selected.tools" :status="selected.status" :models="models" />
+        <RouterLink v-if="needsCheck(selected)" to="/licenses" class="btn">구독·이용권에서 처리하기</RouterLink>
         <strong class="small">쓸 수 있는 AI·소프트웨어 {{ selected.tools.length }}개</strong>
         <ul class="tool-list">
           <li v-for="t in selected.tools" :key="t.tool_id + t.detail">
@@ -337,19 +440,6 @@ watch(selectedId, () => { moveTo.value = '' })
           </li>
         </ul>
         <p v-if="!selected.tools.length" class="small muted" style="margin: 0">배정된 좌석도, 팀 프로젝트 API도 없습니다.</p>
-        <section v-if="pace(selected)" class="pace-box" :class="`pace-${pace(selected).level}`" aria-labelledby="pace-h">
-          <h3 id="pace-h" class="small">오늘 토큰 소비 · {{ PACE[pace(selected).level] }}</h3>
-          <span class="small">{{ paceLine(pace(selected)) }}</span>
-          <span class="act-bar" role="img" :aria-label="`하루 한도의 ${Math.round(pace(selected).projected_quota_pct)}% 예상`"><i :style="{ width: `${Math.min(100, pace(selected).projected_quota_pct)}%` }" /></span>
-          <span class="xs muted">하루 한도 {{ n(pace(selected).daily_quota) }} 토큰 중 {{ Math.round(pace(selected).quota_used_pct) }}% 사용, {{ Math.round(pace(selected).projected_quota_pct) }}% 예상</span>
-          <template v-if="detail">
-            <span class="xs">모델: {{ top(detail.by_model) || '없음' }}</span>
-            <span class="xs">입력 길이: {{ top(detail.by_input_length) || '없음' }}</span>
-            <span class="xs">많이 쓴 시간: {{ top(detail.by_hour.map((b) => ({ ...b, key: `${b.key}시` }))) || '없음' }}</span>
-          </template>
-          <RouterLink :to="{ path: '/assistant', query: { q: `${selected.name} 님이 오늘 토큰을 많이 쓰는 이유를 분석하고 다른 모델을 추천해줘`, prompt: 'analyze_seat_usage', employee: selected.id } }" class="btn">AI로 현재 작업 분석</RouterLink>
-        </section>
-        <RouterLink v-if="needsCheck(selected)" to="/licenses" class="btn btn-dark">구독·이용권에서 확인하기</RouterLink>
         <section class="pace-box" aria-labelledby="desk-h">
           <h3 id="desk-h" class="small">자리 · {{ deskOf.get(selected.id)?.id ?? '없음' }}</h3>
           <label class="field">옮길 빈 자리<select v-model="moveTo"><option value="" disabled>고르세요</option><option v-for="d in emptyDesks" :key="d.id" :value="d.id">{{ d.id }} · {{ deptName(d.dept_id) }}</option></select></label>
@@ -360,29 +450,36 @@ watch(selectedId, () => { moveTo.value = '' })
         </section>
       </template>
       <template v-else>
-        <h2 id="who-h">직원을 선택하세요</h2>
+        <h2 id="who-h">팀이나 자리를 고르세요</h2>
+        <p class="small muted" style="margin: 0">위 팀별 사용량에서 팀 이름이나 이름 칩을 누르거나, 배치도에서 책상을 누르면 확인이 필요한 이유와 해결책이 여기에 나옵니다.</p>
         <p v-if="unplaced.length" class="small" style="margin: 0">자리가 없는 직원 {{ unplaced.length }}명 · 빈 자리를 눌러 앉히세요.</p>
-        <p class="small muted" style="margin: 0">책상을 누르면 그 자리 직원이 쓸 수 있는 도구와 이용권 상태가 나옵니다. 위의 도구 버튼으로 특정 도구를 쓰는 자리만 강조할 수 있습니다.</p>
+        <div class="tags" style="gap: 8px">
+          <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
+          <button type="button" class="btn" @click="openLayout()">좌석 구조 편집</button>
+        </div>
       </template>
     </aside>
   </div>
 </template>
 
 <style scoped>
-.page-head > .head-actions { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; }
-.segment { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 12px; background: var(--white); border: 1px solid var(--line); }
-.segment button { min-height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; font-size: 14px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.segment { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+.segment button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
 .segment button[aria-selected='true'] { background: var(--ink); color: var(--white); font-weight: 600; }
-.filter { gap: 8px; }
+.flag-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--lime); color: var(--ink); font-size: 11px; font-weight: 700; display: inline-grid; place-items: center; }
+.filter { gap: 6px; }
 .card-head > .legend { flex-direction: row; }
-.tool-chip { display: inline-flex; align-items: center; gap: 8px; padding-left: 8px; }
+.tool-chip { display: inline-flex; align-items: center; gap: 6px; padding-left: 8px; }
 .floor { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; padding: 16px; border-radius: 12px; background: var(--paper); border: 2px solid var(--line-strong); }
 .zone { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 10px; background: var(--white); border: 1px solid var(--line); }
+.zone.zone-picked { border: 2px solid var(--ink); }
 .zone-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.zone-badge { cursor: pointer; }
 .zone-count { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 4px; border-radius: 999px; border: 1px solid var(--line-strong); }
 .islands { display: flex; flex-wrap: wrap; gap: 16px; }
 .island { display: grid; grid-template-columns: repeat(3, minmax(0, 76px)); gap: 4px; padding: 6px; border-radius: 8px; background: var(--track); }
-.desk { position: relative; min-height: 64px; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.desk { position: relative; min-height: 64px; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; scroll-margin-top: 16px; }
 .desk:hover { border-color: var(--ink); }
 .desk[aria-pressed='true'] { background: var(--ink); color: var(--white); border-color: var(--ink); }
 .desk.check { outline: 2px dashed var(--ink); outline-offset: -4px; }
@@ -398,6 +495,11 @@ watch(selectedId, () => { moveTo.value = '' })
 .pace-box { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; border: 1px solid var(--line-strong); }
 .pace-box h3 { margin: 0; }
 .pace-box.pace-over { border: 2px solid var(--ink); background: rgba(220, 239, 109, 0.35); }
+.why { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.why li { display: flex; flex-direction: column; gap: 2px; }
+.how { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.5; }
+.seat-row { flex: 1; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; text-align: left; min-height: 40px; }
+.seat-row:hover .cell-2 > :first-child { text-decoration: underline; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 .field input, .field select { min-height: 44px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--white); padding: 0 12px; font-size: 15px; font-weight: 400; width: 100%; box-sizing: border-box; }
 .new-form { display: flex; flex-direction: column; gap: 12px; }
@@ -418,12 +520,12 @@ watch(selectedId, () => { moveTo.value = '' })
 .room.core { background: var(--track); border-style: solid; }
 .empty-plan { gap: 10px; padding: 24px; }
 .zone { scroll-margin-top: 16px; }
-.detail { position: sticky; top: 24px; gap: 12px; }
+.detail { position: sticky; top: 24px; gap: 12px; max-height: calc(100dvh - 48px); overflow-y: auto; }
 .who { display: flex; align-items: center; gap: 12px; }
 .who > div:last-child { display: flex; flex-direction: column; gap: 2px; }
-.avatar { width: 44px; height: 44px; border-radius: 999px; background: var(--lime); font-weight: 700; display: grid; place-items: center; }
+.avatar { width: 44px; height: 44px; border-radius: 999px; background: var(--lime); font-weight: 700; display: grid; place-items: center; flex: none; }
 .tool-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
 .tool-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
 .tool-list .cell-2 { flex: 1; min-width: 0; }
-@media (max-width: 900px) { .detail { position: static; } .floor { padding: 8px; } .zone { padding: 10px; } }
+@media (max-width: 900px) { .detail { position: static; max-height: none; } .floor { padding: 8px; } .zone { padding: 10px; } .toolbar { position: sticky; top: 0; z-index: 3; background: var(--white); padding-top: 8px; } }
 </style>

@@ -18,10 +18,15 @@ const groups = [
     { to: '/', label: '홈', icon: ['M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z'] },
     { to: '/inbox', label: '승인 대기', badge: 'inbox', icon: ['M4 13l2-8h12l2 8', 'M4 13v6h16v-6h-5l-1 2h-4l-1-2z'] },
     { to: '/licenses', label: '구독·이용권', icon: ['M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M7 10h4M7 14h7'] },
-    { to: '/seats', label: '좌석 배치도', badge: 'seats', icon: ['M3 4h18v16H3z', 'M3 10h18M10 10v10'] },
+    // 비용·사용량은 하위 항목 2개를 항상 펼쳐 둔다 (호버 메뉴는 모바일·키보드에서 안 되므로)
+    { label: '비용·사용량', icon: ['M3 3v18h18', 'M7 14l4-4 4 3 5-6'], children: [
+      { to: '/cost/vendors', label: '벤더별' },
+      { to: '/cost/teams', label: '팀별 · 좌석 배치도', badge: 'seats' },
+    ] },
   ] },
   { label: '활용 지원', items: [
     { to: '/suggestions', label: '자동 제안 기록', icon: ['M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z', 'M9 11h6M9 14h4'] },
+    { to: '/needs', label: '미지원 요청', tag: '추후', icon: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5M12 17h.01'] },
   ] },
   { label: '관리', items: [
     { to: '/setup', label: '회사 설정', icon: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'] },
@@ -65,13 +70,28 @@ watch(() => route.fullPath, async (_, prev) => {
 
       <div v-for="g in groups" :key="g.label" class="group">
         <span class="group-label">{{ g.label }}</span>
-        <RouterLink v-for="it in g.items" :key="it.to" :to="it.to" class="nav-item">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
-          <span class="nav-label">{{ it.label }}</span>
-          <span v-if="it.badge && counts[it.badge]" class="badge">
-            {{ counts[it.badge] }}<span class="sr-only">건</span>
-          </span>
-        </RouterLink>
+        <template v-for="it in g.items" :key="it.to ?? it.label">
+          <RouterLink v-if="it.to" :to="it.to" class="nav-item">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
+            <span class="nav-label">{{ it.label }}</span>
+            <span v-if="it.tag" class="tag-soon">{{ it.tag }}</span>
+            <span v-if="it.badge && counts[it.badge]" class="badge">
+              {{ counts[it.badge] }}<span class="sr-only">건</span>
+            </span>
+          </RouterLink>
+          <div v-else class="nav-parent" :class="{ active: it.children.some((c) => route.path.startsWith(c.to)) }">
+            <div class="nav-item nav-head" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
+              <span class="nav-label">{{ it.label }}</span>
+            </div>
+            <RouterLink v-for="c in it.children" :key="c.to" :to="c.to" class="nav-item nav-child" :aria-label="`${it.label} · ${c.label}`">
+              <span class="nav-label">{{ c.label }}</span>
+              <span v-if="c.badge && counts[c.badge]" class="badge">
+                {{ counts[c.badge] }}<span class="sr-only">건</span>
+              </span>
+            </RouterLink>
+          </div>
+        </template>
       </div>
 
       <div class="foot">
@@ -118,6 +138,11 @@ watch(() => route.fullPath, async (_, prev) => {
 .nav-item { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 500; color: rgba(255, 255, 255, 0.8); }
 .nav-item:hover { background: rgba(255, 255, 255, 0.08); color: var(--white); }
 .nav-item.router-link-exact-active { background: var(--lime); color: var(--ink); }
+.nav-parent { display: flex; flex-direction: column; gap: 2px; }
+.nav-head { min-height: 36px; cursor: default; color: rgba(255, 255, 255, 0.56); }
+.nav-parent.active .nav-head { color: var(--white); }
+.nav-child { min-height: 40px; padding-left: 42px; font-size: 13px; }
+.tag-soon { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.4); color: rgba(255, 255, 255, 0.72); margin-left: auto; }
 .nav-label { flex: 1; }
 .badge { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; font-size: 12px; font-weight: 700; display: grid; place-items: center; background: var(--lime); color: var(--ink); }
 .router-link-exact-active .badge { background: var(--ink); color: var(--lime); }
