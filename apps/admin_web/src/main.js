@@ -17,7 +17,7 @@ const routes = [
   { path: '/cost/teams', name: 'cost-teams', component: () => import('./views/SeatsView.vue'), meta: { title: '팀별 사용량 · 좌석 배치도' } },
   { path: '/seats', redirect: (to) => ({ path: '/cost/teams', query: to.query }) },
   { path: '/suggestions', name: 'suggestions', component: () => import('./views/SuggestionsView.vue'), meta: { title: '자동 제안 기록' } },
-  { path: '/needs', name: 'needs', component: () => import('./views/NeedsView.vue'), meta: { title: '미지원 요청' } }, // 추후 개발 자리
+  { path: '/needs', name: 'needs', component: () => import('./views/NeedsView.vue'), meta: { title: '미도입 제품 신청' } },
   { path: '/assistant', name: 'assistant', component: () => import('./views/AssistantView.vue'), meta: { title: 'AI 비서' } },
   { path: '/key/:id', name: 'key', component: () => import('./views/KeyView.vue'), meta: { title: 'API 키 확인', bare: true } }, // 직원용: 사이드바 없이
   { path: '/:pathMatch(.*)*', redirect: '/' },

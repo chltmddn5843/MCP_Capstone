@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute } from 'vue-router'
 import { getProducts, getSeatRequests, requestConfirmation } from '../api.js'
 import { FLAG, won, pct, onTabKeys } from '../labels.js'
 import ProductLogo from '../components/ProductLogo.vue'
 
+const route = useRoute()
 const products = ref([])
 const requests = ref([])
 const activeId = ref('')
@@ -14,7 +16,7 @@ const asking = ref('') // 확인 요청 보내는 중인 직원 id (중복 클�
 
 async function load() {
   ;[products.value, requests.value] = await Promise.all([getProducts(), getSeatRequests()])
-  activeId.value ||= products.value[0]?.id
+  activeId.value ||= (route.query.product && products.value.some((p) => p.id === route.query.product) ? String(route.query.product) : products.value[0]?.id) // 좌석 패널의 '구독·이용권에서 보기'는 ?product=로 온다
   loaded.value = true
 }
 onMounted(() => {
@@ -104,6 +106,7 @@ async function ask(seat) {
                 <td>{{ seat.confirmation }}</td>
                 <td class="num">
                   <button v-if="seat.action === 'ask'" type="button" class="btn btn-dark btn-sm" :disabled="!!asking" @click="ask(seat)">{{ asking === seat.id ? '보내는 중…' : '본인 확인 요청' }}</button>
+                  <button v-else-if="seat.action === 'sent'" type="button" class="btn btn-sm sent" disabled :title="`답 기한 ${seat.sentDue}까지 기다립니다`">✓ 보냈음 · {{ seat.sentDue }}</button>
                   <span v-else class="small muted">처리 없음</span>
                 </td>
               </tr>
@@ -140,6 +143,7 @@ async function ask(seat) {
 </template>
 
 <style scoped>
+.btn.sent:disabled { opacity: 1; background: var(--track); border-color: transparent; color: var(--muted); cursor: default; }
 .prod-tab { display: inline-flex; align-items: center; gap: 8px; padding-left: 8px; }
 .facts { display: flex; flex-wrap: wrap; gap: 32px; }
 .facts div { display: flex; flex-direction: column; gap: 4px; }

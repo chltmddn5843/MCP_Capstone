@@ -231,6 +231,13 @@ class DepartmentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
 
 
+class DepartmentUpdate(BaseModel):
+    """팀별 자동 발송 설정. 준 필드만 바꾼다. slack_channel_id는 빈 문자열이면 지운다(팀원 개인 DM으로)."""
+
+    suggestions_enabled: bool | None = None
+    slack_channel_id: str | None = Field(None, max_length=40)
+
+
 class EmployeeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=200)
@@ -498,6 +505,7 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/setup/model-catalog", "고를 수 있는 AI 모델 목록(공식 단가 + 새로 감지된 모델)", [Role.admin]),
     ("GET", "/departments", "부서 목록", [Role.admin, Role.system]),
     ("POST", "/departments", "부서 추가", [Role.admin]),
+    ("PATCH", "/departments/{dept_id}", "팀별 자동 발송 설정 (켜기·끄기, Slack 채널)", [Role.admin]),
     ("POST", "/employees", "직원 여러 명 추가 (비밀번호 없음 = 로그인 전)", [Role.admin]),
     ("GET", "/desks", "책상 목록과 앉은 직원 (좌석 배치도)", [Role.admin, Role.system]),
     ("PUT", "/desks/{desk_id}", "책상에 직원 앉히기·옮기기·비우기", [Role.admin]),

@@ -4,10 +4,10 @@
 // 도구는 '쓸 수 있는 것'(배정 좌석 + 팀 프로젝트 API). 좌석은 최근 30일 사용일 수도 보인다 — 관리자는 개인별 사용량을 볼 수 있지만(설계문서 3절)
 // 이용권 관리 목적으로만 쓰고 인사평가에 쓰지 않는다. 팀 프로젝트 API는 개인 기록이 아니라 숫자가 없다.
 // 토큰 좌석(ChatGPT 등)은 오늘 소비 속도(GET /usage/seats)로 색을 입힌다: 오늘 예상량이 같은 제품 좌석 평균 하루 사용량의 2배 이상이면 경보. 30초마다 갱신.
-// 확인이 필요한 팀·자리를 고르면 오른쪽에 '왜 → 이렇게 → AI 분석'(SeatInsight, insight.js 규칙)이 바로 뜬다.
+// 확인이 필요한 팀·자리를 고르면 오른쪽에 '왜 → AI 분석 → 해결책 선택지'(SeatInsight, insight.js 규칙)가 뜬다.
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, getModels, getOpenAlerts, getProjects, createBudgetReviewPlan } from '../api.js'
+import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, getModels, getOpenAlerts, getProjects, createBudgetReviewPlan, getConfirmationMap } from '../api.js'
 import { FLAG, won, pct, onTabKeys, revealOnMobile } from '../labels.js'
 import { errorLabel } from '../request.js'
 import { seatInsight, teamBadge, teamPattern } from '../insight.js'
@@ -35,6 +35,7 @@ const toolFilter = ref('all')
 const selectedId = ref(String(useRoute().query.id ?? ''))
 const paces = ref({})
 const alerts = ref({}) // employee_id → 본인 Slack 경보 시각 (열린 경보)
+const confirmations = ref({}) // employee_id → 사용 의사 확인 요청 상태 (보냄·답함·기한 지남)
 const projects = ref([]) // 팀 카드의 API 예산 검토용 (프로젝트별 이번 달 비용·예산)
 const detail = ref(null)
 
@@ -45,7 +46,7 @@ const loadPaces = async () => {
 }
 let timer
 async function load() {
-  try { [members.value, desks.value] = await Promise.all([getOrgMembers(), getDesks()]) } catch (e) { error.value = e.message }
+  try { [members.value, desks.value, confirmations.value] = await Promise.all([getOrgMembers(), getDesks(), getConfirmationMap()]) } catch (e) { error.value = e.message }
 }
 onMounted(async () => {
   await load()
@@ -412,7 +413,7 @@ watch(selectedId, () => { moveTo.value = '' })
           <div><h2 id="who-h">{{ selected.name }}</h2><span class="small muted">{{ selected.dept_name }} · {{ selected.job_title }}</span></div>
         </div>
         <span class="pill" :class="selected.status === 'active' ? 'pill-neutral' : 'pill-alert'" style="align-self: flex-start">{{ STATUS[selected.status] }}</span>
-        <SeatInsight :employee="{ id: selected.id, name: selected.name }" :pace="pace(selected)" :detail="detail" :tools="selected.tools" :status="selected.status" :models="models" :alert-at="alerts[selected.id] ?? ''" @changed="load" />
+        <SeatInsight :employee="{ id: selected.id, name: selected.name }" :pace="pace(selected)" :detail="detail" :tools="selected.tools" :status="selected.status" :models="models" :alert-at="alerts[selected.id] ?? ''" :confirmation="confirmations[selected.id] ?? null" @changed="load" />
         <section v-if="pace(selected)" class="pace-box" :class="`pace-${pace(selected).level}`" aria-labelledby="pace-h">
           <h3 id="pace-h" class="small">오늘 토큰 소비 · {{ PACE[pace(selected).level] }}</h3>
           <span class="small">{{ paceLine(pace(selected)) }}</span>
@@ -424,7 +425,6 @@ watch(selectedId, () => { moveTo.value = '' })
             <span class="xs">많이 쓴 시간: {{ top(detail.by_hour.map((b) => ({ ...b, key: `${b.key}시` }))) || '없음' }}</span>
           </template>
         </section>
-        <RouterLink v-if="needsCheck(selected)" to="/licenses" class="btn">구독·이용권에서 처리하기</RouterLink>
         <strong class="small">쓸 수 있는 AI·소프트웨어 {{ selected.tools.length }}개</strong>
         <ul class="tool-list">
           <li v-for="t in selected.tools" :key="t.tool_id + t.detail">

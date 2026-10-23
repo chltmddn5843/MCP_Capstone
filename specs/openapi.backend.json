@@ -785,6 +785,115 @@
         }
       }
     },
+    "/departments/{dept_id}": {
+      "patch": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Update Department",
+        "description": "팀별 자동 발송 설정. 끄면 send_suggestions 배치가 그 팀 제안을 발송함에 넣지 않는다(기록만). 설정 변경은 audit_log에 남긴다.",
+        "operationId": "update_department_departments__dept_id__patch",
+        "parameters": [
+          {
+            "name": "dept_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dept Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DepartmentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Department_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/employees": {
       "post": {
         "tags": [
@@ -7577,6 +7686,24 @@
               }
             ],
             "title": "Parent Id"
+          },
+          "slack_channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slack Channel Id",
+            "description": "팀 대상 활용 제안을 보낼 Slack 채널. 없으면 팀원 개인 DM"
+          },
+          "suggestions_enabled": {
+            "type": "boolean",
+            "title": "Suggestions Enabled",
+            "description": "false면 이 팀에는 활용 제안을 보내지 않고 기록만 남긴다 (send_suggestions 배치가 건너뜀)",
+            "default": true
           }
         },
         "type": "object",
@@ -7600,6 +7727,36 @@
           "name"
         ],
         "title": "DepartmentCreate"
+      },
+      "DepartmentUpdate": {
+        "properties": {
+          "suggestions_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions Enabled"
+          },
+          "slack_channel_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slack Channel Id"
+          }
+        },
+        "type": "object",
+        "title": "DepartmentUpdate",
+        "description": "팀별 자동 발송 설정. 준 필드만 바꾼다. slack_channel_id는 빈 문자열이면 지운다(팀원 개인 DM으로)."
       },
       "Desk": {
         "properties": {

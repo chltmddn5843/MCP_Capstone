@@ -1,6 +1,6 @@
 // 화면이 부르는 데이터 함수 전부. 백엔드 응답(Envelope{data}, packages/schemas)을 화면 모양으로 바꾼다. 화면은 이 파일만 본다.
 // 함수 이름과 반환 모양은 목업 시절과 같다 (화면 수정 없이 연결). 변환 규칙은 각 함수 주석.
-import { get, post, put, request, createTask, ApiError } from './request.js'
+import { get, post, put, patch, request, createTask, ApiError } from './request.js'
 import { PLAN_TYPE, PLAN_STATUS, BILLING, TOOL_LABEL, cap } from './labels.js'
 
 const dt = (s) => (s ? s.slice(5, 16).replace('T', ' ') : '')
@@ -30,9 +30,23 @@ export async function getMe() {
   return { name: e.name, role: `${e.role === 'admin' ? '관리자' : '직원'} · ${e.job_title}`, employee: e }
 }
 
-// GET /inventory → 제품 목록 (좌석형) + GET /tools (API형 제품)
+// GET /confirmations → 직원별 최신 사용 의사 확인 요청 상태. 보낸 뒤에는 버튼 대신 상태를 보여 준다 (답 기한 5영업일, 지나면 자동 회수 배치 대상)
+const ANSWER_KO = { still_needed: '계속 사용', return_seat: '반납', on_leave: '휴직' }
+const md = (s) => `${new Date(s).getMonth() + 1}/${new Date(s).getDate()}`
+export async function getConfirmationMap() {
+  const rows = await get('/confirmations').catch(() => [])
+  const out = {}
+  for (const c of rows.slice().sort((a, b) => new Date(a.due_at) - new Date(b.due_at))) {  // 뒤에 올수록 최신 → 덮어쓴다
+    const status = c.answer ? 'answered' : new Date(c.due_at) < new Date() ? 'overdue' : 'pending'
+    out[c.employee_id] = { id: c.id, status, answer: c.answer, due: c.due_at,
+      label: status === 'answered' ? `답함 · ${ANSWER_KO[c.answer] ?? c.answer}` : status === 'overdue' ? `기한 지남 (${md(c.due_at)}) · 자동 회수 대상` : `보냄 · 답 기한 ${md(c.due_at)}` }
+  }
+  return out
+}
+
+// GET /inventory → 제품 목록 (좌석형) + GET /tools (API형 제품). 저사용 후보에는 확인 요청 상태(GET /confirmations)를 붙인다
 export async function getProducts() {
-  const [inv, tools, projects, models] = await Promise.all([get('/inventory'), get('/tools'), get('/projects').catch(() => []), get('/models').catch(() => [])])
+  const [inv, tools, projects, models, cfm] = await Promise.all([get('/inventory'), get('/tools'), get('/projects').catch(() => []), get('/models').catch(() => []), getConfirmationMap()])
   const vendorOf = Object.fromEntries(models.map((m) => [m.id, m.vendor])) // 모델 → 공급사 → 그 공급사의 API 제품
   const seatProducts = inv.map((i) => ({
     id: i.contract.tool_id, name: i.tool_name, plan: i.contract.plan_name, kind: (tools.find((t) => t.id === i.contract.tool_id)?.kind === 'software') ? '일반 소프트웨어' : 'AI',
@@ -42,7 +56,10 @@ export async function getProducts() {
     renewal: i.contract.term_end?.slice(0, 10),
     seats: i.low_usage_candidates.map((c) => ({
       id: c.employee_id, name: c.employee_name, dept: c.dept_name, flag: c.flag, lastUsed: daysAgo(c.last_activity_at),
-      confirmation: c.needs_confirmation ? '아직 묻지 않음' : '확인 필요 없음', action: c.needs_confirmation ? 'ask' : null,
+      // 보낸 요청이 있으면 그 상태가 우선: pending → 버튼 비활성 '보냈음', overdue·answered → 상태만
+      confirmation: cfm[c.employee_id]?.label ?? (c.needs_confirmation ? '아직 묻지 않음' : '확인 필요 없음'),
+      action: cfm[c.employee_id] ? (cfm[c.employee_id].status === 'pending' ? 'sent' : null) : c.needs_confirmation ? 'ask' : null,
+      sentDue: cfm[c.employee_id]?.status === 'pending' ? md(cfm[c.employee_id].due) : '',
       contractId: i.contract.id,
     })),
   }))
@@ -223,12 +240,13 @@ export async function getSuggestionStats() {
   return { collected: upd.total ?? upd.items.length, sent: items.filter((s) => s.status === 'sent').length, held: items.filter((s) => s.status === 'on_hold').length,
     helpfulRate: useful + irrelevant ? Math.round((useful / (useful + irrelevant)) * 100) : 0, nextRun: '주 1회' }
 }
-// 팀별 발송 스위치: 백엔드에 GET/PATCH /departments 가 아직 없다 (백엔드 요청 항목). 팀 목록만 활용 현황에서 가져온다.
+// 팀별 발송 스위치: GET /departments(suggestions_enabled·slack_channel_id) ↔ PATCH /departments/{id}. 끄면 배치가 그 팀 제안을 발송함에 넣지 않는다
 export async function getTeamSwitches() {
-  const teams = await get('/adoption/teams').catch(() => [])
-  return teams.map((t) => ({ id: t.team_id, team: t.team_name, channel: '', enabled: true, readonly: true }))
+  const teams = await get('/departments')
+  return teams.map((d) => ({ id: d.id, team: d.name, channel: d.slack_channel_id ?? '', enabled: d.suggestions_enabled !== false, readonly: false }))
 }
-export function setTeamSwitch() { return Promise.resolve() }
+export const setTeamSwitch = (id, enabled) => patch(`/departments/${encodeURIComponent(id)}`, { suggestions_enabled: enabled })
+export const setTeamChannel = (id, channel) => patch(`/departments/${encodeURIComponent(id)}`, { slack_channel_id: channel })
 
 // GET /adoption/teams
 export async function getTeamAdoption() {
@@ -256,6 +274,43 @@ export async function createBudgetReviewPlan(projectId, currentBudgetKrw, note) 
 export async function getOpenAlerts() {
   const rows = await get('/anomalies', { status: 'open' })
   return Object.fromEntries(rows.filter((a) => a.scope_type === 'employee').map((a) => [a.scope_id, a.created_at]))
+}
+
+// 미도입 제품 신청 (PRD S9): 직원이 승인 목록에 없는 제품을 신청하면 서버가 purchase_review 처리 요청을 '사내 미도입'으로 바로 반려해 이력에 남긴다.
+// 그 이력을 제품 이름으로 묶는다. 같은 제품이 다시 '구매 검토 요청'(승인 대기)으로 올라가 있으면 함께 표시한다.
+const UNLISTED = '사내 미도입'
+const normName = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+export async function getUnlistedRequests() {
+  const [page, members] = await Promise.all([get('/plans', { type: 'purchase_review' }), get('/org/members').catch(() => [])])
+  const emp = Object.fromEntries(members.map((m) => [m.employee.id, m.employee]))
+  const by = new Map()
+  for (const p of page.items) {
+    const it = p.items[0] ?? {}
+    if (!it.product_name) continue
+    const key = normName(it.product_name)
+    const row = by.get(key) ?? { key, product: it.product_name.trim(), count: 0, depts: new Set(), requesters: [], purposes: [], last: null, review: null }
+    if (p.status === 'rejected' && p.reject_reason === UNLISTED) {
+      const e = emp[p.requested_by]
+      row.count += 1
+      if (e?.dept_name) row.depts.add(e.dept_name)
+      row.requesters.push({ id: p.requested_by, name: e?.name ?? p.requested_by, dept: e?.dept_name ?? '', at: p.created_at, purpose: it.purpose ?? '' })
+      if (it.purpose) row.purposes.push(it.purpose)
+      if (!row.last || p.created_at > row.last) row.last = p.created_at
+    } else if (p.requested_by !== 'sys' || p.status !== 'rejected') {  // 관리자가 올린 구매 검토 요청 (승인 대기·승인·실행·반려)
+      if (!row.review || p.created_at > row.review.at) row.review = { id: p.id, status: p.status, at: p.created_at }
+    }
+    by.set(key, row)
+  }
+  return [...by.values()].filter((r) => r.count || r.review).map((r) => ({ ...r, depts: [...r.depts], lastLabel: r.last ? dt(r.last) : '' }))
+    .sort((a, b) => b.count - a.count || (b.last ?? '').localeCompare(a.last ?? ''))
+}
+// 미도입 제품의 구매 검토 처리 요청 (purchase_review, 승인 대기). 신청한 직원·부서·용도를 사유에 담는다
+export async function createPurchaseReviewPlan(row) {
+  const who = row.requesters.map((r) => `${r.name}(${r.dept})`).join(', ')
+  const note = `미도입 제품 신청 ${row.count}건 · ${row.depts.length}개 부서 · ${who}` + (row.purposes.length ? ` · 용도: ${[...new Set(row.purposes)].slice(0, 3).join(' / ')}` : '')
+  const p = await post('/plans', { type: 'purchase_review', items: [{ product_name: row.product, purpose: row.purposes[0] ?? null, note }], rationale: `${row.product} 도입 검토 요청: ${note}`, evidence: [] })
+  requestReview(p.id)
+  return p.id
 }
 
 // 사이드바 배지

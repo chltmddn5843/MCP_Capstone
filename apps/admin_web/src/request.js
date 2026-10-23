@@ -70,6 +70,7 @@ export async function request(path, { method = 'GET', body, query, headers = {} 
 export const get = (path, query) => request(path, { query })
 export const post = (path, body, headers) => request(path, { method: 'POST', body, headers })
 export const put = (path, body) => request(path, { method: 'PUT', body })
+export const patch = (path, body) => request(path, { method: 'PATCH', body })
 
 /** 에이전트 진행 이벤트(SSE)를 fetch 스트리밍으로 읽는다. 서버가 종료 이벤트(DONE·FAILED·APPROVAL_REQUIRED)에서 닫는다. */
 export async function streamTask(taskId, after, onEvent, signal) {
