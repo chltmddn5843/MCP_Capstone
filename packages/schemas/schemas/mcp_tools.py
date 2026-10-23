@@ -301,7 +301,7 @@ class ToolSpec:
 WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_my_profile", "요청자 본인의 직무, 부서, 등록 업무, 이용 가능 도구·플랜을 돌려준다.", Empty, MyProfileOut, ALL, backend="GET /me", features=["F1", "F2"]),
     ToolSpec("upsert_my_task", "본인 업무를 등록하거나 수정한다.", UpsertMyTaskIn, UpsertMyTaskOut, [Role.employee], read_only=False, backend="POST|PATCH /me/tasks", features=["F1"]),
-    ToolSpec("list_approved_tools", "승인된 제품(AI·소프트웨어 구독)과 플랜, 과금 유형, 정책 요약을 돌려준다.", ListApprovedToolsIn, ToolListOut, ALL, backend="GET /tools", features=["F1", "F2", "F5"]),
+    ToolSpec("list_approved_tools", "승인된 제품(AI·소프트웨어 구독)과 플랜, 과금 유형, 정책 요약을 돌려준다.", ListApprovedToolsIn, ToolListOut, ALL, backend="GET /tools", features=["F1", "F2"]),
     ToolSpec("list_approved_models", "승인된 모델과 단가, 허용 데이터 등급을 돌려준다.", ListApprovedModelsIn, ModelListOut, ALL, backend="GET /models", features=["F2"]),
     ToolSpec("find_relevant_tasks", "업데이트와 관련될 수 있는 등록 업무 후보를 돌려준다. 관리자에게는 팀 단위로만 보인다.", FindRelevantTasksIn, FindRelevantTasksOut, [Role.system, Role.admin], backend="GET /updates/{id}/relevant-tasks", features=["F1"]),
     ToolSpec("save_suggestion", "활용 제안을 저장한다. 보내지 않기로 했으면 status=on_hold와 hold_reason으로 사유를 남긴다. 보낼 때는 관련성 근거(relevance)가 필수다.", SaveSuggestionIn, SaveSuggestionOut, [Role.system, Role.admin], read_only=False, backend="POST /suggestions", features=["F1"]),
@@ -315,7 +315,7 @@ WORK_TOOLS: list[ToolSpec] = [
     ToolSpec("get_license_inventory", "계약별 구매·배정·미배정 수와 저사용 후보. 기록 없음은 확인 필요로 표시.", GetLicenseInventoryIn, LicenseInventoryOut, [Role.admin, Role.system], backend="GET /inventory", features=["F4"]),
     ToolSpec("get_employee_assets", "직원 한 명이 지금 실제로 쓸 수 있는 도구(배정 좌석·팀 프로젝트 API)와 등록 업무. 부여·회수 전후 확인용.", GetEmployeeAssetsIn, MyProfileOut, [Role.admin, Role.system], backend="GET /employees/{id}/assets", features=["F4"]),
     ToolSpec("request_confirmation", "저사용 이용권 소유자에게 사용 의사를 묻는 요청을 만든다.", RequestConfirmationIn, RequestConfirmationOut, [Role.admin], read_only=False, backend="POST /confirmations", features=["F4"]),
-    ToolSpec("create_action_plan", "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어가고(status=pending_approval), 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
+    ToolSpec("create_action_plan", "처리 요청을 만든다. 남은 좌석이 있는 seat_assign은 서버가 바로 배정하고(status=executed), 나머지는 관리자 승인 대기로 들어간다(status=pending_approval). 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.", CreateActionPlanIn, CreateActionPlanOut, [Role.employee, Role.admin, Role.system], read_only=False, backend="POST /plans", features=["F1", "F2", "F3", "F4"]),
     ToolSpec("get_plan_status", "조치안 상태, 승인자, 결과.", GetPlanStatusIn, PlanStatusOut, ALL, backend="GET /plans/{id}", features=["common"]),
     ToolSpec("get_employee_profile", "검토용 직원 프로필: 이름·부서·직무·재직 상태·등록 업무·배정된 제품. 사용량·비밀번호는 없다.", GetEmployeeProfileIn, EmployeeProfile, [Role.system, Role.admin], backend="GET /employees/{id}", features=["F4"]),
     ToolSpec("attach_plan_opinion", "승인 대기 중인 처리 요청에 AI 검토 의견을 붙인다. 관리자가 읽으므로 전부 자연어·이름으로 쓴다.", AttachPlanOpinionIn, AttachPlanOpinionOut, [Role.system, Role.admin], read_only=False, backend="PATCH /plans/{id}/opinion", features=["F4"]),
@@ -324,7 +324,7 @@ WORK_TOOLS: list[ToolSpec] = [
 
 DOCS_TOOLS: list[ToolSpec] = [
     ToolSpec("search_vendor_docs", "허용 목록 벤더 공식 문서를 검색한다. 발췌와 원문 URL을 돌려준다.", SearchVendorDocsIn, SearchVendorDocsOut, ALL, backend="FTS5"),
-    ToolSpec("get_vendor_update", "수집된 업데이트 한 건의 제목, 요약, 대상 플랜, 원문 URL.", GetVendorUpdateIn, VendorUpdate, ALL, backend="GET /updates/{id}"),
+    ToolSpec("get_vendor_update", "수집된 업데이트 한 건의 제목, 요약, 대상 플랜, 원문 URL.", GetVendorUpdateIn, VendorUpdate, ALL, backend="GET /updates/{id}", features=["F1"]),
     ToolSpec("search_internal_policy", "사내 AI 사용 정책을 검색한다.", SearchInternalPolicyIn, SearchInternalPolicyOut, ALL, backend="FTS5"),
 ]
 

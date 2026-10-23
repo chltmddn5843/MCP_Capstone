@@ -2739,7 +2739,7 @@
       },
       {
         "name": "create_action_plan",
-        "description": "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어가고(status=pending_approval), 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.",
+        "description": "처리 요청을 만든다. 남은 좌석이 있는 seat_assign은 서버가 바로 배정하고(status=executed), 나머지는 관리자 승인 대기로 들어간다(status=pending_approval). 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.",
         "inputSchema": {
           "$defs": {
             "Evidence": {

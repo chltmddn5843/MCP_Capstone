@@ -13,8 +13,8 @@
 4. attach_plan_opinion(plan_id, opinion)으로 의견을 붙인다. opinion은 다음 규칙으로 쓴다.
    - recommendation: approve(그대로 승인 권장) | reject(반려 권장) | alternative(다른 방법 권장)
    - summary: 한 문장. 예: "미배정 좌석 1석이 있어 바로 배정해도 됩니다."
-   - requester: {name, dept, job_title, current_products(제품 이름 목록)}. `current_products`에는 `get_employee_assets`의 모든 `available_tools` 제품명을 넣는다. 예를 들어 좌석 제품 2개와 팀 프로젝트 API 1개가 있으면 세 제품을 모두 넣고, API 제품은 "팀 프로젝트를 통해 사용 가능"이라고 facts/evidence에 명시한다.
-   - asset: {product, purchased, assigned, unassigned, seat_price_krw, note}. API는 purchased 등을 비우고 note에 모델·단가.
+   - requester: {{name, dept, job_title, current_products(제품 이름 목록)}}. `current_products`에는 `get_employee_assets`의 모든 `available_tools` 제품명을 넣는다. 예를 들어 좌석 제품 2개와 팀 프로젝트 API 1개가 있으면 세 제품을 모두 넣고, API 제품은 "팀 프로젝트를 통해 사용 가능"이라고 facts/evidence에 명시한다.
+   - asset: {{product, purchased, assigned, unassigned, seat_price_krw, note}}. API는 purchased 등을 비우고 note에 모델·단가.
    - facts: 확인한 사실 3~5개. 숫자와 이름으로. 예: "ChatGPT Enterprise 60석 중 59석 배정, 1석 남음", "요청자는 마케팅 콘텐츠 마케터로 등록 업무 '캠페인 카피 초안 작성'에 이 제품을 쓴다"
    - risks: 주의점. 없으면 빈 목록. 예: "남은 좌석이 1석이라 다음 신청은 재배정이 필요"
    - alternative: 대안이 있을 때만. 예: "휴직 중인 한도윤 님 좌석(72일 미사용, 반납 응답)을 재배정"
