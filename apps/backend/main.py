@@ -1472,14 +1472,73 @@ def _job_collect_usage(now: datetime) -> dict:
     return {"records": len(rows), "seats": len(seats)}
 
 
-def _vendor_model_list(simulate: bool) -> list[dict]:
-    """Mock 공급사 모델 목록 API. 회사가 승인한 공급사만 본다. simulate면 아직 안 나온 새 모델 하나가 목록에 나타난다.
-    ponytail: Mock. 실제로는 공급사별 GET /v1/models를 부르고 응답을 MOCK_RELEASES와 같은 모양으로 바꾼다."""
-    approved = {r["vendor"] for r in db.rows("SELECT DISTINCT vendor FROM tools WHERE approval_status = 'approved'")}
+# 공급사 모델 목록 API: (주소, 키 환경변수, 인증 헤더). OpenAI·xAI는 created(유닉스초), Anthropic은 created_at·display_name
+MODEL_LIST_APIS = {
+    "OpenAI": ("https://api.openai.com/v1/models", "OPENAI_API_KEY", lambda k: {"Authorization": f"Bearer {k}"}),
+    "Anthropic": ("https://api.anthropic.com/v1/models?limit=1000", "ANTHROPIC_API_KEY", lambda k: {"x-api-key": k, "anthropic-version": "2023-06-01"}),
+    "xAI": (os.getenv("XAI_BASE_URL", "https://api.x.ai/v1") + "/models", "XAI_API_KEY", lambda k: {"Authorization": f"Bearer {k}"}),
+}
+MODEL_DOCS = {"OpenAI": "https://platform.openai.com/docs/models/", "Anthropic": "https://docs.anthropic.com/en/docs/about-claude/models#", "xAI": "https://docs.x.ai/docs/models/"}
+# ponytail: 이름 규칙으로 대화 모델만 고른다. 공급사가 이름 규칙을 바꾸면 여기를 고친다
+CHAT_MODEL = {"OpenAI": r"gpt-|o\d", "Anthropic": r"claude-", "xAI": r"grok-"}
+NOT_CHAT = re.compile(r"embed|tts|whisper|dall-e|image|audio|realtime|transcri|moderation|search")
+
+
+def _parse_model_list(vendor: str, body: dict, since: datetime) -> dict[str, str]:
+    """목록 응답 → since 이후 나온 대화 모델 {id: 표시 이름}. 날짜 스냅샷(-2026-10-20, -20261020, -latest)은 별칭 하나로 묶는다."""
+    out: dict[str, str] = {}
+    for m in body.get("data", []):
+        created = datetime.fromisoformat(m["created_at"]) if "created_at" in m else datetime.fromtimestamp(m.get("created", 0), UTC)
+        mid = re.sub(r"-(\d{4}-\d{2}-\d{2}|\d{8}|latest)$", "", m["id"].lower())
+        if created >= since and re.match(CHAT_MODEL[vendor], mid) and not NOT_CHAT.search(mid) and re.fullmatch(r"[a-z0-9.-]+", mid):
+            out.setdefault(mid, m.get("display_name") or mid)
+    return out
+
+
+def _live_model_list(approved: dict[str, dict], known: set[str], now: datetime) -> tuple[list[dict], list[dict]]:
+    """승인 공급사의 GET /v1/models를 불러 MOCK_RELEASES와 같은 모양으로 바꾼다. 처음 켤 때 옛 모델이 쏟아지지 않게
+    F1_NEW_MODEL_DAYS(기본 14일) 안에 나온 것만 본다. 한 공급사가 실패해도 나머지는 계속하고 실패는 errors로 돌려준다.
+    ponytail: 목록 API는 id·출시일만 준다. 기능·단가는 비워 두고(0 = 미확인) 요약도 '목록에 나타남'뿐이라 카드 뉴스가 얇다.
+    다음 단계는 공급사 발표 글을 수집해 요약·단가를 채우는 것."""
+    since = now - timedelta(days=float(os.getenv("F1_NEW_MODEL_DAYS", "14")))
+    names = {(r["vendor"], r["name"]) for r in db.rows("SELECT vendor, name FROM models")}  # UNIQUE (vendor, name)
+    rows, errors = [], []
+    for vendor, tool in approved.items():
+        if vendor not in MODEL_LIST_APIS:  # Canva처럼 모델 목록 API가 없는 공급사
+            continue
+        url, key_env, headers = MODEL_LIST_APIS[vendor]
+        if not (key := os.getenv(key_env)):
+            errors.append({"vendor": vendor, "error": f"{key_env} 없음"})
+            continue
+        try:
+            r = httpx.get(url, headers=headers(key), timeout=10)
+            r.raise_for_status()
+            found = _parse_model_list(vendor, r.json(), since)
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            errors.append({"vendor": vendor, "error": f"{type(e).__name__}: {e}"[:200]})
+            continue
+        for mid, name in found.items():
+            if (id_ := f"{vendor.lower()}:{mid}") in known or (vendor, name) in names:
+                continue
+            rows.append({"model": Model(id=id_, vendor=vendor, name=name, capabilities="", input_usd_per_mtok=0, output_usd_per_mtok=0,
+                                        approved=False, allowed_data_class=tool["allowed_data_class"]),
+                         "tool_id": tool["id"], "url": MODEL_DOCS[vendor] + mid, "plans": [tool["product"]], "known": False,
+                         "summary": f"{vendor} 모델 목록 API에 새 모델이 나타났다: {name} ({mid}). 기능·가격은 공급사 발표를 확인해야 한다."})
+    return rows, errors
+
+
+def _vendor_model_list(simulate: bool, now: datetime) -> tuple[list[dict], list[dict]]:
+    """공급사 모델 목록. 회사가 승인한 공급사만 본다. F1_MODEL_SOURCE=live면 실제 API, 아니면(기본) Mock 목록.
+    simulate면 어느 쪽이든 Mock의 아직 안 나온 새 모델 하나가 목록에 나타난다 (시연용)."""
+    approved = {r["vendor"]: r for r in db.rows("SELECT DISTINCT ON (vendor) vendor, id, product, allowed_data_class FROM tools"
+                                                 " WHERE approval_status = 'approved' ORDER BY vendor, id")}
     known = {r["id"] for r in db.rows("SELECT id FROM models")}
-    listed = [{"model": m, "known": True} for m in MODEL_CATALOG.values() if m.vendor in approved]
+    if os.getenv("F1_MODEL_SOURCE", "mock") == "live":
+        listed, errors = _live_model_list(approved, known, now)
+    else:
+        listed, errors = [{"model": m, "known": True} for m in MODEL_CATALOG.values() if m.vendor in approved], []
     nxt = next((r for r in MOCK_RELEASES if r["model"].vendor in approved and r["model"].id not in known), None)
-    return listed + ([{**nxt, "known": False}] if simulate and nxt else [])
+    return listed + ([{**nxt, "known": False}] if simulate and nxt else []), errors
 
 
 def _job_collect_release_notes(now: datetime, simulate: bool = False) -> dict:
@@ -1487,7 +1546,8 @@ def _job_collect_release_notes(now: datetime, simulate: bool = False) -> dict:
     카드 뉴스(핵심 기능 3개 + 직무별 활용)는 에이전트 review_update가 업데이트마다 만든다."""
     known = {r["id"] for r in db.rows("SELECT id FROM models")}
     found = []
-    for r in _vendor_model_list(simulate):
+    listed, errors = _vendor_model_list(simulate, now)
+    for r in listed:
         m = r["model"]
         if m.id in known or "url" not in r:
             continue
@@ -1504,7 +1564,8 @@ def _job_collect_release_notes(now: datetime, simulate: bool = False) -> dict:
                               " VALUES (:id, :s, :v, :p, :t, :sm, :u, :pl, :p)"),
                       dict(id=uid, s=sid, v=m.vendor, p=now, t=f"새 모델 출시: {m.name}", sm=r["summary"], u=r["url"], pl=r["plans"]))
         found.append({"model_id": m.id, "update_id": uid})
-    return {"new_models": found} if found else {"new_models": [], "note": "새 모델 없음" + (" (시뮬레이션할 모델도 모두 공개됨)" if simulate else "")}
+    out = {"new_models": found} if found else {"new_models": [], "note": "새 모델 없음" + (" (시뮬레이션할 모델도 모두 공개됨)" if simulate else "")}
+    return {**out, "errors": errors} if errors else out
 
 
 def _in_business_hours(now: datetime) -> bool:

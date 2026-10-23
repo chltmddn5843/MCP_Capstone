@@ -227,6 +227,30 @@ def test_team_usage_sums_seat_paces_by_team():
     assert client.get("/usage/teams", headers={"Authorization": "Bearer dev.emp_mkt_01"}).status_code == 403
 
 
+def test_live_model_list_finds_only_recent_chat_models(monkeypatch):
+    """F1_MODEL_SOURCE=live: 승인 공급사의 /v1/models 응답에서 최근 나온 대화 모델만 새 모델로 잡는다.
+    날짜 스냅샷은 별칭으로 묶고, 이미 아는 모델·옛 모델·임베딩은 거른다. 키가 없는 공급사는 errors로 알린다."""
+    import httpx
+
+    from apps.backend import main
+    lists = {
+        "https://api.openai.com/v1/models": {"data": [
+            {"id": "gpt-5.7-2026-10-19", "created": 1792368000}, {"id": "gpt-5.7", "created": 1792368000},  # 2026-10-19
+            {"id": "gpt-5.5", "created": 1792368000},                       # 이미 아는 모델
+            {"id": "text-embedding-4", "created": 1792368000},              # 대화 모델 아님
+            {"id": "gpt-4o", "created": 1715000000}]},                      # 2024년, 기간 밖
+    }
+    monkeypatch.setenv("F1_MODEL_SOURCE", "live")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(main.httpx, "get", lambda url, **kw: httpx.Response(200, json=lists[url], request=httpx.Request("GET", url)))
+    res = run("collect_release_notes", WORK_HOUR)
+    assert [x["model_id"] for x in res["new_models"]] == ["openai:gpt-5.7"]
+    assert res["errors"] == [{"vendor": "Anthropic", "error": "ANTHROPIC_API_KEY 없음"}]
+    assert db.one("SELECT approved, tool_id FROM models WHERE id = 'openai:gpt-5.7'") == {"approved": False, "tool_id": "tool_chatgpt"}
+    assert run("collect_release_notes", WORK_HOUR)["new_models"] == []   # 한 번만 알린다
+
+
 def test_model_release_detected_once_per_model_and_card_sent_to_all():
     """새 모델 감지: 평소 폴링은 새것 없음, 시뮬레이션마다 승인 공급사 모델 하나씩. 승인 전 공급사(xAI)는 알리지 않는다.
     전사 카드는 팀 주간 상한 없이 업무 시간에 발송함으로 간다."""
