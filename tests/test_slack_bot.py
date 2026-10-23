@@ -299,13 +299,17 @@ def test_seat_alert_dm_has_analyze_button():
     assert button["action_id"] == "seat_analyze" and button["value"] == "emp_md_01"
 
 
-def test_model_card_highlights_my_job():
+def test_model_card_sends_only_my_job_line():
+    """카드 뉴스는 핵심 기능은 그대로, '이렇게 써 보세요'는 받는 사람 직무 줄만 보낸다. 다른 직무 줄은 Slack에 나가지 않는다(관리자 화면에서만)."""
     upd = {"title": "새 모델 출시: GPT-5.6", "affected_plans": ["ChatGPT Enterprise"], "url": "https://x"}
     body = "핵심 기능\n1. 긴 문서\n2. 표\n3. 이미지\n이렇게 써 보세요\n• 마케터: 카피 비교\n• 영업 담당: 견적 요약"
     blocks = send.build_model_card({"id": "sug_x", "body": body}, upd, "마케터")
     text = blocks[1]["text"]["text"]
-    assert blocks[0]["type"] == "header" and "*핵심 기능*" in text and "*• 마케터: 카피 비교*  ← 내 직무" in text and "\n• 영업 담당: 견적 요약" in text
+    assert blocks[0]["type"] == "header" and "*핵심 기능*" in text and "3. 이미지" in text
+    assert "*• 마케터: 카피 비교*  ← 내 직무" in text and "영업 담당" not in text
     assert [b["action_id"] for b in blocks[-1]["elements"]] == ["fb_useful", "fb_irrelevant", "fb_question"]
+    other = send.build_model_card({"id": "sug_x", "body": body}, upd, "생산 계획 · 대리")[1]["text"]["text"]
+    assert "마케터" not in other and "영업 담당" not in other and "내 직무 활용 예는 아직 없어요" in other  # 카드에 없는 직무: 공통 한 줄
 
 
 def test_menu_word_shows_buttons_without_agent(monkeypatch):

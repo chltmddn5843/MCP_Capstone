@@ -16,7 +16,7 @@ const asking = ref('') // 확인 요청 보내는 중인 직원 id (중복 클�
 
 async function load() {
   ;[products.value, requests.value] = await Promise.all([getProducts(), getSeatRequests()])
-  activeId.value ||= (route.query.product && products.value.some((p) => p.id === route.query.product) ? String(route.query.product) : products.value[0]?.id) // 좌석 패널의 '구독·이용권에서 보기'는 ?product=로 온다
+  activeId.value ||= (route.query.product && products.value.some((p) => p.id === route.query.product) ? String(route.query.product) : tabs.value[0]?.id) // 좌석 패널의 '구독·이용권에서 보기'는 ?product=로 온다. 기본은 [전체]
   loaded.value = true
 }
 onMounted(() => {
@@ -26,14 +26,25 @@ onMounted(() => {
   onBeforeUnmount(() => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) })
 })
 
-const product = computed(() => products.value.find((p) => p.id === activeId.value))
-const flagged = computed(() => product.value?.seats ?? [])
-const toCheck = computed(() => flagged.value.filter((s) => s.flag !== 'recent_hire').length)
-const visible = computed(() => flagged.value.filter((s) => flagFilter.value === 'all' || s.flag === flagFilter.value))
+// [전체] 탭: 좌석형 제품을 합친 가상 제품. API형은 좌석이 없어 합계에서 빠진다
+const seatProducts = computed(() => products.value.filter((p) => p.seatsPurchased))
+const ALL = computed(() => ({
+  id: 'all', name: '전체', kind: '좌석형 제품 합계', plan: `${seatProducts.value.length}개 제품`, billing: '좌석형 제품 합계', seatPrice: null, projects: 0,
+  seatsPurchased: seatProducts.value.reduce((s, p) => s + p.seatsPurchased, 0), seatsAssigned: seatProducts.value.reduce((s, p) => s + p.seatsAssigned, 0),
+  seats: seatProducts.value.flatMap((p) => p.seats), holders: seatProducts.value.flatMap((p) => p.holders.map((h) => ({ ...h, product: p.name, productId: p.id }))),
+}))
+const tabs = computed(() => (seatProducts.value.length > 1 ? [ALL.value, ...products.value] : products.value))
+const product = computed(() => (activeId.value === 'all' ? ALL.value : products.value.find((p) => p.id === activeId.value)))
+const holders = computed(() => product.value?.holders ?? [])
+const toCheck = computed(() => holders.value.filter((h) => h.state === 'check').length)
+const STATE = { check: { label: '확인 필요', tone: 'alert' }, ok: { label: '정상', tone: 'neutral' }, new: { label: '최근 입사', tone: 'ok' } }
+const visible = computed(() => holders.value.filter((h) => flagFilter.value === 'all' || h.state === flagFilter.value || h.flag === flagFilter.value))
 const filters = computed(() => [
-  { id: 'all', label: '전체', n: flagged.value.length },
-  ...Object.keys(FLAG).map((id) => ({ id, label: FLAG[id].label, n: flagged.value.filter((s) => s.flag === id).length })).filter((f) => f.n),
+  { id: 'all', label: '전체', n: holders.value.length },
+  ...['check', 'ok', 'new'].map((id) => ({ id, label: STATE[id].label, n: holders.value.filter((h) => h.state === id).length })).filter((f) => f.n),
+  ...['unused', 'on_leave', 'no_record'].map((id) => ({ id, label: FLAG[id].label, n: holders.value.filter((h) => h.flag === id).length })).filter((f) => f.n),
 ])
+const LEVEL = (d) => (d == null ? '' : d === 0 ? '30일 미사용' : d < 5 ? '가끔' : d < 12 ? '보통' : '자주')
 
 function selectProduct(id) { activeId.value = id; flagFilter.value = 'all' }
 async function ask(seat) {
@@ -51,8 +62,8 @@ async function ask(seat) {
   </header>
 
   <div role="tablist" aria-label="제품" class="tags" style="gap: 8px" @keydown="onTabKeys">
-    <button v-for="p in products" :key="p.id" type="button" role="tab" class="chip chip-lg prod-tab" :aria-selected="p.id === activeId" :tabindex="p.id === activeId ? 0 : -1" @click="selectProduct(p.id)">
-      <ProductLogo :tool-id="p.id" :name="p.name" :size="24" />{{ p.name }} · {{ p.seatsPurchased ? `${p.seatsPurchased}석` : '좌석 없음' }}
+    <button v-for="p in tabs" :key="p.id" type="button" role="tab" class="chip chip-lg prod-tab" :aria-selected="p.id === activeId" :tabindex="p.id === activeId ? 0 : -1" @click="selectProduct(p.id)">
+      <ProductLogo v-if="p.id !== 'all'" :tool-id="p.id" :name="p.name" :size="24" /><span v-else class="all-dot" aria-hidden="true">Σ</span>{{ p.name }} · {{ p.seatsPurchased ? `${p.seatsPurchased}석` : '좌석 없음' }}
     </button>
   </div>
 
@@ -65,7 +76,7 @@ async function ask(seat) {
           <div><span class="small muted">배정</span><strong>{{ product.seatsAssigned }}석</strong></div>
           <div><span class="small muted">미배정</span><strong>{{ product.seatsPurchased - product.seatsAssigned }}석</strong></div>
           <div><span class="small muted">본인 확인 필요</span><strong>{{ toCheck }}석</strong></div>
-          <div><span class="small muted">좌석 단가</span><strong>{{ won(product.seatPrice) }}</strong></div>
+          <div v-if="product.seatPrice != null"><span class="small muted">좌석 단가</span><strong>{{ won(product.seatPrice) }}</strong></div>
         </template>
         <div v-else><span class="small muted">쓰는 프로젝트</span><strong>{{ product.projects }}개</strong></div>
       </div>
@@ -87,33 +98,36 @@ async function ask(seat) {
       <section class="card col-3" aria-labelledby="seat-h">
         <div class="card-head">
           <div>
-            <h2 id="seat-h">확인이 필요한 이용권</h2>
-            <span class="small muted">사용 기록이 없다는 이유만으로 회수하지 않습니다. 먼저 본인에게 사용 의사를 묻습니다.</span>
+            <h2 id="seat-h">배정된 직원 {{ holders.length }}명</h2>
+            <span class="small muted">확인이 필요한 사람이 위로 옵니다. 사용 기록이 없다는 이유만으로 회수하지 않고, 먼저 본인에게 사용 의사를 묻습니다.</span>
           </div>
-          <div v-if="flagged.length" class="tags">
+          <div v-if="holders.length" class="tags">
             <button v-for="f in filters" :key="f.id" type="button" class="chip" :aria-pressed="flagFilter === f.id" @click="flagFilter = f.id">{{ f.label }} {{ f.n }}</button>
           </div>
         </div>
         <p v-if="notice.text" class="status" :class="{ err: notice.err }" :role="notice.err ? 'alert' : 'status'">{{ notice.text }}</p>
         <div v-if="visible.length" class="table-wrap">
-          <table class="table" style="min-width: 680px">
-            <thead><tr><th scope="col">직원</th><th scope="col">상태</th><th scope="col">마지막 사용</th><th scope="col">사용 의사 확인</th><th scope="col" class="num"><span class="sr-only">동작</span></th></tr></thead>
+          <table class="table" style="min-width: 760px">
+            <thead><tr><th scope="col">직원</th><th v-if="product.id === 'all'" scope="col">제품</th><th scope="col">상태</th><th scope="col">마지막 사용</th><th scope="col">최근 30일</th><th scope="col">사용 의사 확인</th><th scope="col" class="num"><span class="sr-only">동작</span></th></tr></thead>
             <tbody>
-              <tr v-for="seat in visible" :key="seat.id">
-                <td><div class="cell-2"><span>{{ seat.name }}</span><span>{{ seat.dept }}</span></div></td>
-                <td><span class="pill" :class="`pill-${FLAG[seat.flag].tone}`">{{ FLAG[seat.flag].label }}</span></td>
-                <td :class="{ muted: seat.lastUsed === '기록 없음' }">{{ seat.lastUsed }}</td>
-                <td>{{ seat.confirmation }}</td>
+              <tr v-for="h in visible" :key="h.id + (h.productId ?? '')" :class="{ check: h.state === 'check' }">
+                <td><div class="cell-2"><span>{{ h.name }}</span><span>{{ h.dept }} · {{ h.job }}</span></div></td>
+                <td v-if="product.id === 'all'"><RouterLink :to="{ query: { product: h.productId } }" class="small strong" @click.prevent="selectProduct(h.productId)">{{ h.product }}</RouterLink></td>
+                <td><span class="pill" :class="`pill-${(h.flag && FLAG[h.flag]) ? FLAG[h.flag].tone : STATE[h.state].tone}`">{{ h.flag && FLAG[h.flag] ? FLAG[h.flag].label : STATE[h.state].label }}</span></td>
+                <td :class="{ muted: h.lastUsed === '기록 없음' }">{{ h.lastUsed }}</td>
+                <td class="small" :class="{ muted: h.activeDays == null }">{{ h.activeDays != null ? `${h.activeDays}일 · ${LEVEL(h.activeDays)}` : '기록 안 줌' }}</td>
+                <td class="small" :class="{ muted: h.confirmation === '-' }">{{ h.confirmation }}</td>
                 <td class="num">
-                  <button v-if="seat.action === 'ask'" type="button" class="btn btn-dark btn-sm" :disabled="!!asking" @click="ask(seat)">{{ asking === seat.id ? '보내는 중…' : '본인 확인 요청' }}</button>
-                  <button v-else-if="seat.action === 'sent'" type="button" class="btn btn-sm sent" disabled :title="`답 기한 ${seat.sentDue}까지 기다립니다`">✓ 보냈음 · {{ seat.sentDue }}</button>
-                  <span v-else class="small muted">처리 없음</span>
+                  <button v-if="h.action === 'ask'" type="button" class="btn btn-dark btn-sm" :disabled="!!asking" @click="ask(h)">{{ asking === h.id ? '보내는 중…' : '본인 확인 요청' }}</button>
+                  <button v-else-if="h.action === 'sent'" type="button" class="btn btn-sm sent" disabled :title="`답 기한 ${h.sentDue}까지 기다립니다`">✓ 보냈음 · {{ h.sentDue }}</button>
+                  <span v-else class="small muted">-</span>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p v-else class="small muted">확인이 필요한 이용권이 없습니다.</p>
+        <p v-else-if="holders.length" class="small muted">이 조건에 맞는 직원이 없습니다.</p>
+        <p v-else class="small muted">{{ product.seatsPurchased ? '아직 배정된 직원이 없습니다.' : 'API 사용량 과금 제품은 좌석이 없습니다. 팀 프로젝트 단위로 쓰며, 좌석별 오늘 토큰 소비는 ' }}<RouterLink v-if="!product.seatsPurchased" to="/cost/teams">팀별 사용량·좌석 배치도</RouterLink><template v-if="!product.seatsPurchased">에서 봅니다.</template></p>
       </section>
 
       <aside class="col-1 stack">
@@ -143,6 +157,8 @@ async function ask(seat) {
 </template>
 
 <style scoped>
+.all-dot { width: 24px; height: 24px; border-radius: 999px; background: var(--ink); color: var(--lime); font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+tr.check td { background: rgba(220, 239, 109, 0.12); }
 .btn.sent:disabled { opacity: 1; background: var(--track); border-color: transparent; color: var(--muted); cursor: default; }
 .prod-tab { display: inline-flex; align-items: center; gap: 8px; padding-left: 8px; }
 .facts { display: flex; flex-wrap: wrap; gap: 32px; }

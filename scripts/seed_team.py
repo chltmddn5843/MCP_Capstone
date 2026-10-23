@@ -124,11 +124,68 @@ def build(client, system_token: str, admin_password: str) -> dict:
         members = [e for e in people.values() if e["dept_id"] == did and e["role"] != "system"]
         for desk, e in zip(desks, members):
             _ok(client.put(f"/desks/{desk['id']}", headers=A, json={"employee_id": e["id"]}))
-    _ok(client.post("/internal/jobs/collect_usage/run", headers=S))  # 좌석 사용량 더미 (F3 평균 기준)
+    seed_usage(db, products, people)  # 두 달 전 1일부터 어제까지 사용량 (홈·벤더별 비용의 8·9·10월, 좌석 30일 사용일)
+    _ok(client.post("/internal/jobs/collect_usage/run", headers=S))  # 오늘 좌석 사용량 더미 (F3 경보·평균 기준). 지난 날은 위에서 넣었으므로 건너뛴다
     _ok(client.post("/setup/complete", headers=A))
     inv = {i["tool_name"]: f"{i['assigned']}/{i['purchased']}석" for i in _ok(client.get("/inventory", headers=A))}
     staff = [e for e in people.values() if e["role"] != "system"]
     return {"employees": len(staff), "admins": [e["name"] for e in staff if e["role"] == "admin"], "seats": inv}
+
+
+USAGE_START_MONTHS = 2  # 두 달 전 1일부터 (오늘이 10월이면 8월 1일)
+
+
+def seed_usage(db, products: dict, people: dict) -> int:
+    """사용 기록(usage_records)을 직접 넣는다. 사용량을 넣는 API는 없다(실제로는 공급사 수집기 몫).
+    - Claude API 프로젝트: 매일 요청·토큰·비용. 월 비용이 프로젝트 월 예산(30만 원)의 60~80%가 되게. 마지막 3일은 긴 입력이 몰려 급증
+    - ChatGPT 좌석: 마지막 사용일이 있는 사람만 평일마다 일 기록(좌석료에 포함이라 비용 0). 기록 없음(정윤지)은 비워 둔다
+    돌려주는 값은 넣은 행 수."""
+    import random
+    from datetime import datetime, timezone
+
+    from apps.backend import fixtures as fx
+
+    rnd = random.Random("seed_team_usage")
+    today = date.today()
+    m = today.month - USAGE_START_MONTHS
+    start = date(today.year - (m <= 0), (m - 1) % 12 + 1, 1)
+    days = [start + timedelta(days=i) for i in range((today - start).days)]  # 어제까지
+    at = lambda d, h=10: datetime(d.year, d.month, d.day, h, tzinfo=timezone.utc) - timedelta(hours=9)  # KST h시
+    rows = []
+    prj = db.one("SELECT p.id, p.model_id, k.id AS key_id FROM projects p JOIN api_keys k ON k.project_id = p.id ORDER BY p.id LIMIT 1")
+    if prj:
+        model = fx.MODELS[prj["model_id"]]
+        mix = {"0-2k": 0.85, "2k-8k": 0.15}
+        tokens = {"0-2k": 1200, "2k-8k": 4500, "8k+": 12000}
+        for d in days:
+            weekend = d.weekday() >= 5
+            spike = (today - d).days <= 3
+            total = int(900 * rnd.uniform(0.85, 1.15) * (0.25 if weekend else 1) * (2.2 if spike else 1))
+            for bucket, share in ({"2k-8k": 0.3, "8k+": 0.7} if spike else mix).items():
+                r = int(total * share)
+                tin, tout = r * tokens[bucket], r * 300
+                usd = round(tin / 1e6 * model.input_usd_per_mtok + tout / 1e6 * model.output_usd_per_mtok, 4)
+                rows.append(dict(v=f"vr_team_{prj['id']}_{d:%Y%m%d}_{bucket}", c=products["Claude API"]["id"], p=at(d), e=None, pj=prj["id"], k=prj["key_id"],
+                                 m=prj["model_id"], b=bucket, r=r, i=tin, o=tout, usd=usd, krw=round(usd * fx.FX)))
+    chat = products["ChatGPT Enterprise"]["id"]
+    seated = {lo for lo, last in SEATS["ChatGPT Enterprise"] if last}
+    for email, e in people.items():
+        if email.split("@")[0] not in seated:
+            continue
+        p = 0.9 if email.startswith("yongju") else 0.7
+        for d in days:
+            if d.weekday() >= 5 or rnd.random() > p:
+                continue
+            r = rnd.randint(4, 24)
+            heavy = r >= 14
+            rows.append(dict(v=f"vr_team_chat_{e['id']}_{d:%Y%m%d}", c=chat, p=at(d, rnd.randint(9, 17)), e=e["id"], pj=None, k=None,
+                             m="openai:gpt-5.5" if heavy else "openai:gpt-5.5-mini", b="2k-8k" if heavy else "0-2k", r=r, i=r * 1500, o=r * 600, usd=0, krw=0))
+    with db.tx() as c:
+        for x in rows:
+            c.execute(db.text("INSERT INTO usage_records (vendor_record_id, contract_id, period_start, employee_id, project_id, api_key_id, model_id, input_length_bucket,"
+                              " requests, input_tokens, output_tokens, cost_usd, cost_krw) VALUES (:v, :c, :p, :e, :pj, :k, :m, :b, :r, :i, :o, :usd, :krw)"
+                              " ON CONFLICT (vendor_record_id) DO NOTHING"), x)
+    return len(rows)
 
 
 def main() -> None:

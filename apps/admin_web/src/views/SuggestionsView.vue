@@ -1,15 +1,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getUpdates, getSuggestionStats, getTeamSwitches, setTeamSwitch, setTeamChannel, simulateRelease, runSendSuggestions } from '../api.js'
+import { getUpdates, getSuggestionStats, simulateRelease, runSendSuggestions } from '../api.js'
 import { createTask } from '../request.js'
 import TaskStream from '../components/TaskStream.vue'
 import { SEND_RESULT } from '../labels.js'
 
 const updates = ref([])
 const stats = ref(null)
-const switches = ref([])
 
-const load = async () => { [updates.value, stats.value, switches.value] = await Promise.all([getUpdates(), getSuggestionStats(), getTeamSwitches()]) }
+const load = async () => { [updates.value, stats.value] = await Promise.all([getUpdates(), getSuggestionStats()]) }
 onMounted(load)
 
 // [출시 시뮬레이션] 공급사가 새 모델을 냈다고 치고: 감지 → AI가 카드 뉴스 작성(draft_model_card) → 발송 정책 → Slack
@@ -33,18 +32,6 @@ async function afterCard() {
   await load()
 }
 
-// 팀별 자동 발송: 스위치는 즉시 저장(PATCH /departments). 실패하면 원래대로 되돌리고 알린다. 채널 ID는 입력을 떠날 때 저장
-const swMsg = ref({ text: '', err: false })
-async function toggle(t) {
-  try { await setTeamSwitch(t.id, t.enabled); swMsg.value = { text: `${t.team}: ${t.enabled ? '보냄' : '보내지 않음 (기록만)'}`, err: false } }
-  catch (e) { t.enabled = !t.enabled; swMsg.value = { text: `저장 실패: ${e.message}`, err: true } }
-}
-async function saveChannel(t) {
-  const ch = t.channel.trim()
-  if (ch && !/^[CG][A-Z0-9]{8,}$/.test(ch)) { swMsg.value = { text: `${t.team}: Slack 채널 ID는 C로 시작하는 ID예요 (채널 정보 → 하단 ID 복사)`, err: true }; return }
-  try { await setTeamChannel(t.id, ch); t.channel = ch; swMsg.value = { text: `${t.team}: ${ch ? `팀 채널 ${ch}로 보냄` : '팀원 개인 DM으로 보냄'}`, err: false } }
-  catch (e) { swMsg.value = { text: `저장 실패: ${e.message}`, err: true } }
-}
 const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
 </script>
 
@@ -81,6 +68,7 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
           <span v-else class="pill" :class="u.result === 'sent' ? 'pill-ok' : 'pill-alert'">{{ u.result === 'sent' ? '보냄' : '보류' }}</span>
         </div>
         <pre v-if="u.card" class="card-news">{{ u.card }}</pre>
+        <span v-if="u.card" class="xs muted">Slack에서는 각자 본인 직무 줄만 받습니다. 직무가 없는 직원에게는 핵심 기능만 갑니다.</span>
         <div v-if="u.teams.length" class="table-wrap">
           <table class="table" style="min-width: 560px">
             <caption class="sr-only">{{ u.title }} 팀별 결과 · 보낸 팀 {{ sentCount(u) }}곳</caption>
@@ -99,15 +87,6 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
     </section>
 
     <aside class="col-1 stack">
-      <section class="card" aria-labelledby="sw-h" style="gap: 4px">
-        <h2 id="sw-h">팀별 자동 발송</h2>
-        <span class="small muted" style="padding-bottom: 8px">끄면 그 팀에는 보내지 않고 기록만 남깁니다. 팀 Slack 채널 ID를 넣으면 채널로, 비우면 팀원 개인 DM으로 갑니다.</span>
-        <p v-if="swMsg.text" class="status xs" :class="{ err: swMsg.err }" :role="swMsg.err ? 'alert' : 'status'" style="margin: 0 0 8px">{{ swMsg.text }}</p>
-        <div v-for="t in switches" :key="t.id" class="switch-row">
-          <label class="sw-main"><input v-model="t.enabled" type="checkbox" role="switch" @change="toggle(t)"><span>{{ t.team }}</span></label>
-          <input v-model="t.channel" class="ch" type="text" :aria-label="`${t.team} Slack 채널 ID`" placeholder="개인 DM" autocomplete="off" spellcheck="false" @change="saveChannel(t)" />
-        </div>
-      </section>
       <section class="card-dark small" aria-label="알림 정책" style="line-height: 1.6">
         <strong style="color: var(--lime)">알림 정책 · 코드로 검사</strong>
         <span>팀당 주 2건까지</span>
@@ -120,9 +99,5 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
 </template>
 
 <style scoped>
-.sw-main { display: flex; align-items: center; gap: 10px; flex: 1; cursor: pointer; }
-.ch { width: 132px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 12px; font-family: ui-monospace, monospace; }
 .card-news { margin: 0; padding: 14px 16px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); font: 14px/1.7 inherit; white-space: pre-wrap; }
-.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; border-top: 1px solid var(--line); font-size: 14px; }
-.switch-row input[type='checkbox'] { accent-color: var(--ink); width: 20px; height: 20px; margin: 0; }
 </style>

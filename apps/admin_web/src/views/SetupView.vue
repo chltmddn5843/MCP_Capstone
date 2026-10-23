@@ -1,11 +1,11 @@
 <script setup>
-// 초기 설정 마법사 (가입 직후) 겸 설정 화면 (설정을 마친 뒤). 단계: 부서·직원 → 구독 제품(사내 자산) → AI 모델·API 프로젝트 → 연간 예산 → 확인.
+// 초기 설정 마법사 (가입 직후) 겸 설정 화면 (설정을 마친 뒤). 단계: 부서·직원 → 좌석 구조(층·구역·책상) → 구독 제품(사내 자산) → AI 모델·API 프로젝트 → 연간 예산 → 확인.
 // 각 단계는 저장 즉시 서버에 반영된다(감사 기록 남음). 단계 이동은 저장과 무관해 언제든 앞뒤로 갈 수 있다.
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
   getSetupStatus, completeSetup, getDepartments, createDepartment, createEmployees, getEmployees, getContracts, createContract,
-  getModelCatalog, approveModels, importSeats, getProjects, createProject, getBudgets, setBudgets,
+  getModelCatalog, approveModels, importSeats, getProjects, createProject, getBudgets, setBudgets, getDesks, addDesks, removeDesk, removeDesks,
 } from '../api.js'
 import { BILLING, won, onTabKeys } from '../labels.js'
 import { errorLabel } from '../request.js'
@@ -15,6 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const STEPS = [
   { id: 'org', label: '부서·직원' },
+  { id: 'desks', label: '좌석 구조' },
   { id: 'assets', label: '구독 제품' },
   { id: 'models', label: 'AI 모델·프로젝트' },
   { id: 'budget', label: '연간 예산' },
@@ -33,12 +34,13 @@ const contracts = ref([])
 const catalog = ref([])
 const projects = ref([])
 const budget = ref(null)
+const desks = ref([])
 const msg = ref('')
 const busy = ref(false)
 
 async function load() {
-  ;[status.value, depts.value, people.value, contracts.value, catalog.value, projects.value, budget.value] = await Promise.all([
-    getSetupStatus(), getDepartments(), getEmployees(), getContracts(), getModelCatalog(), getProjects().catch(() => []), getBudgets(),
+  ;[status.value, depts.value, people.value, contracts.value, catalog.value, projects.value, budget.value, desks.value] = await Promise.all([
+    getSetupStatus(), getDepartments(), getEmployees(), getContracts(), getModelCatalog(), getProjects().catch(() => []), getBudgets(), getDesks().catch(() => []),
   ])
   bf.value = { seat: budget.value.seat_annual_krw, api: budget.value.api_annual_krw }
   picked.value = catalog.value.filter((m) => m.approved).map((m) => m.id)
@@ -113,6 +115,37 @@ const pfError = computed(() => !pf.value.name.trim() || !pf.value.purpose.trim()
   : !pf.value.dept_id || !pf.value.owner_id ? '부서와 담당자를 고르세요' : !pf.value.model_id ? '승인한 모델 중 하나를 고르세요' : '')
 const addProject = () => save(async () => { await createProject({ ...pf.value, monthly_budget_krw: Number(pf.value.monthly_budget_krw) }); pf.value = { ...pf.value, name: '', purpose: '', monthly_budget_krw: 0 } }, 'API 프로젝트를 등록했습니다.')
 
+// ── 좌석 구조: 층·부서 구역·책상 (팀별 좌석 배치도가 이 책상에 사람을 앉힌다) ──
+// 만들기는 POST /desks 하나: 그 층에 그 부서 구역이 있으면 끝에 붙이고, 없으면 새 구역(새 층)이 된다. 없애기는 비어 있는 것만 (서버가 앉은 사람이 있으면 막는다).
+const CLUSTER = 6 // 책상 6개가 한 섬
+const lf = ref({ floor: '', newFloor: '', dept_id: '', count: CLUSTER })
+const floorNum = (id) => parseInt(id, 10)
+const floors = computed(() => [...new Set(desks.value.map((d) => d.floor))].sort((a, b) => floorNum(b) - floorNum(a)).map((id) => ({
+  id, label: id.replace('F', '층'),
+  zones: [...new Set(desks.value.filter((d) => d.floor === id).map((d) => d.dept_id))].map((dept) => {
+    const ds = desks.value.filter((d) => d.floor === id && d.dept_id === dept)
+    return { id: dept, name: depts.value.find((x) => x.id === dept)?.name ?? dept, size: ds.length, seated: ds.filter((d) => d.employee_id).length, empty: ds.filter((d) => !d.employee_id) }
+  }),
+})))
+const lfFloor = computed(() => (lf.value.floor === '_new' || !lf.value.floor ? lf.value.newFloor.trim().toUpperCase().replace(/층$/, 'F').replace(/^(\d+)$/, '$1F') : lf.value.floor))
+const lfExisting = computed(() => desks.value.filter((d) => d.floor === lfFloor.value && d.dept_id === lf.value.dept_id).length)
+const lfError = computed(() => !/^[0-9]{1,2}F$/.test(lfFloor.value) ? '층은 숫자로 적어 주세요 (예: 4 또는 4F)'
+  : !lf.value.dept_id ? '부서를 고르세요' : !(lf.value.count >= 1 && lf.value.count <= 30) ? '책상은 한 번에 1~30개까지 만들 수 있어요' : '')
+const addLayout = () => {
+  const { dept_id, count } = lf.value, f = lfFloor.value, existed = lfExisting.value, name = depts.value.find((x) => x.id === dept_id)?.name ?? dept_id
+  return save(async () => { await addDesks(f, dept_id, Number(count)); lf.value = { ...lf.value, floor: f, newFloor: '' } },
+    existed ? `${f.replace('F', '층')} ${name} 구역에 책상 ${count}개를 붙였어요.` : `${f.replace('F', '층')}에 ${name} 구역을 만들고 책상 ${count}개를 놓았어요.`)
+}
+function removeZone(f, z) {
+  if (!confirm(`${f.label} ${z.name} 구역의 빈 책상 ${z.size}개를 모두 없앨까요?`)) return
+  save(() => removeDesks(f.id, z.id), `${f.label} ${z.name} 구역을 없앴어요.`)
+}
+function removeFloor(f) {
+  if (!confirm(`${f.label}의 구역 ${f.zones.length}개와 빈 책상을 모두 없앨까요?`)) return
+  save(() => removeDesks(f.id), `${f.label}을 없앴어요.`)
+}
+const removeEmptyOne = (f, z) => save(() => removeDesk(z.empty[z.empty.length - 1].id), `${f.label} ${z.name} 구역의 빈 책상 하나를 없앴어요.`)
+
 // ── 4. 예산 ──
 const bf = ref({ seat: 0, api: 0 })
 const saveBudget = () => save(() => setBudgets({ fiscal_year: budget.value.fiscal_year, seat_annual_krw: Number(bf.value.seat), api_annual_krw: Number(bf.value.api) }), '연간 예산을 저장했습니다.')
@@ -122,6 +155,7 @@ const apiOver = computed(() => budget.value && budget.value.project_budget_sum_k
 // 단계 이동은 저장과 무관하다. [저장]을 누르지 않고 옮기면 입력이 서버에 남지 않으므로 그때만 한 번 묻는다.
 const dirty = computed(() => ({
   org: !!(newDept.value.trim() || csv.value.trim()),
+  desks: !!lf.value.newFloor.trim(),
   assets: JSON.stringify(cf.value) !== JSON.stringify(blank()),
   models: picked.value.length !== approved.value.length || picked.value.some((id) => !approved.value.some((m) => m.id === id)) || !!(pf.value.name.trim() || pf.value.purpose.trim()),
   budget: !!budget.value && (Number(bf.value.seat) !== budget.value.seat_annual_krw || Number(bf.value.api) !== budget.value.api_annual_krw),
@@ -195,7 +229,47 @@ const canFinish = computed(() => CHECK.value?.filter((c) => c.required).every((c
       </div>
     </template>
 
-    <!-- 2. 구독 제품 -->
+    <!-- 2. 좌석 구조 -->
+    <template v-else-if="step === 'desks'">
+      <p class="small muted">층과 부서 구역에 책상을 놓습니다. 사람을 앉히고 옮기는 건 비용·사용량 › 팀별 좌석 배치도에서 합니다. 책상 6개가 한 섬이에요.</p>
+      <div class="split">
+        <form class="stack form" @submit.prevent="addLayout">
+          <strong class="small">책상 놓기</strong>
+          <div class="grid">
+            <label class="field">층
+              <select v-model="lf.floor"><option value="" disabled>고르세요</option><option v-for="f in floors" :key="f.id" :value="f.id">{{ f.label }}</option><option value="_new">새 층 만들기</option></select>
+            </label>
+            <label v-if="lf.floor === '_new' || !floors.length" class="field">새 층 번호<input v-model="lf.newFloor" inputmode="numeric" placeholder="예: 4" autocomplete="off" /></label>
+            <label class="field">부서 구역<select v-model="lf.dept_id"><option value="" disabled>고르세요</option><option v-for="d in depts" :key="d.id" :value="d.id">{{ d.name }}</option></select></label>
+            <label class="field">책상 수<input v-model.number="lf.count" type="number" min="1" max="30" inputmode="numeric" /></label>
+          </div>
+          <p class="xs" :class="{ muted: !lfError }" style="margin: 0">{{ lfError || (lfExisting ? `${lfFloor.replace('F', '층')} 그 구역(책상 ${lfExisting}개) 끝에 ${lf.count}개를 붙입니다.` : `${lfFloor.replace('F', '층')}에 새 구역을 만듭니다.`) }}</p>
+          <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy || !!lfError">{{ lfExisting ? '책상 붙이기' : '구역 만들기' }}</button>
+        </form>
+        <div class="stack" style="gap: 10px">
+          <strong class="small">현재 구조 · 책상 {{ desks.length }}개</strong>
+          <p v-if="!floors.length" class="small muted" style="margin: 0">아직 층이 없습니다. 왼쪽에서 첫 구역을 만드세요.</p>
+          <div v-for="f in floors" :key="f.id" class="bcard">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+              <strong>{{ f.label }}</strong>
+              <button type="button" class="btn btn-sm" :disabled="busy || f.zones.some((z) => z.seated)" :title="f.zones.some((z) => z.seated) ? '사람이 앉아 있는 층은 없앨 수 없어요' : ''" @click="removeFloor(f)">층 전체 없애기</button>
+            </div>
+            <ul class="list">
+              <li v-for="z in f.zones" :key="z.id">
+                <span>{{ z.name }} <span class="small muted">책상 {{ z.size }}개 · {{ z.seated ? `${z.seated}명 앉음` : '비어 있음' }}</span></span>
+                <span class="inline" style="gap: 6px">
+                  <button type="button" class="btn btn-sm" :disabled="busy || !z.empty.length" @click="removeEmptyOne(f, z)">빈 책상 1개 빼기</button>
+                  <button type="button" class="btn btn-sm" :disabled="busy || !!z.seated" @click="removeZone(f, z)">구역 없애기</button>
+                </span>
+              </li>
+            </ul>
+          </div>
+          <span class="xs muted">사람이 앉은 구역·층은 팀별 좌석 배치도에서 자리를 비운 뒤 없앨 수 있어요.</span>
+        </div>
+      </div>
+    </template>
+
+    <!-- 3. 구독 제품 -->
     <template v-else-if="step === 'assets'">
       <p class="small muted">회사가 계약한 AI·소프트웨어(사내 자산)입니다. 좌석형은 구매 좌석 수와 단가, API형은 사용량 과금이라 좌석이 없습니다.</p>
       <div v-if="contracts.length" class="table-wrap">

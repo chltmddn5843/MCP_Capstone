@@ -34,18 +34,29 @@ MODEL_RELEASE = "새 모델 출시"
 
 
 def build_model_card(suggestion: dict, update: dict, job_title: str | None = None) -> list[dict]:
-    """새 모델 카드 뉴스: 제목 + 핵심 기능 3개 + 직무별 '이렇게 써 보세요'. 받는 사람의 직무 줄은 굵게."""
-    lines = []
+    """새 모델 카드 뉴스: 제목 + 핵심 기능 3개 + '이렇게 써 보세요'는 **받는 사람 직무 줄만**. 카드에 그 직무가 없으면 공통 한 줄.
+    전체 직무 목록은 관리자 화면(자동 제안 기록)에서만 본다. 카드 본문 형식은 prompt_draft_model_card.md가 정한다."""
+    head, jobs, section = [], [], "feat"
     for line in suggestion["body"].splitlines():
-        if line.strip() in ("핵심 기능", "이렇게 써 보세요"):
-            line = f"*{line.strip()}*"
-        elif job_title and line.lstrip("•- ").startswith(job_title + ":"):
-            line = f"*{line.strip()}*  ← 내 직무"
-        lines.append(line)
+        s = line.strip()
+        if s in ("핵심 기능", "이렇게 써 보세요"):
+            section = "jobs" if s == "이렇게 써 보세요" else "feat"
+            if section == "feat":
+                head.append(f"*{s}*")
+            continue
+        if section == "jobs":
+            if s:
+                jobs.append(s)
+        elif s:
+            head.append(line.rstrip())
+    mine = [j for j in jobs if job_title and j.lstrip("•- ").startswith(job_title + ":")]
+    if jobs:
+        head.append("*이렇게 써 보세요*")
+        head += [f"*{j}*  ← 내 직무" for j in mine] or ["• 내 직무 활용 예는 아직 없어요. 등록 업무를 적어 두면 다음 카드부터 맞춰 드려요."]
     cond = ", ".join(update.get("affected_plans") or []) or "회사 승인 제품"
     return [
         {"type": "header", "text": {"type": "plain_text", "text": update["title"][:150]}},
-        _section("\n".join(lines)),
+        _section("\n".join(head)),
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"쓸 수 있는 곳: {cond} · 사내 데이터 사용은 회사 정책을 따라요 · <{update.get('url', '')}|원문 보기>"}]},
         _buttons([("도움 됨", "fb_useful", suggestion["id"], "primary"), ("관련 없음", "fb_irrelevant", suggestion["id"], None), ("적용 방법 질문", "fb_question", suggestion["id"], None)]),
     ]
