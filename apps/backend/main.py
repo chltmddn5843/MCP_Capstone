@@ -94,6 +94,7 @@ from schemas.rest import (
     RelevantTaskCandidate,
     SeatPace,
     SeatPaceDetail,
+    TeamSeat,
     TeamUsage,
     Desk,
     DeskAssign,
@@ -807,7 +808,10 @@ def team_usage(user: Employee = Depends(require(Role.admin, Role.system))):
                              ratio=round(projected / avg, 2) if avg else 0.0,
                              seats_over=sum(p.level == PaceLevel.over for p in ps), seats_caution=sum(p.level == PaceLevel.caution for p in ps),
                              api_requests_today=a.get("req_today", 0), api_cost_today_krw=a.get("today", 0), api_cost_month_krw=a.get("month", 0),
-                             api_budget_month_krw=d["budget"], last_activity_at=max(lasts) if lasts else None))
+                             api_budget_month_krw=d["budget"],
+                             alert_seats=[TeamSeat(employee_id=p.employee_id, employee_name=p.employee_name, product=p.product, level=p.level, ratio=p.ratio, projected_today=p.projected_today)
+                                          for p in sorted(ps, key=lambda p: -p.ratio) if p.level != PaceLevel.normal],
+                             last_activity_at=max(lasts) if lasts else None))
     return ok(sorted(out, key=lambda t: (-t.seats_over, -t.ratio, -t.api_cost_today_krw)))
 
 

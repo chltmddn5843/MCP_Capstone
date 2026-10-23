@@ -337,6 +337,16 @@ class SeatPaceDetail(BaseModel):
     by_model: list[BreakdownRow] = []
 
 
+class TeamSeat(BaseModel):
+    """팀 요약에서 바로 고를 수 있는 경보 좌석 (빠름·2배 이상). 상세는 GET /usage/seats/{employee_id}"""
+    employee_id: str
+    employee_name: str
+    product: str
+    level: PaceLevel
+    ratio: float
+    projected_today: int
+
+
 class TeamUsage(BaseModel):
     """팀(부서)별 오늘 사용량 요약. 좌석 토큰은 /usage/seats를 팀으로 합치고, API 비용은 그 팀 프로젝트의 사용 기록이다."""
     dept_id: str
@@ -353,6 +363,7 @@ class TeamUsage(BaseModel):
     api_cost_today_krw: int
     api_cost_month_krw: int
     api_budget_month_krw: int = Field(description="이 팀 API 프로젝트 월 예산 합")
+    alert_seats: list[TeamSeat] = Field(default=[], description="빠름·2배 이상 좌석, 배수 높은 순. 화면에서 바로 고른다")
     last_activity_at: datetime | None = None
 
 

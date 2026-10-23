@@ -10289,6 +10289,44 @@
         ],
         "title": "TeamAdoption"
       },
+      "TeamSeat": {
+        "properties": {
+          "employee_id": {
+            "type": "string",
+            "title": "Employee Id"
+          },
+          "employee_name": {
+            "type": "string",
+            "title": "Employee Name"
+          },
+          "product": {
+            "type": "string",
+            "title": "Product"
+          },
+          "level": {
+            "$ref": "#/components/schemas/PaceLevel"
+          },
+          "ratio": {
+            "type": "number",
+            "title": "Ratio"
+          },
+          "projected_today": {
+            "type": "integer",
+            "title": "Projected Today"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "employee_name",
+          "product",
+          "level",
+          "ratio",
+          "projected_today"
+        ],
+        "title": "TeamSeat",
+        "description": "팀 요약에서 바로 고를 수 있는 경보 좌석 (빠름·2배 이상). 상세는 GET /usage/seats/{employee_id}"
+      },
       "TeamUsage": {
         "properties": {
           "dept_id": {
@@ -10352,6 +10390,15 @@
             "type": "integer",
             "title": "Api Budget Month Krw",
             "description": "이 팀 API 프로젝트 월 예산 합"
+          },
+          "alert_seats": {
+            "items": {
+              "$ref": "#/components/schemas/TeamSeat"
+            },
+            "type": "array",
+            "title": "Alert Seats",
+            "description": "빠름·2배 이상 좌석, 배수 높은 순. 화면에서 바로 고른다",
+            "default": []
           },
           "last_activity_at": {
             "anyOf": [

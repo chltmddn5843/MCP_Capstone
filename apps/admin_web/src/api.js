@@ -36,6 +36,7 @@ export async function getProducts() {
   const vendorOf = Object.fromEntries(models.map((m) => [m.id, m.vendor])) // 모델 → 공급사 → 그 공급사의 API 제품
   const seatProducts = inv.map((i) => ({
     id: i.contract.tool_id, name: i.tool_name, plan: i.contract.plan_name, kind: (tools.find((t) => t.id === i.contract.tool_id)?.kind === 'software') ? '일반 소프트웨어' : 'AI',
+    vendor: tools.find((t) => t.id === i.contract.tool_id)?.vendor, // 벤더별 비용 화면이 공급사로 묶는다
     billing: BILLING[i.contract.billing_type] ?? i.contract.billing_type,
     seatsPurchased: i.purchased, seatsAssigned: i.assigned, seatPrice: i.contract.seat_price_krw, monthCost: i.purchased * i.contract.seat_price_krw, // 미배정 좌석도 돈을 낸다
     renewal: i.contract.term_end?.slice(0, 10),
@@ -46,7 +47,7 @@ export async function getProducts() {
     })),
   }))
   const apiProducts = tools.filter((t) => t.contract?.billing_type === 'api_usage').map((t) => ({
-    id: t.id, name: t.product, plan: t.contract.plan_name, kind: 'AI', billing: BILLING.api_usage, seatsPurchased: 0, seatsAssigned: 0, seatPrice: 0,
+    id: t.id, name: t.product, plan: t.contract.plan_name, kind: 'AI', vendor: t.vendor, billing: BILLING.api_usage, seatsPurchased: 0, seatsAssigned: 0, seatPrice: 0,
     monthCost: null, renewal: t.contract.term_end?.slice(0, 10), projects: projects.filter((p) => vendorOf[p.model_id] === t.vendor).length, seats: [],
   }))
   return [...seatProducts, ...apiProducts]
@@ -280,6 +281,8 @@ export const removeDesk = (deskId) => request(`/desks/${encodeURIComponent(deskI
 /** 구역(층+부서) 또는 deptId 없이 층 전체. 누가 앉아 있으면 서버가 409로 막는다 */
 export const removeDesks = (floor, deptId) => request('/desks', { method: 'DELETE', query: { floor, dept_id: deptId } })
 export const getTeamUsage = () => get('/usage/teams')
+// GET /models → 승인 모델·단가 (가벼운 모델 추천, 모델 이름 → 공급사)
+export const getModels = () => get('/models')
 export const createContract = (body) => post('/contracts', body)
 export const getModelCatalog = () => get('/setup/model-catalog')
 export const approveModels = (ids) => put('/models/approved', { model_ids: ids })

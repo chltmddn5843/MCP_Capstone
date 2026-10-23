@@ -69,7 +69,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
         <div class="card-head" style="padding-bottom: 12px">
           <h2 id="todo-h">지금 확인할 일</h2>
         </div>
-        <RouterLink v-for="p in heavy" :key="p.employee_id" :to="{ path: '/seats', query: { id: p.employee_id } }" class="feed-item">
+        <RouterLink v-for="p in heavy" :key="p.employee_id" :to="{ path: '/cost/teams', query: { id: p.employee_id } }" class="feed-item">
           <span class="pill pill-alert">토큰 과사용</span>
           <div class="feed-body">
             <span class="feed-title">{{ p.employee_name }} · {{ p.product }} · 오늘 소비 속도가 평균의 {{ p.ratio }}배</span>
