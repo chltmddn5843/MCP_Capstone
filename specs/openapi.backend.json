@@ -1494,13 +1494,122 @@
         }
       }
     },
+    "/contracts/{contract_id}/seats/import": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Import Seats",
+        "description": "이미 쓰던 회사의 좌석 배정을 CSV로 넣는다. 한 줄이라도 틀리면 아무것도 넣지 않는다.\n좌석 수를 넘기지 않고, 이미 배정된 사람은 건너뛴다. 마지막 사용일이 없으면 미사용이 아니라 '기록 없음(확인 필요)'.",
+        "operationId": "import_seats_contracts__contract_id__seats_import_post",
+        "parameters": [
+          {
+            "name": "contract_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Contract Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SeatImportResult_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/models/approved": {
       "put": {
         "tags": [
           "setup"
         ],
         "summary": "Approve Models",
-        "description": "목록에서 고른 모델만 승인. 처음 고른 모델은 models에 넣고, 같은 공급사의 API 계약 제품에 묶는다.",
+        "description": "목록에서 고른 모델만 승인. 처음 고른 모델은 models에 넣고, 같은 공급사의 API 계약 제품에 묶는다.\n새로 감지된 API 모델은 단가가 0(미확인)이라 그대로 승인하면 비용 추정이 0원이 된다. 단가(prices)를 같이 받아야 승인한다.",
         "operationId": "approve_models_models_approved_put",
         "parameters": [
           {
@@ -8002,6 +8111,22 @@
         ],
         "title": "Envelope[SavingsSummary]"
       },
+      "Envelope_SeatImportResult_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SeatImportResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SeatImportResult]"
+      },
       "Envelope_SeatPaceDetail_": {
         "properties": {
           "data": {
@@ -8901,6 +9026,14 @@
             "type": "array",
             "title": "Model Ids",
             "description": "승인할 모델 id. 목록(GET /setup/model-catalog)에 있는 것만. 빠진 모델은 승인 해제"
+          },
+          "prices": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ModelPrice"
+            },
+            "type": "object",
+            "title": "Prices",
+            "description": "새로 감지돼 단가를 모르는 API 모델의 단가(100만 토큰당 달러). 모르는 채로는 승인할 수 없다"
           }
         },
         "type": "object",
@@ -8908,6 +9041,26 @@
           "model_ids"
         ],
         "title": "ModelApproval"
+      },
+      "ModelPrice": {
+        "properties": {
+          "input_usd_per_mtok": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Input Usd Per Mtok"
+          },
+          "output_usd_per_mtok": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Output Usd Per Mtok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_usd_per_mtok",
+          "output_usd_per_mtok"
+        ],
+        "title": "ModelPrice"
       },
       "Money": {
         "properties": {
@@ -9654,6 +9807,59 @@
           "total_krw"
         ],
         "title": "SavingsSummary"
+      },
+      "SeatImport": {
+        "properties": {
+          "csv": {
+            "type": "string",
+            "maxLength": 500000,
+            "minLength": 1,
+            "title": "Csv"
+          }
+        },
+        "type": "object",
+        "required": [
+          "csv"
+        ],
+        "title": "SeatImport",
+        "description": "기존 좌석 배정 CSV. 첫 줄은 머리글 email[,last_activity_at]. last_activity_at은 YYYY-MM-DD, 비우면 '기록 없음(확인 필요)'."
+      },
+      "SeatImportResult": {
+        "properties": {
+          "contract_id": {
+            "type": "string",
+            "title": "Contract Id"
+          },
+          "imported": {
+            "type": "integer",
+            "title": "Imported"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped",
+            "description": "이미 이 계약 좌석이 있어 건너뛴 이메일"
+          },
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned"
+          },
+          "purchased": {
+            "type": "integer",
+            "title": "Purchased"
+          }
+        },
+        "type": "object",
+        "required": [
+          "contract_id",
+          "imported",
+          "skipped",
+          "assigned",
+          "purchased"
+        ],
+        "title": "SeatImportResult"
       },
       "SeatPace": {
         "properties": {

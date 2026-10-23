@@ -7,7 +7,10 @@ B(백엔드)는 이 파일의 라우트 시그니처와 response_model을 유지
 
 from __future__ import annotations
 
+import csv
+import io
 import os
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -72,6 +75,8 @@ from schemas.rest import (
     DepartmentCreate,
     EmployeeCreate,
     ModelApproval,
+    SeatImport,
+    SeatImportResult,
     ProjectCreate,
     SetupStatus,
     SignupRequest,
@@ -211,10 +216,20 @@ def setup_complete(user: Employee = Depends(require(Role.admin))):
     return ok(_setup_status())
 
 
+MODEL_COLS = ("id, vendor, name, capabilities, input_usd_per_mtok::float AS input_usd_per_mtok,"
+              " output_usd_per_mtok::float AS output_usd_per_mtok, approved, allowed_data_class")
+
+
+def _catalog() -> dict[str, Model]:
+    """고를 수 있는 모델 = 공식 단가표(MODEL_CATALOG) + 수집 배치가 새로 감지해 models에 넣은 모델(approved=false로 들어온다)."""
+    db_models = {r["id"]: Model(**r) for r in db.rows(f"SELECT {MODEL_COLS} FROM models")}
+    out = {mid: m.model_copy(update={"approved": mid in db_models and db_models[mid].approved}) for mid, m in MODEL_CATALOG.items()}
+    return out | {mid: m for mid, m in db_models.items() if mid not in out}
+
+
 @app.get("/setup/model-catalog", response_model=Envelope[list[Model]], tags=["setup"])
 def model_catalog(user: Employee = Depends(require(Role.admin))):
-    approved = {r["id"] for r in db.rows("SELECT id FROM models WHERE approved")}
-    return ok([m.model_copy(update={"approved": m.id in approved}) for m in MODEL_CATALOG.values()])
+    return ok(list(_catalog().values()))
 
 
 @app.get("/departments", response_model=Envelope[list[Department]], tags=["setup"])
@@ -363,23 +378,80 @@ def create_contract(body: ContractCreate, user: Employee = Depends(require(Role.
     return ok(ctr)
 
 
+@app.post("/contracts/{contract_id}/seats/import", response_model=Envelope[SeatImportResult], status_code=201, tags=["setup"])
+def import_seats(contract_id: str, body: SeatImport, user: Employee = Depends(require(Role.admin))):
+    """이미 쓰던 회사의 좌석 배정을 CSV로 넣는다. 한 줄이라도 틀리면 아무것도 넣지 않는다.
+    좌석 수를 넘기지 않고, 이미 배정된 사람은 건너뛴다. 마지막 사용일이 없으면 미사용이 아니라 '기록 없음(확인 필요)'."""
+    ctr = db.one("SELECT billing_type, seats_purchased FROM contracts WHERE id = :c", c=contract_id)
+    if not ctr:
+        raise ApiError(ErrorCode.not_found, f"계약 없음: {contract_id}")
+    if ctr["billing_type"] == "api_usage":
+        raise ApiError(ErrorCode.invalid, "API 사용량 과금 계약에는 좌석이 없습니다")
+    rows = [r for r in csv.DictReader(io.StringIO(body.csv.strip().lstrip("\ufeff")))]  # 엑셀 CSV의 BOM
+    if not rows or "email" not in rows[0]:
+        raise ApiError(ErrorCode.invalid, "첫 줄은 머리글 email[,last_activity_at] 이어야 하고 한 줄 이상 있어야 합니다")
+    emails = [(r.get("email") or "").strip().lower() for r in rows]
+    people = {r["email"]: r for r in db.rows("SELECT id, lower(email) AS email, status FROM employees WHERE lower(email) = ANY(:e) AND role <> 'system'", e=emails)}
+    errors = []
+    for n, (r, e) in enumerate(zip(rows, emails), start=2):
+        last = (r.get("last_activity_at") or "").strip()
+        if e not in people:
+            errors.append(f"{n}행 {e or '(빈 이메일)'}: 등록된 직원이 아닙니다")
+        elif people[e]["status"] == "resigned":
+            errors.append(f"{n}행 {e}: 퇴사한 직원입니다")
+        elif emails.count(e) > 1:
+            errors.append(f"{n}행 {e}: 파일 안에 두 번 있습니다")
+        elif last and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", last):
+            errors.append(f"{n}행 {e}: last_activity_at은 YYYY-MM-DD 형식이어야 합니다")
+    if errors:
+        raise ApiError(ErrorCode.invalid, f"CSV에 고칠 줄이 {len(errors)}개 있습니다. 아무것도 넣지 않았습니다", {"errors": errors[:50]})
+    with db.tx() as c:
+        c.execute(db.text("SELECT 1 FROM contracts WHERE id = :c FOR UPDATE"), dict(c=contract_id))  # 동시 배정과 좌석 수 검사를 잠근다
+        have = {r["employee_id"] for r in db.rows("SELECT employee_id FROM seat_assignments WHERE contract_id = :c AND status = 'assigned'", c, c=contract_id)}
+        new = [(r, people[e]) for r, e in zip(rows, emails) if people[e]["id"] not in have]
+        if len(have) + len(new) > ctr["seats_purchased"]:
+            raise ApiError(ErrorCode.conflict, f"구매 좌석 {ctr['seats_purchased']}석을 넘습니다 (이미 배정 {len(have)}석 + 새로 {len(new)}석)")
+        for r, p in new:
+            last = (r.get("last_activity_at") or "").strip() or None
+            flag = "on_leave" if p["status"] == "on_leave" else None if last else "no_record"
+            c.execute(db.text("INSERT INTO seat_assignments (id, contract_id, employee_id, status, assigned_at, last_activity_at, flag)"
+                              " VALUES (:id, :c, :e, 'assigned', now(), CAST(:l AS timestamptz), CAST(:f AS license_flag))"),
+                      dict(id=_new_id("seat"), c=contract_id, e=p["id"], l=last, f=flag))
+        _audit(c, user, "setup.seats_import", contract_id, {"assigned": len(have)}, {"imported": [p["id"] for _, p in new]})
+    skipped = [p["email"] for r, e in zip(rows, emails) if (p := people[e])["id"] in have]
+    return ok(SeatImportResult(contract_id=contract_id, imported=len(new), skipped=skipped, assigned=len(have) + len(new), purchased=ctr["seats_purchased"]))
+
+
 @app.put("/models/approved", response_model=Envelope[list[Model]], tags=["setup"])
 def approve_models(body: ModelApproval, user: Employee = Depends(require(Role.admin))):
-    """목록에서 고른 모델만 승인. 처음 고른 모델은 models에 넣고, 같은 공급사의 API 계약 제품에 묶는다."""
-    if bad := sorted(set(body.model_ids) - set(MODEL_CATALOG)):
+    """목록에서 고른 모델만 승인. 처음 고른 모델은 models에 넣고, 같은 공급사의 API 계약 제품에 묶는다.
+    새로 감지된 API 모델은 단가가 0(미확인)이라 그대로 승인하면 비용 추정이 0원이 된다. 단가(prices)를 같이 받아야 승인한다."""
+    catalog = _catalog()
+    if bad := sorted(set(body.model_ids) - set(catalog)):
         raise ApiError(ErrorCode.invalid, f"목록에 없는 모델: {', '.join(bad)}")
+    api_tools = {r["id"] for r in db.rows("SELECT tool_id AS id FROM contracts WHERE billing_type = 'api_usage'")}
+    tool_of = {r["id"]: r["tool_id"] for r in db.rows("SELECT id, tool_id FROM models")}
+    unpriced = sorted(mid for mid in body.model_ids if mid not in MODEL_CATALOG and tool_of.get(mid) in api_tools
+                      and not catalog[mid].input_usd_per_mtok and mid not in body.prices)
+    if unpriced:
+        raise ApiError(ErrorCode.invalid, f"단가를 모르는 API 모델이라 입력·출력 단가를 넣어야 승인할 수 있습니다: {', '.join(unpriced)}", {"unpriced": unpriced})
     before = [r["id"] for r in db.rows("SELECT id FROM models WHERE approved ORDER BY id")]
     with db.tx() as c:
+        for mid, price in body.prices.items():
+            if mid in body.model_ids and mid not in MODEL_CATALOG:  # 공식 단가표에 있는 모델 값은 바꾸지 않는다
+                c.execute(db.text("UPDATE models SET input_usd_per_mtok = :i, output_usd_per_mtok = :o WHERE id = :id"),
+                          dict(i=price.input_usd_per_mtok, o=price.output_usd_per_mtok, id=mid))
         for mid in body.model_ids:
+            if mid not in MODEL_CATALOG:
+                continue  # 감지된 모델은 이미 models에 있다
             m = MODEL_CATALOG[mid]
             tool = db.one("SELECT t.id FROM tools t JOIN contracts k ON k.tool_id = t.id WHERE lower(t.vendor) = lower(:v) AND k.billing_type = 'api_usage' LIMIT 1", c, v=m.vendor)
             c.execute(db.text("INSERT INTO models (id, tool_id, vendor, name, capabilities, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class)"
                               " VALUES (:id, :t, :v, :n, :cap, :i, :o, true, CAST(:dc AS data_class)) ON CONFLICT (id) DO NOTHING"),
                       dict(id=m.id, t=tool and tool["id"], v=m.vendor, n=m.name, cap=m.capabilities, i=m.input_usd_per_mtok, o=m.output_usd_per_mtok, dc=m.allowed_data_class.value))
         c.execute(db.text("UPDATE models SET approved = (id = ANY(:ids))"), dict(ids=body.model_ids))
-        _audit(c, user, "setup.models", "models", {"approved": before}, {"approved": sorted(body.model_ids)})
-    return ok([Model(**r) for r in db.rows("SELECT id, vendor, name, capabilities, input_usd_per_mtok::float AS input_usd_per_mtok,"
-                                           " output_usd_per_mtok::float AS output_usd_per_mtok, approved, allowed_data_class FROM models ORDER BY id")])
+        _audit(c, user, "setup.models", "models", {"approved": before}, {"approved": sorted(body.model_ids), "prices": {k: v.model_dump() for k, v in body.prices.items()}})
+    return ok([Model(**r) for r in db.rows(f"SELECT {MODEL_COLS} FROM models ORDER BY id")])
 
 
 @app.post("/projects", response_model=Envelope[Project], status_code=201, tags=["setup"])

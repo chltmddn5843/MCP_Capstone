@@ -121,6 +121,35 @@ def build_plan_request(plan: dict, who: str, product: str, web_url: str | None =
     ]
 
 
+# ---------- 4-2. 이용권 메뉴 (F4, 규칙 경로: AI를 거치지 않는다) ----------
+def build_menu(tools: list[dict], mine: set[str]) -> list[dict]:
+    """tools: GET /tools (계약 있는 것만 버튼). mine: 지금 쓸 수 있는 제품 id(GET /me available_tools).
+    좌석형은 쓰고 있으면 [반납], 아니면 [신청]. API형은 개인 권한이 따로 필요해 늘 [사용 신청] (용도를 묻는 창을 연다)."""
+    blocks = [_section("*이용권 메뉴*\n버튼을 누르면 바로 신청돼요. 어떤 제품이 맞는지 모르겠으면 하고 싶은 일을 그냥 말씀해 주세요.")]
+    for t in tools:
+        c = t.get("contract")
+        if not c or t.get("approval_status", "approved") != "approved":
+            continue
+        if c["billing_type"] == "api_usage":
+            label, aid, value, note = "사용 신청", "menu_api_access", t["id"], "API · 용도를 적으면 관리자가 확인해요"
+        elif t["id"] in mine:
+            label, aid, value, note = "반납", "menu_seat_reclaim", c["id"], "쓰고 있어요"
+        else:
+            label, aid, value, note = "신청", "menu_seat_assign", c["id"], "남은 좌석이 있으면 바로 배정돼요"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*{t['product']}*\n{note}"},
+                       "accessory": {"type": "button", "text": {"type": "plain_text", "text": label}, "action_id": aid, "value": value}})
+    return blocks
+
+
+def build_api_purpose_modal(tool_id: str, product: str, channel: str) -> dict:
+    return {"type": "modal", "callback_id": "menu_api_submit", "private_metadata": f"{tool_id}|{channel}",
+            "title": {"type": "plain_text", "text": "API 사용 신청"[:24]}, "submit": {"type": "plain_text", "text": "신청"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "blocks": [{"type": "input", "block_id": "purpose", "label": {"type": "plain_text", "text": f"{product}를 어디에 쓰나요?"[:2000]},
+                        "element": {"type": "plain_text_input", "action_id": "v", "max_length": 300,
+                                    "placeholder": {"type": "plain_text", "text": "예: 고객 문의를 유형별로 자동 분류"}}}]}
+
+
 # ---------- 5. 좌석 토큰 소비 경보 (F3, 본인에게만) ----------
 def build_seat_alert(anomaly: dict) -> list[dict]:
     return [

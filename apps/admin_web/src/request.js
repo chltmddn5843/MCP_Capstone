@@ -2,7 +2,7 @@
 // 토큰은 localStorage.token (POST /auth/login으로 받은 JWT). 없거나 만료(401)면 /login으로 보낸다.
 
 export class ApiError extends Error {
-  constructor(code, message, status) { super(message); this.code = code; this.status = status }
+  constructor(code, message, status, details) { super(message); this.code = code; this.status = status; this.details = details }
 }
 
 const LABEL = { unauthorized: '로그인이 필요합니다', forbidden: '권한이 없습니다', not_found: '찾을 수 없습니다', invalid: '입력이 올바르지 않습니다',
@@ -61,7 +61,7 @@ export async function request(path, { method = 'GET', body, query, headers = {} 
   try { data = await res.json() } catch { throw new ApiError('internal', `서버가 JSON이 아닌 응답을 보냈습니다 (HTTP ${res.status})`, res.status) }
   if (data.error) {
     if (res.status === 401) toLogin()
-    throw new ApiError(data.error.code, data.error.message, res.status)
+    throw new ApiError(data.error.code, data.error.message, res.status, data.error.details)
   }
   if (!('data' in data)) throw new ApiError(res.status === 404 ? 'not_found' : 'internal', JSON.stringify(data.detail ?? data).slice(0, 200), res.status)
   return data.data

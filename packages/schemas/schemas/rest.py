@@ -268,8 +268,27 @@ class ContractCreate(BaseModel):
     term_end: date
 
 
+class ModelPrice(BaseModel):
+    input_usd_per_mtok: float = Field(gt=0)
+    output_usd_per_mtok: float = Field(gt=0)
+
+
 class ModelApproval(BaseModel):
     model_ids: list[str] = Field(description="승인할 모델 id. 목록(GET /setup/model-catalog)에 있는 것만. 빠진 모델은 승인 해제")
+    prices: dict[str, ModelPrice] = Field(default_factory=dict, description="새로 감지돼 단가를 모르는 API 모델의 단가(100만 토큰당 달러). 모르는 채로는 승인할 수 없다")
+
+
+class SeatImport(BaseModel):
+    """기존 좌석 배정 CSV. 첫 줄은 머리글 email[,last_activity_at]. last_activity_at은 YYYY-MM-DD, 비우면 '기록 없음(확인 필요)'."""
+    csv: str = Field(min_length=1, max_length=500_000)
+
+
+class SeatImportResult(BaseModel):
+    contract_id: str
+    imported: int
+    skipped: list[str] = Field(description="이미 이 계약 좌석이 있어 건너뛴 이메일")
+    assigned: int
+    purchased: int
 
 
 class ProjectCreate(BaseModel):
@@ -456,7 +475,7 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("GET", "/setup/status", "초기 설정 상태 (가입 전이면 company_name=null)", []),
     ("POST", "/setup/signup", "첫 관리자 가입: 회사·부서·관리자 계정 생성 후 토큰 발급. 회사가 있으면 409", []),
     ("POST", "/setup/complete", "초기 설정 완료 표시", [Role.admin]),
-    ("GET", "/setup/model-catalog", "고를 수 있는 AI 모델 목록(공식 단가)", [Role.admin]),
+    ("GET", "/setup/model-catalog", "고를 수 있는 AI 모델 목록(공식 단가 + 새로 감지된 모델)", [Role.admin]),
     ("GET", "/departments", "부서 목록", [Role.admin, Role.system]),
     ("POST", "/departments", "부서 추가", [Role.admin]),
     ("POST", "/employees", "직원 여러 명 추가 (비밀번호 없음 = 로그인 전)", [Role.admin]),
@@ -466,7 +485,8 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("DELETE", "/desks/{desk_id}", "빈 책상 하나 없애기", [Role.admin]),
     ("DELETE", "/desks", "구역(층+부서) 또는 층 전체의 책상 없애기 (모두 비어 있을 때만)", [Role.admin]),
     ("POST", "/contracts", "구독 제품·계약 등록", [Role.admin]),
-    ("PUT", "/models/approved", "쓸 AI 모델 승인 목록 교체", [Role.admin]),
+    ("POST", "/contracts/{contract_id}/seats/import", "기존 좌석 배정을 CSV로 가져오기 (이미 쓰던 회사 셋팅)", [Role.admin]),
+    ("PUT", "/models/approved", "쓸 AI 모델 승인 목록 교체 (새로 감지된 모델 포함)", [Role.admin]),
     ("POST", "/projects", "API 프로젝트 등록", [Role.admin]),
     ("GET", "/budgets", "연간 예산과 월 배분", [Role.admin, Role.system]),
     ("PUT", "/budgets", "연간 예산 설정", [Role.admin]),

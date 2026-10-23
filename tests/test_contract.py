@@ -248,3 +248,38 @@ def test_confirmations_list_and_outbox_delivered_mark():
         again = client.patch(f"/notify-outbox/{rows[0]['id']}/delivered", headers=SYS).json()["data"]
         assert r["delivered_at"] and again["delivered_at"] == r["delivered_at"]
     assert client.patch("/notify-outbox/out_nope/delivered", headers=SYS).status_code == 404
+
+
+def test_import_existing_seats_csv():
+    """이미 쓰던 회사 셋팅: 좌석 배정 CSV. 한 줄이라도 틀리면 전부 거절, 이미 있는 사람은 건너뜀, 좌석 수를 넘기지 않는다."""
+    url = "/contracts/ctr_canva_2026/seats/import"  # 15석 중 마케팅 9명 + 영업 2명 = 11석 배정
+    bad = client.post(url, json={"csv": "email\nnobody@hanbit.example\nhana.kim@hanbit.example"}, headers=ASSET)
+    assert bad.status_code == 422 and "2행" in bad.json()["error"]["details"]["errors"][0]
+    r = client.post(url, json={"csv": "﻿email,last_activity_at\njihoo.park@hanbit.example,2026-10-20\n"
+                                      "hana.kim@hanbit.example,2026-10-01\nJIHO.RYU@hanbit.example,"}, headers=ASSET)
+    assert r.status_code == 201, r.text
+    d = r.json()["data"]
+    assert (d["imported"], d["skipped"], d["assigned"]) == (2, ["jihoo.park@hanbit.example"], 13)
+    inv = client.get("/inventory", params={"contract_id": "ctr_canva_2026"}, headers=ASSET).json()["data"][0]
+    assert inv["assigned"] == 13  # 빈 마지막 사용일 = 기록 없음(확인 필요) → 저사용 후보에 잡힌다
+    assert "emp_hrd_05" in {c["employee_id"] for c in inv["low_usage_candidates"]}
+    over = client.post(url, json={"csv": "email\nsiwoo.park@hanbit.example\nhyunwoo.lim@hanbit.example\nnayeon.yoon@hanbit.example"}, headers=ASSET)
+    assert over.status_code == 409  # 13 + 3 > 15
+    assert client.post("/contracts/ctr_claude_2026/seats/import", json={"csv": "email\nhana.kim@hanbit.example"}, headers=ASSET).status_code == 422
+    assert client.post(url, json={"csv": "email\nhana.kim@hanbit.example"}, headers=EMP).status_code == 403
+
+
+def test_detected_model_needs_price_to_approve():
+    """수집 배치가 새로 감지한 모델(approved=false, 단가 0)도 승인 목록에 오른다. API 모델은 단가를 넣어야 승인된다."""
+    from apps.backend import db
+    with db.tx() as c:
+        c.execute(db.text("INSERT INTO models (id, tool_id, vendor, name, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class)"
+                          " VALUES ('anthropic:claude-new-9', 'tool_claude', 'Anthropic', 'Claude New 9', 0, 0, false, 'internal')"))
+    catalog = client.get("/setup/model-catalog", headers=ASSET).json()["data"]
+    assert "anthropic:claude-new-9" in {m["id"] for m in catalog}
+    ids = [m["id"] for m in catalog if m["approved"]] + ["anthropic:claude-new-9"]
+    r = client.put("/models/approved", json={"model_ids": ids}, headers=ASSET)
+    assert r.status_code == 422 and r.json()["error"]["details"]["unpriced"] == ["anthropic:claude-new-9"]
+    r = client.put("/models/approved", json={"model_ids": ids, "prices": {"anthropic:claude-new-9": {"input_usd_per_mtok": 3, "output_usd_per_mtok": 15}}}, headers=ASSET)
+    m = next(x for x in r.json()["data"] if x["id"] == "anthropic:claude-new-9")
+    assert m["approved"] and (m["input_usd_per_mtok"], m["output_usd_per_mtok"]) == (3, 15)
