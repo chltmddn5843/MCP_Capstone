@@ -59,6 +59,7 @@ button { cursor: pointer; }
 .card-lime { background: var(--lime); border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; gap: 10px; }
 .card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .card-head > div { display: flex; flex-direction: column; gap: 4px; }
+.card-head > .tags, .card-head > .legend { flex-direction: row; flex-wrap: wrap; align-items: center; } /* 칩·범례 묶음은 가로로 (세로로 쌓이면 제목 위에 공백이 생긴다) */
 .kpi { padding: 20px; gap: 10px; text-decoration: none; }
 .kpi .value { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
 .inset { background: var(--paper); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }

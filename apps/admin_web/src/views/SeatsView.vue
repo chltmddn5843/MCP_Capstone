@@ -1,14 +1,15 @@
 <script setup>
 // 비용·사용량 › 팀별: 팀별 실시간 사용량(위) + 층별 좌석 배치도(아래). 직원·부서·도구는 GET /org/members, 층·구역·책상은 GET /desks (DB).
-// 신입 등록과 자리 배치·이동, 좌석 구조 편집도 여기서 한다. 층 탭·구조 편집·신입 등록은 배치도 바로 위 툴바에 있다.
+// 자리 배치·이동과 좌석 구조 편집도 여기서 한다(층 탭·구조 편집은 배치도 바로 위 툴바). 신입 등록은 회사 설정 › 부서·직원에서 한다.
 // 도구는 '쓸 수 있는 것'(배정 좌석 + 팀 프로젝트 API). 좌석은 최근 30일 사용일 수도 보인다 — 관리자는 개인별 사용량을 볼 수 있지만(설계문서 3절)
 // 이용권 관리 목적으로만 쓰고 인사평가에 쓰지 않는다. 팀 프로젝트 API는 개인 기록이 아니라 숫자가 없다.
 // 토큰 좌석(ChatGPT 등)은 오늘 소비 속도(GET /usage/seats)로 색을 입힌다: 오늘 예상량이 같은 제품 좌석 평균 하루 사용량의 2배 이상이면 경보. 30초마다 갱신.
 // 확인이 필요한 팀·자리를 고르면 오른쪽에 '왜 → 이렇게 → AI 분석'(SeatInsight, insight.js 규칙)이 바로 뜬다.
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, createEmployees, getModels } from '../api.js'
+import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, getModels, getOpenAlerts, getProjects, createBudgetReviewPlan } from '../api.js'
 import { FLAG, won, pct, onTabKeys, revealOnMobile } from '../labels.js'
+import { errorLabel } from '../request.js'
 import { seatInsight, teamBadge, teamPattern } from '../insight.js'
 import ProductLogo from '../components/ProductLogo.vue'
 import TeamUsage from '../components/TeamUsage.vue'
@@ -27,17 +28,21 @@ const error = ref('')
 const floorId = ref('')
 const deskId = ref('') // 고른 빈 자리
 const teamId = ref('') // 고른 팀 (팀 카드)
-const mode = ref('') // 'new' = 신입 등록 폼, 'layout' = 좌석 구조 편집, 'team' = 팀 카드
+const mode = ref('') // 'layout' = 좌석 구조 편집, 'team' = 팀 카드
 const notice = ref({ text: '', err: false })
 const detailEl = ref(null)
-const today = () => new Date().toISOString().slice(0, 10)
-const form = ref({})
 const toolFilter = ref('all')
 const selectedId = ref(String(useRoute().query.id ?? ''))
 const paces = ref({})
+const alerts = ref({}) // employee_id → 본인 Slack 경보 시각 (열린 경보)
+const projects = ref([]) // 팀 카드의 API 예산 검토용 (프로젝트별 이번 달 비용·예산)
 const detail = ref(null)
 
-const loadPaces = async () => { paces.value = await getSeatPaces().catch(() => paces.value) }
+const loadPaces = async () => {
+  ;[paces.value, alerts.value] = await Promise.all([getSeatPaces().catch(() => paces.value), getOpenAlerts().catch(() => alerts.value)])
+  // ?id=로 바로 들어오면 속도 목록보다 선택이 먼저라 분포가 비어 있다 → 속도가 오면 채운다
+  if (selectedId.value && paces.value[selectedId.value] && !detail.value) detail.value = await getSeatPaceDetail(selectedId.value).catch(() => null)
+}
 let timer
 async function load() {
   try { [members.value, desks.value] = await Promise.all([getOrgMembers(), getDesks()]) } catch (e) { error.value = e.message }
@@ -46,6 +51,7 @@ onMounted(async () => {
   await load()
   depts.value = await getDepartments().catch(() => [])
   getModels().then((m) => (models.value = m)).catch(() => {})
+  getProjects().then((p) => (projects.value = p)).catch(() => {})
   floorId.value = deskOf.value.get(selectedId.value)?.floor ?? FLOORS.value[0]?.id ?? '' // 홈에서 ?id=로 들어오면 그 사람 층으로
   await loadPaces()
   timer = setInterval(loadPaces, 30000)
@@ -130,27 +136,12 @@ function pickFloor(id) { floorId.value = id; selectedId.value = ''; deskId.value
 function pickPerson(id) { selectedId.value = id; deskId.value = ''; teamId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
 function pickDesk(id) { deskId.value = id; selectedId.value = ''; teamId.value = ''; mode.value = ''; clearNotice(); revealOnMobile(detailEl.value) }
 
-// 신입 등록: 직원 추가(POST /employees) → 고른 빈 자리에 앉히기(PUT /desks). Slack 회원 ID를 넣으면 봇이 바로 알아본다
-function openNew(desk = '') {
-  const d = desks.value.find((x) => x.id === desk)
-  form.value = { name: '', email: '', dept_id: d?.dept_id ?? depts.value[0]?.id ?? '', job_title: '', hire_date: today(), slack_user_id: '', desk: desk }
-  mode.value = 'new'; selectedId.value = ''; teamId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
-}
-const formDesks = computed(() => [...emptyDesks.value].sort((a, b) => (a.dept_id === form.value.dept_id ? 0 : 1) - (b.dept_id === form.value.dept_id ? 0 : 1)))
-watch(() => form.value.dept_id, () => { if (mode.value === 'new' && !emptyDesks.value.some((d) => d.id === form.value.desk && d.dept_id === form.value.dept_id)) form.value.desk = formDesks.value[0]?.id ?? '' })
 const busy = ref(false)
 async function run(fn, ok) {
   busy.value = true; clearNotice()
   try { await fn(); await load(); notice.value = { text: ok, err: false } } catch (e) { notice.value = { text: `실패: ${e.message}`, err: true } }
   busy.value = false
 }
-const registerNew = () => run(async () => {
-  const f = form.value
-  const [emp] = await createEmployees([{ name: f.name, email: f.email, dept_id: f.dept_id, job_title: f.job_title, hire_date: f.hire_date || null, slack_user_id: f.slack_user_id.trim() || null }])
-  if (f.desk) await putDesk(f.desk, emp.id)
-  mode.value = ''; selectedId.value = emp.id
-  floorId.value = desks.value.find((d) => d.id === f.desk)?.floor ?? floorId.value
-}, `${form.value.name} 님을 등록했어요${form.value.desk ? ` (${form.value.desk})` : ''}. Slack에서 이용권을 신청하면 관리자 승인 뒤 배정돼요.`)
 const moveTo = ref('')
 // 앉힌 뒤에는 그 사람을 보여 준다 (빈 자리 패널이 그대로 남지 않게)
 const seat = (empId, desk) => run(async () => { await putDesk(desk, empId); deskId.value = ''; selectedId.value = empId }, `${byId.value.get(empId)?.name} 님 자리를 ${desk}(으)로 정했어요.`)
@@ -206,10 +197,27 @@ const team = computed(() => {
   const insights = (t?.alert_seats ?? []).map((s) => seatInsight({ pace: paces.value[s.employee_id], detail: teamDetails.value[s.employee_id], models: models.value }))
   const pattern = teamPattern(insights)
   const fixes = [...pattern.fixes]
-  if (apiOver(t)) fixes.push(`API 프로젝트 비용이 월 예산을 ${won(t.api_cost_month_krw - t.api_budget_month_krw)} 넘었어요. 벤더별 비용에서 프로젝트 예산을 검토하세요`)
-  if ((checksByDept.value[id] ?? []).length) fixes.push('이용권 확인이 필요한 직원은 구독·이용권에서 사용 의사 확인 요청을 보내세요')
+  if (apiOver(t)) fixes.push({ text: `API 프로젝트 비용이 월 예산을 ${won(t.api_cost_month_krw - t.api_budget_month_krw)} 넘었어요. 예산을 넘긴 프로젝트의 예산 검토 요청 만들기 (승인 대기)`, action: { kind: 'budget' } })
+  if ((checksByDept.value[id] ?? []).length) fixes.push({ text: '이용권 확인이 필요한 직원은 자리를 눌러 사용 의사 확인 요청이나 회수 요청을 보내세요', action: { kind: 'none' } })
   return { id, name: deptName(id), t, alerts, badge: t ? teamBadge({ over: t.seats_over, caution: t.seats_caution, checks: (checksByDept.value[id] ?? []).length, apiOver: apiOver(t) }) : null, common: pattern.common, fixes }
 })
+// 팀의 예산을 넘긴 프로젝트마다 budget_review 처리 요청. 개별로 넘긴 게 없으면(팀 합계만 초과) 예산 대비 가장 큰 프로젝트 하나
+const teamNote = ref({ text: '', err: false, to: '' })
+async function requestBudgetReview() {
+  if (!team.value || busy.value) return
+  const mine = projects.value.filter((p) => p.dept === team.value.name && p.budget)
+  const over = mine.filter((p) => p.cost > p.budget)
+  const targets = over.length ? over : mine.slice().sort((a, b) => pct(b.cost, b.budget) - pct(a.cost, a.budget)).slice(0, 1)
+  if (!targets.length) { teamNote.value = { text: '이 팀에 월 예산이 있는 API 프로젝트가 없어요.', err: true, to: '' }; return }
+  busy.value = true; teamNote.value = { text: '', err: false, to: '' }
+  try {
+    const ids = []
+    for (const p of targets) ids.push(await createBudgetReviewPlan(p.id, p.budget, `${team.value.name} ${p.name} 이번 달 ${won(p.cost)} / 예산 ${won(p.budget)} · 예산 검토`))
+    teamNote.value = { text: `${targets.map((p) => p.name).join(', ')} 예산 검토 요청을 만들었어요. 관리자 승인 뒤 반영돼요.`, err: false, to: ids.length === 1 ? `/inbox?id=${ids[0]}` : '/inbox' }
+  } catch (e) { teamNote.value = { text: errorLabel(e), err: true, to: '' } }
+  busy.value = false
+}
+watch(teamId, () => { teamNote.value = { text: '', err: false, to: '' } })
 // 팀 표·팀 카드에서 자리를 누르면: 그 사람 층으로 가서 책상을 고르고 보이게 한다
 async function pickSeat(empId) {
   floorId.value = deskOf.value.get(empId)?.floor ?? floorId.value
@@ -237,9 +245,9 @@ watch(selectedId, () => { moveTo.value = '' })
             {{ f.label }} <span class="xs">{{ floorPeople(f) }}명</span><b v-if="floorFlags(f)" class="flag-n" :title="`확인 필요 ${floorFlags(f)}명`">{{ floorFlags(f) }}<span class="sr-only">명 확인 필요</span></b>
           </button>
         </div>
-        <div class="tags" style="gap: 8px">
+        <div class="tags" style="gap: 8px; align-items: center">
+          <RouterLink to="/setup?step=org" class="xs muted">신입 등록은 회사 설정 › 부서·직원</RouterLink>
           <button type="button" class="btn" :aria-pressed="mode === 'layout'" @click="openLayout()">좌석 구조 편집</button>
-          <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
         </div>
       </div>
       <div class="card-head">
@@ -311,21 +319,7 @@ watch(selectedId, () => { moveTo.value = '' })
 
     <aside ref="detailEl" class="card col-1 detail" aria-live="polite" aria-labelledby="who-h">
       <p v-if="notice.text" class="status" :class="{ err: notice.err }" :role="notice.err ? 'alert' : 'status'">{{ notice.text }}</p>
-      <form v-if="mode === 'new'" class="new-form" @submit.prevent="registerNew">
-        <h2 id="who-h">신입 등록</h2>
-        <label class="field">이름<input v-model="form.name" required maxlength="50" autocomplete="off" /></label>
-        <label class="field">회사 이메일 <span class="xs muted">좌석 제품 SSO 아이디</span><input v-model="form.email" type="email" required autocomplete="off" /></label>
-        <label class="field">부서<select v-model="form.dept_id" required><option v-for="d in depts" :key="d.id" :value="d.id">{{ d.name }}</option></select></label>
-        <label class="field">직무<input v-model="form.job_title" required maxlength="50" placeholder="예: 마케터" /></label>
-        <label class="field">입사일<input v-model="form.hire_date" type="date" /></label>
-        <label class="field">Slack 회원 ID <span class="xs muted">선택 · 프로필 → ⋮ → 회원 ID 복사 (U로 시작)</span><input v-model="form.slack_user_id" pattern="[UW][A-Z0-9]{8,}" placeholder="예: U0ABCDE1234" autocomplete="off" /></label>
-        <label class="field">자리
-          <select v-model="form.desk"><option value="">나중에 정하기</option><option v-for="d in formDesks" :key="d.id" :value="d.id">{{ d.id }} · {{ deptName(d.dept_id) }}</option></select>
-        </label>
-        <p v-if="!emptyDesks.length" class="xs muted" style="margin: 0">빈 자리가 없어요. '좌석 구조 편집'에서 책상을 늘릴 수 있어요.</p>
-        <div class="tags" style="gap: 8px"><button type="submit" class="btn btn-dark" :disabled="busy">등록하고 앉히기</button><button type="button" class="btn" @click="mode = ''">취소</button></div>
-      </form>
-      <template v-else-if="mode === 'layout'">
+      <template v-if="mode === 'layout'">
         <h2 id="who-h">좌석 구조 편집</h2>
         <form class="new-form" @submit.prevent="addLayout">
           <h3 class="small">책상 놓기</h3>
@@ -383,7 +377,12 @@ watch(selectedId, () => { moveTo.value = '' })
           </template>
           <template v-if="team.fixes.length">
             <h3 class="small">이렇게 해 보세요</h3>
-            <ol class="how small"><li v-for="f in team.fixes" :key="f">{{ f }}</li></ol>
+            <ol class="how small">
+              <li v-for="f in team.fixes" :key="f.text">{{ f.text }}
+                <button v-if="f.action.kind === 'budget'" type="button" class="btn btn-sm btn-dark" style="margin-top: 6px" :disabled="busy" @click="requestBudgetReview">예산 검토 요청 만들기</button>
+              </li>
+            </ol>
+            <p v-if="teamNote.text" class="status xs" :class="{ err: teamNote.err }" :role="teamNote.err ? 'alert' : 'status'" style="margin: 0">{{ teamNote.text }} <RouterLink v-if="teamNote.to" :to="teamNote.to" style="font-weight: 700; margin-left: 6px">승인 대기 보기</RouterLink></p>
           </template>
         </section>
         <section v-if="team.t?.api_cost_month_krw || team.t?.api_budget_month_krw" class="pace-box" :class="{ 'pace-over': apiOver(team.t) }" aria-labelledby="api-h">
@@ -396,7 +395,7 @@ watch(selectedId, () => { moveTo.value = '' })
       <template v-else-if="deskId">
         <h2 id="who-h">빈 자리 {{ deskId }}</h2>
         <span class="small muted">{{ deptName(desks.find((d) => d.id === deskId)?.dept_id) }} 구역</span>
-        <button type="button" class="btn btn-dark" @click="openNew(deskId)">이 자리에 신입 등록</button>
+        <span class="xs muted">신입은 <RouterLink to="/setup?step=org">회사 설정 › 부서·직원</RouterLink>에서 등록한 뒤 여기서 앉힙니다.</span>
         <template v-if="unplaced.length">
           <strong class="small">자리가 없는 직원 {{ unplaced.length }}명</strong>
           <ul class="tool-list">
@@ -413,6 +412,7 @@ watch(selectedId, () => { moveTo.value = '' })
           <div><h2 id="who-h">{{ selected.name }}</h2><span class="small muted">{{ selected.dept_name }} · {{ selected.job_title }}</span></div>
         </div>
         <span class="pill" :class="selected.status === 'active' ? 'pill-neutral' : 'pill-alert'" style="align-self: flex-start">{{ STATUS[selected.status] }}</span>
+        <SeatInsight :employee="{ id: selected.id, name: selected.name }" :pace="pace(selected)" :detail="detail" :tools="selected.tools" :status="selected.status" :models="models" :alert-at="alerts[selected.id] ?? ''" @changed="load" />
         <section v-if="pace(selected)" class="pace-box" :class="`pace-${pace(selected).level}`" aria-labelledby="pace-h">
           <h3 id="pace-h" class="small">오늘 토큰 소비 · {{ PACE[pace(selected).level] }}</h3>
           <span class="small">{{ paceLine(pace(selected)) }}</span>
@@ -424,7 +424,6 @@ watch(selectedId, () => { moveTo.value = '' })
             <span class="xs">많이 쓴 시간: {{ top(detail.by_hour.map((b) => ({ ...b, key: `${b.key}시` }))) || '없음' }}</span>
           </template>
         </section>
-        <SeatInsight :employee="{ id: selected.id, name: selected.name }" :pace="pace(selected)" :detail="detail" :tools="selected.tools" :status="selected.status" :models="models" />
         <RouterLink v-if="needsCheck(selected)" to="/licenses" class="btn">구독·이용권에서 처리하기</RouterLink>
         <strong class="small">쓸 수 있는 AI·소프트웨어 {{ selected.tools.length }}개</strong>
         <ul class="tool-list">
@@ -454,7 +453,6 @@ watch(selectedId, () => { moveTo.value = '' })
         <p class="small muted" style="margin: 0">위 팀별 사용량에서 팀 이름이나 이름 칩을 누르거나, 배치도에서 책상을 누르면 확인이 필요한 이유와 해결책이 여기에 나옵니다.</p>
         <p v-if="unplaced.length" class="small" style="margin: 0">자리가 없는 직원 {{ unplaced.length }}명 · 빈 자리를 눌러 앉히세요.</p>
         <div class="tags" style="gap: 8px">
-          <button type="button" class="btn btn-dark" @click="openNew()">신입 등록</button>
           <button type="button" class="btn" @click="openLayout()">좌석 구조 편집</button>
         </div>
       </template>

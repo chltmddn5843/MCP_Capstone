@@ -1,6 +1,6 @@
 // 화면이 부르는 데이터 함수 전부. 백엔드 응답(Envelope{data}, packages/schemas)을 화면 모양으로 바꾼다. 화면은 이 파일만 본다.
 // 함수 이름과 반환 모양은 목업 시절과 같다 (화면 수정 없이 연결). 변환 규칙은 각 함수 주석.
-import { get, post, put, request, createTask } from './request.js'
+import { get, post, put, request, createTask, ApiError } from './request.js'
 import { PLAN_TYPE, PLAN_STATUS, BILLING, TOOL_LABEL, cap } from './labels.js'
 
 const dt = (s) => (s ? s.slice(5, 16).replace('T', ' ') : '')
@@ -233,6 +233,28 @@ export function setTeamSwitch() { return Promise.resolve() }
 export async function getTeamAdoption() {
   const rows = await get('/adoption/teams')
   return rows.map((t) => ({ team: t.team_name, rate: Math.round(t.active_ratio * 100), seats: t.headcount }))
+}
+
+// 좌석 회수 처리 요청 (휴직·퇴사 직원의 자리). 계약은 /inventory에서 그 제품의 좌석 계약으로 찾는다. 승인 대기로 들어가고 AI 검토가 붙는다.
+export async function createReclaimPlan(employeeId, toolId, rationale) {
+  const inv = await get('/inventory')
+  const byTool = inv.filter((i) => i.contract.tool_id === toolId)
+  const contract = (byTool.find((i) => i.low_usage_candidates.some((c) => c.employee_id === employeeId)) ?? byTool[0])?.contract.id
+  if (!contract) throw new ApiError('not_found', '이 제품의 좌석 계약을 찾지 못했습니다', 404)
+  const p = await post('/plans', { type: 'seat_reclaim', items: [{ employee_id: employeeId, contract_id: contract }], rationale, evidence: [{ source: 'get_license_inventory', ref: contract }] })
+  requestReview(p.id)
+  return p.id
+}
+// API 프로젝트 예산 검토 처리 요청 (팀 API 비용이 월 예산을 넘었을 때). 승인 대기로 들어간다.
+export async function createBudgetReviewPlan(projectId, currentBudgetKrw, note) {
+  const p = await post('/plans', { type: 'budget_review', items: [{ project_id: projectId, current_budget_krw: currentBudgetKrw, note }], rationale: note, evidence: [{ source: 'get_usage_summary', ref: projectId }] })
+  requestReview(p.id)
+  return p.id
+}
+// GET /anomalies?status=open → employee_id → 경보 시각 (본인 Slack 안내가 나간 좌석)
+export async function getOpenAlerts() {
+  const rows = await get('/anomalies', { status: 'open' })
+  return Object.fromEntries(rows.filter((a) => a.scope_type === 'employee').map((a) => [a.scope_id, a.created_at]))
 }
 
 // 사이드바 배지

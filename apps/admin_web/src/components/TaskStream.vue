@@ -3,6 +3,7 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { streamTask, errorLabel } from '../request.js'
 import { TOOL_LABEL } from '../labels.js'
+import Md from './Md.vue'
 
 const props = defineProps({ taskId: { type: String, required: true }, after: { type: Number, default: 0 }, question: { type: String, default: '' } })
 const emit = defineEmits(['done', 'approval', 'failed'])
@@ -45,7 +46,7 @@ onBeforeUnmount(() => ctrl.abort())
       <span class="small">{{ approval.summary }}</span>
       <span class="xs muted">승인 대기 화면의 'AI 비서 처리 확인'에서 확인하면 이어서 자동 처리됩니다.</span>
     </div>
-    <p v-if="answer" class="answer">{{ answer }}</p>
+    <Md v-if="answer" :text="answer" />
     <p v-if="error" class="small" style="color: #b00020; margin: 0">{{ error }}</p>
     <details v-if="evidence.length" class="small">
       <summary>참고한 데이터 {{ evidence.length }}개</summary>
