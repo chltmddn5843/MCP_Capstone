@@ -75,6 +75,7 @@ from schemas.rest import (
     BudgetView,
     ContractCreate,
     DepartmentCreate,
+    DepartmentUpdate,
     EmployeeCreate,
     ModelApproval,
     SeatImport,
@@ -243,7 +244,7 @@ def model_catalog(user: Employee = Depends(require(Role.admin))):
 
 @app.get("/departments", response_model=Envelope[list[Department]], tags=["setup"])
 def departments(user: Employee = Depends(require(Role.admin, Role.system))):
-    return ok([Department(**r) for r in db.rows("SELECT id, name, parent_id FROM departments ORDER BY name")])
+    return ok([Department(**r) for r in db.rows("SELECT id, name, parent_id, slack_channel_id, coalesce(suggestions_enabled, true) AS suggestions_enabled FROM departments ORDER BY name")])
 
 
 @app.post("/departments", response_model=Envelope[Department], status_code=201, tags=["setup"])
@@ -255,6 +256,28 @@ def create_department(body: DepartmentCreate, user: Employee = Depends(require(R
         c.execute(db.text("INSERT INTO departments (id, name) VALUES (:id, :n)"), dict(id=d.id, n=d.name))
         _audit(c, user, "setup.department", d.id, None, d.model_dump())
     return ok(d)
+
+
+@app.patch("/departments/{dept_id}", response_model=Envelope[Department], tags=["setup"])
+def update_department(dept_id: str, body: DepartmentUpdate, user: Employee = Depends(require(Role.admin))):
+    """팀별 자동 발송 설정. 끄면 send_suggestions 배치가 그 팀 제안을 발송함에 넣지 않는다(기록만). 설정 변경은 audit_log에 남긴다."""
+    cols = "id, name, parent_id, slack_channel_id, coalesce(suggestions_enabled, true) AS suggestions_enabled"
+    before = db.one(f"SELECT {cols} FROM departments WHERE id = :id", id=dept_id)
+    if not before:
+        raise ApiError(ErrorCode.not_found, "부서 없음")
+    sets, params = [], {"id": dept_id}
+    if body.suggestions_enabled is not None:
+        sets.append("suggestions_enabled = :en"); params["en"] = body.suggestions_enabled
+    if body.slack_channel_id is not None:
+        sets.append("slack_channel_id = :ch"); params["ch"] = body.slack_channel_id.strip() or None
+    if not sets:
+        return ok(Department(**before))
+    with db.tx() as c:
+        c.execute(db.text(f"UPDATE departments SET {', '.join(sets)} WHERE id = :id"), params)
+        after = db.one(f"SELECT {cols} FROM departments WHERE id = :id", c, id=dept_id)
+        _audit(c, user, "setup.department_update", dept_id, {k: before[k] for k in ("slack_channel_id", "suggestions_enabled")},
+               {k: after[k] for k in ("slack_channel_id", "suggestions_enabled")})
+    return ok(Department(**after))
 
 
 @app.post("/employees", response_model=Envelope[list[Employee]], status_code=201, tags=["setup"])

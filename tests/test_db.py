@@ -322,3 +322,17 @@ def test_shortage_reject_reason_and_unlisted_request():
     assert p["items"] == [{"product_name": "Notion AI", "purpose": "회의록 정리"}] and p["requested_by"] == "emp_mkt_01"
     assert [a["action"] for a in db.rows("SELECT action FROM audit_log WHERE target = :t ORDER BY created_at", t=p["id"])] == ["plan.create", "plan.reject"]
     assert any(x["id"] == p["id"] for x in client.get("/plans", headers=ADMIN).json()["data"]["items"])  # 관리자 신청 이력에 보인다
+
+
+def test_department_suggestion_switch_patch():
+    """팀별 자동 발송 설정: PATCH로 끄면 GET에 반영된다(배치는 suggestions_enabled=false인 팀을 건너뛴다). 직원은 못 바꾼다."""
+    d = next(x for x in client.get("/departments", headers=ADMIN).json()["data"] if x["suggestions_enabled"])
+    assert client.patch(f"/departments/{d['id']}", json={"suggestions_enabled": False}, headers={"Authorization": "Bearer dev.emp_mkt_01"}).status_code == 403
+    r = client.patch(f"/departments/{d['id']}", json={"suggestions_enabled": False, "slack_channel_id": " C0TEAM "}, headers=ADMIN)
+    assert r.status_code == 200 and r.json()["data"]["suggestions_enabled"] is False and r.json()["data"]["slack_channel_id"] == "C0TEAM"
+    got = next(x for x in client.get("/departments", headers=ADMIN).json()["data"] if x["id"] == d["id"])
+    assert got["suggestions_enabled"] is False
+    assert client.patch("/departments/dept_nope", json={"suggestions_enabled": True}, headers=ADMIN).status_code == 404
+    r = client.patch(f"/departments/{d['id']}", json={"suggestions_enabled": True, "slack_channel_id": ""}, headers=ADMIN)  # 빈 문자열 = 채널 지움
+    assert r.json()["data"]["suggestions_enabled"] is True and r.json()["data"]["slack_channel_id"] is None
+

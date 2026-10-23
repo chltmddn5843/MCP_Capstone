@@ -38,6 +38,8 @@ class Department(Base):
     id: str
     name: str
     parent_id: str | None = None
+    slack_channel_id: str | None = Field(None, description="팀 대상 활용 제안을 보낼 Slack 채널. 없으면 팀원 개인 DM")
+    suggestions_enabled: bool = Field(True, description="false면 이 팀에는 활용 제안을 보내지 않고 기록만 남긴다 (send_suggestions 배치가 건너뜀)")
 
 
 class Employee(Base):
