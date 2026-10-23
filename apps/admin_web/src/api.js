@@ -44,9 +44,16 @@ export async function getConfirmationMap() {
   return out
 }
 
-// GET /inventory → 제품 목록 (좌석형) + GET /tools (API형 제품). 저사용 후보에는 확인 요청 상태(GET /confirmations)를 붙인다
+// GET /inventory → 제품 목록 (좌석형) + GET /tools (API형 제품). 저사용 후보에는 확인 요청 상태(GET /confirmations)를 붙인다.
+// holders = 그 제품 좌석을 가진 직원 전원 (GET /org/members의 via=seat). 플래그가 있는 사람만 확인 요청 버튼이 붙는다.
 export async function getProducts() {
-  const [inv, tools, projects, models, cfm] = await Promise.all([get('/inventory'), get('/tools'), get('/projects').catch(() => []), get('/models').catch(() => []), getConfirmationMap()])
+  const [inv, tools, projects, models, cfm, members] = await Promise.all([get('/inventory'), get('/tools'), get('/projects').catch(() => []), get('/models').catch(() => []), getConfirmationMap(), get('/org/members').catch(() => [])])
+  const holdersOf = (toolId) => members.flatMap((m) => m.tools.filter((t) => t.via === 'seat' && t.tool_id === toolId).map((t) => {
+    const e = m.employee, c = cfm[e.id], check = t.flag && t.flag !== 'recent_hire'
+    return { id: e.id, name: e.name, dept: e.dept_name, job: e.job_title, status: e.status, flag: t.flag ?? null, state: check ? 'check' : t.flag === 'recent_hire' ? 'new' : 'ok',
+      lastUsed: daysAgo(t.last_activity_at), activeDays: t.active_days_30, requests: t.requests_30,
+      confirmation: c?.label ?? (check ? '아직 묻지 않음' : '-'), action: c ? (c.status === 'pending' ? 'sent' : null) : check ? 'ask' : null, sentDue: c?.status === 'pending' ? md(c.due) : '' }
+  })).sort((a, b) => (a.state === 'check' ? 0 : 1) - (b.state === 'check' ? 0 : 1) || a.dept.localeCompare(b.dept) || a.name.localeCompare(b.name))
   const vendorOf = Object.fromEntries(models.map((m) => [m.id, m.vendor])) // 모델 → 공급사 → 그 공급사의 API 제품
   const seatProducts = inv.map((i) => ({
     id: i.contract.tool_id, name: i.tool_name, plan: i.contract.plan_name, kind: (tools.find((t) => t.id === i.contract.tool_id)?.kind === 'software') ? '일반 소프트웨어' : 'AI',
@@ -62,10 +69,11 @@ export async function getProducts() {
       sentDue: cfm[c.employee_id]?.status === 'pending' ? md(cfm[c.employee_id].due) : '',
       contractId: i.contract.id,
     })),
+    holders: holdersOf(i.contract.tool_id),
   }))
   const apiProducts = tools.filter((t) => t.contract?.billing_type === 'api_usage').map((t) => ({
     id: t.id, name: t.product, plan: t.contract.plan_name, kind: 'AI', vendor: t.vendor, billing: BILLING.api_usage, seatsPurchased: 0, seatsAssigned: 0, seatPrice: 0,
-    monthCost: null, renewal: t.contract.term_end?.slice(0, 10), projects: projects.filter((p) => vendorOf[p.model_id] === t.vendor).length, seats: [],
+    monthCost: null, renewal: t.contract.term_end?.slice(0, 10), projects: projects.filter((p) => vendorOf[p.model_id] === t.vendor).length, seats: [], holders: [],
   }))
   return [...seatProducts, ...apiProducts]
 }
@@ -240,14 +248,6 @@ export async function getSuggestionStats() {
   return { collected: upd.total ?? upd.items.length, sent: items.filter((s) => s.status === 'sent').length, held: items.filter((s) => s.status === 'on_hold').length,
     helpfulRate: useful + irrelevant ? Math.round((useful / (useful + irrelevant)) * 100) : 0, nextRun: '주 1회' }
 }
-// 팀별 발송 스위치: GET /departments(suggestions_enabled·slack_channel_id) ↔ PATCH /departments/{id}. 끄면 배치가 그 팀 제안을 발송함에 넣지 않는다
-export async function getTeamSwitches() {
-  const teams = await get('/departments')
-  return teams.map((d) => ({ id: d.id, team: d.name, channel: d.slack_channel_id ?? '', enabled: d.suggestions_enabled !== false, readonly: false }))
-}
-export const setTeamSwitch = (id, enabled) => patch(`/departments/${encodeURIComponent(id)}`, { suggestions_enabled: enabled })
-export const setTeamChannel = (id, channel) => patch(`/departments/${encodeURIComponent(id)}`, { slack_channel_id: channel })
-
 // GET /adoption/teams
 export async function getTeamAdoption() {
   const rows = await get('/adoption/teams')

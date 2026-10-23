@@ -1,13 +1,13 @@
 <script setup>
 // 비용·사용량 › 팀별: 팀별 실시간 사용량(위) + 층별 좌석 배치도(아래). 직원·부서·도구는 GET /org/members, 층·구역·책상은 GET /desks (DB).
-// 자리 배치·이동과 좌석 구조 편집도 여기서 한다(층 탭·구조 편집은 배치도 바로 위 툴바). 신입 등록은 회사 설정 › 부서·직원에서 한다.
+// 자리 앉히기·옮기기·비우기도 여기서 한다. 신입 등록은 회사 설정 › 부서·직원, 층·구역·책상 만들기는 회사 설정 › 좌석 구조에서 한다.
 // 도구는 '쓸 수 있는 것'(배정 좌석 + 팀 프로젝트 API). 좌석은 최근 30일 사용일 수도 보인다 — 관리자는 개인별 사용량을 볼 수 있지만(설계문서 3절)
 // 이용권 관리 목적으로만 쓰고 인사평가에 쓰지 않는다. 팀 프로젝트 API는 개인 기록이 아니라 숫자가 없다.
 // 토큰 좌석(ChatGPT 등)은 오늘 소비 속도(GET /usage/seats)로 색을 입힌다: 오늘 예상량이 같은 제품 좌석 평균 하루 사용량의 2배 이상이면 경보. 30초마다 갱신.
 // 확인이 필요한 팀·자리를 고르면 오른쪽에 '왜 → AI 분석 → 해결책 선택지'(SeatInsight, insight.js 규칙)가 뜬다.
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, addDesks, removeDesk, removeDesks, getDepartments, getModels, getOpenAlerts, getProjects, createBudgetReviewPlan, getConfirmationMap } from '../api.js'
+import { getOrgMembers, getSeatPaces, getSeatPaceDetail, getDesks, putDesk, getDepartments, getModels, getOpenAlerts, getProjects, createBudgetReviewPlan, getConfirmationMap } from '../api.js'
 import { FLAG, won, pct, onTabKeys, revealOnMobile } from '../labels.js'
 import { errorLabel } from '../request.js'
 import { seatInsight, teamBadge, teamPattern } from '../insight.js'
@@ -28,7 +28,7 @@ const error = ref('')
 const floorId = ref('')
 const deskId = ref('') // 고른 빈 자리
 const teamId = ref('') // 고른 팀 (팀 카드)
-const mode = ref('') // 'layout' = 좌석 구조 편집, 'team' = 팀 카드
+const mode = ref('') // 'team' = 팀 카드
 const notice = ref({ text: '', err: false })
 const detailEl = ref(null)
 const toolFilter = ref('all')
@@ -148,42 +148,13 @@ const moveTo = ref('')
 const seat = (empId, desk) => run(async () => { await putDesk(desk, empId); deskId.value = ''; selectedId.value = empId }, `${byId.value.get(empId)?.name} 님 자리를 ${desk}(으)로 정했어요.`)
 const clearDesk = (desk) => run(() => putDesk(desk, null), `${desk} 자리를 비웠어요. 빈 자리는 배치도에서 눌러 없앨 수 있어요.`)
 
-// ── 좌석 구조 편집: 층·구역·책상 만들기와 없애기 ──
-// 만들기는 POST /desks 하나로: 그 층에 그 부서 구역이 있으면 끝에 붙이고, 없으면 새 구역(새 층)이 된다.
-// 없애기는 비어 있는 것만 된다(서버가 앉은 사람이 있으면 막는다). 화면에서도 먼저 막고 이유를 보여 준다.
-const lf = ref({ floor: '', newFloor: '', dept_id: '', count: CLUSTER })
-function openLayout(z) {
-  lf.value = { floor: floor.value.id || '_new', newFloor: '', dept_id: z?.id ?? depts.value[0]?.id ?? '', count: CLUSTER }
-  mode.value = 'layout'; selectedId.value = ''; deskId.value = ''; teamId.value = ''; clearNotice(); revealOnMobile(detailEl.value)
-}
-const lfFloor = computed(() => (lf.value.floor === '_new' ? lf.value.newFloor.trim().toUpperCase().replace(/층$/, 'F').replace(/^(\d+)$/, '$1F') : lf.value.floor))
-const lfExisting = computed(() => desks.value.filter((d) => d.floor === lfFloor.value && d.dept_id === lf.value.dept_id).length)
-const lfError = computed(() => !/^[0-9]{1,2}F$/.test(lfFloor.value) ? '층은 숫자로 적어 주세요 (예: 6 또는 6F)'
-  : !lf.value.dept_id ? '부서를 고르세요' : !(lf.value.count >= 1 && lf.value.count <= 30) ? '책상은 한 번에 1~30개까지 만들 수 있어요' : '')
-const addLayout = () => {
-  const { dept_id, count } = lf.value, f = lfFloor.value, existed = lfExisting.value
-  return run(async () => { await addDesks(f, dept_id, Number(count)); floorId.value = f; lf.value.floor = f },
-    existed ? `${f.replace('F', '층')} ${deptName(dept_id)} 구역에 책상 ${count}개를 붙였어요.` : `${f.replace('F', '층')}에 ${deptName(dept_id)} 구역을 만들고 책상 ${count}개를 놓았어요.`)
-}
-const zonesOf = computed(() => zones.value.map((z) => ({ ...z, size: z.clusters.flat().length })))
-function removeZone(z) {
-  if (!confirm(`${floor.value.label} ${z.name} 구역의 빈 책상 ${z.size}개를 모두 없앨까요?`)) return
-  run(() => removeDesks(floor.value.id, z.id), `${floor.value.label} ${z.name} 구역을 없앴어요.`)
-}
-function removeFloor() {
-  const f = floor.value
-  if (!confirm(`${f.label}의 구역 ${zones.value.length}개와 빈 책상을 모두 없앨까요?`)) return
-  run(() => removeDesks(f.id), `${f.label}을 없앴어요.`)
-}
-const removeOne = (id) => run(async () => { await removeDesk(id); deskId.value = '' }, `${id} 책상을 없앴어요.`)
-
 // ── 팀 카드: 팀별 사용량에서 팀을 누르면 그 구역으로 가고, 오른쪽에 확인이 필요한 자리·팀 패턴·해결책을 보여 준다 ──
 const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
 const teamDetails = ref({}) // employee_id → SeatPaceDetail (팀 패턴용, 경보 좌석만)
 async function pickTeam(deptId) {
   teamId.value = deptId; mode.value = 'team'; selectedId.value = ''; deskId.value = ''; clearNotice()
   const d = desks.value.find((x) => x.dept_id === deptId)
-  if (!d) notice.value = { text: `${deptName(deptId)}은(는) 아직 자리 구역이 없어요. '좌석 구조 편집'에서 만들 수 있어요.`, err: false }
+  if (!d) notice.value = { text: `${deptName(deptId)}은(는) 아직 자리 구역이 없어요. 회사 설정 › 좌석 구조에서 만들 수 있어요.`, err: false }
   else { floorId.value = d.floor; await nextTick(); scrollTo(`zone-${deptId}`) }
   revealOnMobile(detailEl.value)
   const alerts = (teamOf(deptId)?.alert_seats ?? []).slice(0, 6).filter((s) => !teamDetails.value[s.employee_id])
@@ -246,13 +217,13 @@ watch(selectedId, () => { moveTo.value = '' })
             {{ f.label }} <span class="xs">{{ floorPeople(f) }}명</span><b v-if="floorFlags(f)" class="flag-n" :title="`확인 필요 ${floorFlags(f)}명`">{{ floorFlags(f) }}<span class="sr-only">명 확인 필요</span></b>
           </button>
         </div>
-        <div class="tags" style="gap: 8px; align-items: center">
-          <RouterLink to="/setup?step=org" class="xs muted">신입 등록은 회사 설정 › 부서·직원</RouterLink>
-          <button type="button" class="btn" :aria-pressed="mode === 'layout'" @click="openLayout()">좌석 구조 편집</button>
+        <div class="tags" style="gap: 12px; align-items: center">
+          <RouterLink to="/setup?step=org" class="xs muted">신입 등록 → 회사 설정 › 부서·직원</RouterLink>
+          <RouterLink to="/setup?step=desks" class="xs muted">층·책상 구조 → 회사 설정 › 좌석 구조</RouterLink>
         </div>
       </div>
       <div class="card-head">
-        <div><h2>{{ floor.id ? `${floor.label} · ${floor.title}` : '좌석 배치도' }}</h2><span class="small muted">책상을 누르면 오른쪽에 쓰는 도구와 확인이 필요한 이유가 나오고, 마우스를 올리면 오늘 토큰 소비가 보입니다. 빈 자리를 누르면 사람을 앉히거나 책상을 없앨 수 있어요</span></div>
+        <div><h2>{{ floor.id ? `${floor.label} · ${floor.title}` : '좌석 배치도' }}</h2><span class="small muted">책상을 누르면 오른쪽에 쓰는 도구와 확인이 필요한 이유가 나오고, 마우스를 올리면 오늘 토큰 소비가 보입니다. 빈 자리를 누르면 사람을 앉힐 수 있어요</span></div>
         <div class="legend">
           <span><i class="swatch" style="background: var(--white); outline: 1px solid var(--line-strong)" />재직</span>
           <span><i class="swatch hatch" />휴직·퇴사</span>
@@ -272,7 +243,7 @@ watch(selectedId, () => { moveTo.value = '' })
       <div v-if="!FLOORS.length && !error" class="inset empty-plan">
         <strong>아직 좌석 구조가 없습니다</strong>
         <span class="small muted">층과 부서 구역을 만들고 책상을 놓으면 직원을 앉힐 수 있어요.</span>
-        <button type="button" class="btn btn-dark" style="align-self: flex-start" @click="openLayout()">좌석 구조 만들기</button>
+        <RouterLink to="/setup?step=desks" class="btn btn-dark" style="align-self: flex-start">회사 설정에서 좌석 구조 만들기</RouterLink>
       </div>
       <div v-else class="floor">
         <div v-for="z in zones" :id="`zone-${z.id}`" :key="z.id" class="zone" :class="{ 'zone-picked': z.id === teamId }">
@@ -281,7 +252,6 @@ watch(selectedId, () => { moveTo.value = '' })
             <button v-if="zoneBadge(z)" type="button" class="pill zone-badge" :class="`pill-${zoneBadge(z).tone}`" @click="pickTeam(z.id)">{{ zoneBadge(z).label }}<span class="sr-only"> · 팀 카드 열기</span></button>
             <span v-for="c in z.count" :key="c.id" class="zone-count xs"><ProductLogo :tool-id="c.id" :name="c.product" :size="14" />{{ c.n }}</span>
             <span class="xs muted">빈 자리 {{ z.empty }}</span>
-            <button type="button" class="link-btn xs" :disabled="busy" @click="openLayout(z)">책상 추가·구역 편집</button>
           </div>
           <div class="islands">
             <div v-for="(cl, ci) in z.clusters" :key="ci" class="island">
@@ -320,37 +290,7 @@ watch(selectedId, () => { moveTo.value = '' })
 
     <aside ref="detailEl" class="card col-1 detail" aria-live="polite" aria-labelledby="who-h">
       <p v-if="notice.text" class="status" :class="{ err: notice.err }" :role="notice.err ? 'alert' : 'status'">{{ notice.text }}</p>
-      <template v-if="mode === 'layout'">
-        <h2 id="who-h">좌석 구조 편집</h2>
-        <form class="new-form" @submit.prevent="addLayout">
-          <h3 class="small">책상 놓기</h3>
-          <span class="xs muted">그 층에 그 부서 구역이 있으면 끝에 붙이고, 없으면 새 구역을 만듭니다. 책상 6개가 한 섬이에요.</span>
-          <label class="field">층
-            <select v-model="lf.floor"><option v-for="f in FLOORS" :key="f.id" :value="f.id">{{ f.label }}</option><option value="_new">새 층 만들기</option></select>
-          </label>
-          <label v-if="lf.floor === '_new'" class="field">새 층 번호<input v-model="lf.newFloor" inputmode="numeric" placeholder="예: 6" autocomplete="off" aria-describedby="lf-help" /></label>
-          <label class="field">부서 구역<select v-model="lf.dept_id"><option v-for="d in depts" :key="d.id" :value="d.id">{{ d.name }}</option></select></label>
-          <label class="field">책상 수<input v-model.number="lf.count" type="number" min="1" max="30" inputmode="numeric" /></label>
-          <p id="lf-help" class="xs" :class="{ muted: !lfError }" style="margin: 0">
-            {{ lfError || (lfExisting ? `${lfFloor.replace('F', '층')} ${deptName(lf.dept_id)} 구역(책상 ${lfExisting}개) 끝에 ${lf.count}개를 붙입니다.` : `${lfFloor.replace('F', '층')}에 ${deptName(lf.dept_id)} 구역을 새로 만듭니다.`) }}
-          </p>
-          <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy || !!lfError">{{ lfExisting ? '책상 붙이기' : '구역 만들기' }}</button>
-        </form>
-        <section v-if="floor.id" class="pace-box" aria-labelledby="zones-h">
-          <h3 id="zones-h" class="small">{{ floor.label }} 구역 없애기</h3>
-          <span class="xs muted">비어 있는 구역만 없앨 수 있어요. 빈 책상 하나만 없애려면 배치도에서 빈 자리를 누르세요.</span>
-          <ul class="tool-list">
-            <li v-for="z in zonesOf" :key="z.id">
-              <div class="cell-2"><span>{{ z.name }}</span><span>책상 {{ z.size }}개 · {{ z.people.length ? `${z.people.length}명 앉아 있음` : '비어 있음' }}</span></div>
-              <button type="button" class="btn btn-sm" :disabled="busy || !!z.people.length" :aria-label="`${z.name} 구역 없애기`" @click="removeZone(z)">없애기</button>
-            </li>
-          </ul>
-          <p v-if="zonesOf.some((z) => z.people.length)" class="xs muted" style="margin: 0">사람이 앉은 구역은 그 직원들을 다른 자리로 옮기거나 자리를 비운 뒤에 없앨 수 있어요.</p>
-          <button type="button" class="btn btn-sm" style="align-self: flex-start" :disabled="busy || zonesOf.some((z) => z.people.length)" @click="removeFloor">{{ floor.label }} 전체 없애기</button>
-        </section>
-        <button type="button" class="btn" style="align-self: flex-start" @click="mode = ''">편집 마치기</button>
-      </template>
-      <template v-else-if="mode === 'team' && team">
+      <template v-if="mode === 'team' && team">
         <div class="who">
           <div class="avatar" aria-hidden="true">{{ team.name.slice(0, 1) }}</div>
           <div><h2 id="who-h">{{ team.name }}</h2>
@@ -405,7 +345,7 @@ watch(selectedId, () => { moveTo.value = '' })
           </ul>
         </template>
         <p v-else class="small muted" style="margin: 0">자리가 없는 직원이 없어요. 다른 직원을 옮기려면 그 사람 책상을 눌러 '자리 옮기기'를 쓰세요.</p>
-        <button type="button" class="btn btn-sm" style="align-self: flex-start" :disabled="busy" @click="removeOne(deskId)">이 책상 없애기</button>
+        <span class="xs muted">책상을 없애거나 늘리는 건 <RouterLink to="/setup?step=desks">회사 설정 › 좌석 구조</RouterLink>에서 합니다.</span>
       </template>
       <template v-else-if="selected">
         <div class="who">
@@ -452,9 +392,6 @@ watch(selectedId, () => { moveTo.value = '' })
         <h2 id="who-h">팀이나 자리를 고르세요</h2>
         <p class="small muted" style="margin: 0">위 팀별 사용량에서 팀 이름이나 이름 칩을 누르거나, 배치도에서 책상을 누르면 확인이 필요한 이유와 해결책이 여기에 나옵니다.</p>
         <p v-if="unplaced.length" class="small" style="margin: 0">자리가 없는 직원 {{ unplaced.length }}명 · 빈 자리를 눌러 앉히세요.</p>
-        <div class="tags" style="gap: 8px">
-          <button type="button" class="btn" @click="openLayout()">좌석 구조 편집</button>
-        </div>
       </template>
     </aside>
   </div>
