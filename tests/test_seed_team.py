@@ -18,7 +18,7 @@ def test_team_company_built_through_setup_api():
     out = seed_team.build(client, "dev.sys", "test-pass-1234")
     assert out == {"employees": 6, "admins": ["최승우"], "seats": {"ChatGPT Enterprise": "4/5석", "Acrobat Pro": "2/2석"}}
     rows = {r["name"]: r for r in db.rows("SELECT e.name, e.slack_user_id, e.role, e.job_title, d.name AS dept FROM employees e JOIN departments d ON d.id = e.dept_id")}
-    assert rows["최승우"]["slack_user_id"] == "U0BGP8ALR6F" and rows["최승우"]["dept"] == "HRD" and rows["system"]["role"] == "system"  # 가입이 sys도 만든다
+    assert rows["최승우"]["slack_user_id"] == seed_team.ADMIN[1] and rows["최승우"]["dept"] == "HRD" and rows["system"]["role"] == "system"  # 가입이 sys도 만든다
     assert {r["slack_user_id"] for r in rows.values()} >= {t[1] for t in seed_team.TEAM}
     assert db.one("SELECT daily_token_quota FROM contracts c JOIN tools t ON t.id = c.tool_id WHERE t.product = 'ChatGPT Enterprise'")["daily_token_quota"] == 150_000
     assert db.one("SELECT count(*) AS n FROM usage_records WHERE employee_id IS NOT NULL")["n"] > 0  # F3 평균 기준
