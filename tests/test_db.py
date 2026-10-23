@@ -262,8 +262,15 @@ def test_model_release_detected_once_per_model_and_card_sent_to_all():
     전사 카드는 팀 주간 상한 없이 업무 시간에 발송함으로 간다."""
     assert run("collect_release_notes", WORK_HOUR)["new_models"] == []
     sim = lambda: client.post("/internal/jobs/collect_release_notes/run", params={"now": WORK_HOUR, "simulate": True}, headers=SYS).json()["data"]["result"]["new_models"]  # noqa: E731
-    first, second, third = sim(), sim(), sim()
-    assert [x["model_id"] for x in first + second] == ["openai:gpt-5.6", "anthropic:claude-sonnet-5-6"] and third == []
+    first, second = sim(), sim()
+    assert [x["model_id"] for x in first + second] == ["openai:gpt-5.6", "anthropic:claude-sonnet-5-6"]
+    rest = []
+    while (more := sim()):  # 시연용으로 넉넉히 둔 나머지 Mock 모델. 승인 공급사(OpenAI·Anthropic)만, 다 공개되면 빈 목록
+        rest += more
+    from apps.backend.fixtures import MOCK_RELEASES
+    approved_mocks = [r["model"].id for r in MOCK_RELEASES if r["model"].vendor in ("OpenAI", "Anthropic")]
+    assert [x["model_id"] for x in first + second + rest] == approved_mocks and len(approved_mocks) >= 8
+    assert "xai:grok-5" not in {x["model_id"] for x in rest} and sim() == []
     m = db.one("SELECT approved, tool_id FROM models WHERE id = 'openai:gpt-5.6'")
     assert m == {"approved": False, "tool_id": "tool_chatgpt"}                     # 사내 사용 승인은 관리자가 따로
     upd = client.get(f"/updates/{first[0]['update_id']}", headers=SYS).json()["data"]
