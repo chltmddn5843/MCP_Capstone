@@ -243,3 +243,15 @@ def test_unlisted_request_guidance_says_it_is_an_unlisted_request():
     for text in (PROCEDURE["access_request"], role):
         assert "이 요청은 미도입 제품 신청입니다" in text and "request_unlisted_product" in text
     assert "도입 검토를 요청해 주세요" not in role
+
+
+def test_off_topic_is_refused_without_tools(client):
+    """하네스 입력 경계: 기능과 무관한 말은 도구·본 모델 루프 없이 고정 문구로 거부한다. 다음 업무 요청은 정상 처리된다."""
+    from apps.agent_runtime.harness.intents import OFF_TOPIC_ANSWER
+    for text in ("메롱", "ㅋㅋㅋ 🙂"):
+        task_id = client.post("/ai/tasks", json={"input": text, "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
+        evs = events(client, task_id, EMP)
+        assert [e["type"] for e in evs if e["type"].startswith("TOOL")] == [] and evs[-1]["type"] == "DONE", text
+        assert wait_status(client, task_id, EMP, {"done"})["result"]["answer"] == OFF_TOPIC_ANSWER
+    task_id = client.post("/ai/tasks", json={"input": "내 등록 업무 알려줘", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
+    assert any(e["type"] == "TOOL_END" for e in events(client, task_id, EMP))

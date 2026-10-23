@@ -42,7 +42,7 @@ class ScriptedModel(BaseChatModel):
 
         import re
 
-        if "의도를 아래 다섯 가지" in last_human:  # classify_intent 호출
+        if "의도를 아래" in last_human:  # classify_intent 호출
             from apps.agent_runtime.harness.intents import classify_by_keywords
             text = last_human.split("요청:")[-1].split("코드:")[0]
             return ChatResult(generations=[ChatGeneration(message=AIMessage(content=classify_by_keywords(text)))])
