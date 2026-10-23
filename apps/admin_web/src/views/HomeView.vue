@@ -103,7 +103,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
         <RouterLink to="/licenses" class="small strong">전체 보기</RouterLink>
       </div>
       <div class="table-wrap">
-        <table class="table" style="min-width: 720px">
+        <table v-if="products.length" class="table" style="min-width: 720px">
           <thead><tr><th scope="col">제품</th><th scope="col">과금 방식</th><th scope="col">이용권</th><th scope="col" class="num">이번 달 비용</th><th scope="col">갱신일</th></tr></thead>
           <tbody>
             <tr v-for="p in products" :key="p.id">
@@ -121,9 +121,11 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
             </tr>
           </tbody>
         </table>
+        <p v-else class="small muted" style="margin: 0">아직 등록한 구독 제품이 없습니다. <RouterLink to="/setup?step=assets">회사 설정에서 제품 등록하기</RouterLink></p>
       </div>
     </section>
   </template>
+  <p v-else class="card small muted loading" aria-busy="true">이번 달 현황을 불러오는 중…</p>
 </template>
 
 <style scoped>

@@ -1,8 +1,8 @@
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onErrorCaptured, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getCounts, getMe } from './api.js'
-import { loggedIn, logout, setupStatus } from './request.js'
+import { loggedIn, logout, setupStatus, errorLabel } from './request.js'
 import NodiLogo from './components/NodiLogo.vue'
 
 const route = useRoute()
@@ -28,13 +28,27 @@ const groups = [
   ] },
 ]
 
+// 화면이 데이터를 못 받으면 지금까지는 빈 화면만 남았다. 어느 화면이든 한 곳에서 알리고 다시 시도할 길을 준다.
+// 로그인 만료(401)는 로그인 화면으로 보내고, 취소한 요청은 오류가 아니므로 알리지 않는다.
+const loadError = ref('')
+const report = (e) => {
+  if (!e || e.name === 'AbortError' || e.code === 'unauthorized') return
+  loadError.value = errorLabel(e)
+}
+onErrorCaptured((e) => { report(e); return false })
+const onRejection = (ev) => report(ev.reason)
+window.addEventListener('unhandledrejection', onRejection)
+onBeforeUnmount(() => window.removeEventListener('unhandledrejection', onRejection))
+
 const signOut = () => { logout(); me.value = { name: '', role: '' }; router.push('/login') }
 // 처리 요청을 승인·생성하면 배지가 바뀌므로 화면을 옮길 때마다 다시 센다. 로그인 화면에서는 부르지 않는다.
 watch(() => route.fullPath, async (_, prev) => {
+  loadError.value = ''
   if (route.meta.public || route.meta.bare || !loggedIn()) return
   if (!me.value.employee) getMe().then((v) => (me.value = v)).catch(() => {})
   counts.value = await getCounts()
-  if (prev) { await nextTick(); mainEl.value?.focus() }
+  // 화면이 바뀔 때만 본문으로 포커스를 옮긴다. ?id= 같은 쿼리만 바뀌면 누른 자리를 그대로 둔다
+  if (prev && prev.split('?')[0] !== route.path) { await nextTick(); mainEl.value?.focus() }
 }, { immediate: true })
 </script>
 
@@ -76,6 +90,10 @@ watch(() => route.fullPath, async (_, prev) => {
     </nav>
 
     <main id="main" ref="mainEl" class="main" tabindex="-1">
+      <div v-if="loadError" class="status err load-error" role="alert">
+        <span>화면 데이터를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요. <span class="xs">({{ loadError }})</span></span>
+        <button type="button" class="btn btn-sm" @click="router.go(0)">다시 시도</button>
+      </div>
       <RouterView />
     </main>
   </div>
@@ -88,6 +106,8 @@ watch(() => route.fullPath, async (_, prev) => {
 .skip { position: absolute; left: 16px; top: -48px; z-index: 10; padding: 10px 14px; border-radius: 10px; background: var(--lime); font-weight: 700; }
 .skip:focus { top: 16px; }
 .main:focus { outline: none; }
+.load-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.load-error .btn { color: var(--ink); }
 .sidebar { background: var(--ink); color: var(--white); padding: 24px 16px; display: flex; flex-direction: column; gap: 28px; position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
 .brand div:last-child, .me > div:nth-child(2) { display: flex; flex-direction: column; min-width: 0; }
@@ -107,10 +127,13 @@ watch(() => route.fullPath, async (_, prev) => {
 .me strong { font-size: 13px; }
 .avatar { width: 32px; height: 32px; border-radius: 999px; background: var(--white); color: var(--ink); font-size: 13px; font-weight: 700; display: grid; place-items: center; }
 @media (max-width: 900px) {
-  .sidebar { position: static; height: auto; gap: 16px; }
-  .group { flex-direction: row; flex-wrap: wrap; }
-  .group-label { width: 100%; padding-bottom: 0; }
-  .foot { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  /* 모바일: 메뉴 그룹 제목(운영·활용 지원·관리)을 화면에서만 숨기고 메뉴를 한 묶음으로 이어 붙여, 본문이 첫 화면에 보이게 한다 */
+  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 12px; }
+  .brand { width: 100%; padding: 4px 8px 8px; }
+  .group { display: contents; }
+  .group-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .nav-item { padding: 0 10px; gap: 8px; }
+  .foot { width: 100%; margin-top: 8px; flex-direction: row; flex-wrap: wrap; align-items: center; }
   .ask { width: auto; }
   .me { border-top: 0; padding: 0; }
 }

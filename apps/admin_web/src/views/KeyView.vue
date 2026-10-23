@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 import { post, errorLabel } from '../request.js'
 
 const id = String(useRoute().params.id)
-const key = ref(null), error = ref(''), copied = ref(false), busy = ref(false)
+const key = ref(null), error = ref(''), copied = ref(''), busy = ref(false) // copied: '' · 'ok' · 'fail'
 
 async function reveal() {
   busy.value = true
@@ -14,7 +14,7 @@ async function reveal() {
   busy.value = false
 }
 async function copy() {
-  try { await navigator.clipboard.writeText(key.value.secret); copied.value = true } catch { copied.value = false }
+  try { await navigator.clipboard.writeText(key.value.secret); copied.value = 'ok' } catch { copied.value = 'fail' }
 }
 </script>
 
@@ -24,14 +24,15 @@ async function copy() {
       <h1 id="key-h">API 키 확인</h1>
       <template v-if="!key">
         <p class="small" style="margin: 0">이 키는 <strong>한 번만</strong> 볼 수 있어요. 누르면 서버에서 지워지니, 바로 안전한 곳(환경변수·사내 비밀 저장소)에 옮겨 두세요.</p>
-        <p v-if="error" class="status" role="alert">{{ error }}</p>
+        <p v-if="error" class="status err" role="alert">{{ error }} · 링크가 만료됐거나 이미 확인한 키라면 관리자에게 다시 발급을 요청하세요.</p>
         <button v-else type="button" class="btn btn-dark" :disabled="busy" @click="reveal">키 보기</button>
       </template>
       <template v-else>
         <span class="small muted">{{ key.product }} · {{ key.project_name }}</span>
         <label class="small" for="secret">키 전체 (앞부분 {{ key.key_prefix }}…)</label>
         <input id="secret" class="secret" :value="key.secret" readonly @focus="$event.target.select()" />
-        <button type="button" class="btn btn-dark" @click="copy">{{ copied ? '복사했어요' : '복사' }}</button>
+        <button type="button" class="btn btn-dark" @click="copy">{{ copied === 'ok' ? '복사했어요' : '복사' }}</button>
+        <p v-if="copied === 'fail'" class="status err" role="alert">브라우저가 복사를 막았어요. 위 입력칸을 눌러 전체 선택한 뒤 직접 복사하세요.</p>
         <p class="status" role="status">이 페이지를 닫으면 다시 볼 수 없어요. Slack·메일·코드 저장소에 붙여 넣지 마세요.</p>
       </template>
     </section>
@@ -39,7 +40,7 @@ async function copy() {
 </template>
 
 <style scoped>
-.key-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--paper); box-sizing: border-box; }
+.key-page { min-height: 100dvh; display: grid; place-items: center; padding: 16px; background: var(--paper); box-sizing: border-box; }
 .key-card { width: 100%; max-width: 480px; }
 .key-card h1 { margin: 0; font-size: 22px; }
 .secret { width: 100%; box-sizing: border-box; min-height: 48px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; font: 14px ui-monospace, monospace; }

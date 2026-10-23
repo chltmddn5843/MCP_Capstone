@@ -77,7 +77,7 @@ const describedBy = (...ids) => ids.filter(Boolean).join(' ') || undefined
       </div>
       <ol class="features">
         <li v-for="([t, d], i) in FEATURES" :key="t">
-          <span class="num" aria-hidden="true">F{{ i + 1 }}</span>
+          <span class="num" aria-hidden="true">{{ i + 1 }}</span>
           <div><strong>{{ t }}</strong><span>{{ d }}</span></div>
         </li>
       </ol>

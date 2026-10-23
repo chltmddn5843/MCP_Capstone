@@ -1,3 +1,5 @@
+import { nextTick } from 'vue'
+
 // 화면 용어. apps/admin_ui/labels.py와 같은 말을 쓴다 (설계 문서 0절).
 // tone: alert(다크 배지) · ok(라임 배지) · neutral(외곽선 배지)
 export const FLAG = {
@@ -51,4 +53,12 @@ export function onTabKeys(e) {
   const t = tabs[(to + tabs.length) % tabs.length]
   t.click()
   t.focus()
+}
+
+// 좁은 화면(≤900px)에서는 목록 아래에 상세가 쌓여, 고른 뒤에도 화면이 그대로인 것처럼 보인다. 그때만 상세로 내려 준다.
+// 내용이 바뀐 뒤(nextTick) 내린다. 다시 그리는 중에 시작하면 부드러운 스크롤이 중간에 멈춘다.
+export async function revealOnMobile(el) {
+  if (!el || !matchMedia('(max-width: 900px)').matches) return
+  await nextTick()
+  el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
 }

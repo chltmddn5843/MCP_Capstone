@@ -1,8 +1,8 @@
 <script setup>
 // 초기 설정 마법사 (가입 직후) 겸 설정 화면 (설정을 마친 뒤). 단계: 부서·직원 → 구독 제품(사내 자산) → AI 모델·API 프로젝트 → 연간 예산 → 확인.
 // 각 단계는 저장 즉시 서버에 반영된다(감사 기록 남음). 단계 이동은 저장과 무관해 언제든 앞뒤로 갈 수 있다.
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
   getSetupStatus, completeSetup, getDepartments, createDepartment, createEmployees, getEmployees, getContracts, createContract,
   getModelCatalog, approveModels, getProjects, createProject, getBudgets, setBudgets,
@@ -21,7 +21,7 @@ const STEPS = [
   { id: 'done', label: '확인' },
 ]
 const step = computed(() => STEPS.findIndex((s) => s.id === route.query.step) >= 0 ? route.query.step : 'org')
-const go = (id) => router.replace({ query: { step: id } })
+const go = (id) => { if (id !== step.value && leaveOk()) router.replace({ query: { step: id } }) }
 const idx = computed(() => STEPS.findIndex((s) => s.id === step.value))
 const headEl = ref(null)
 watch(step, async () => { msg.value = ''; await nextTick(); headEl.value?.focus() })
@@ -104,6 +104,19 @@ const bf = ref({ seat: 0, api: 0 })
 const saveBudget = () => save(() => setBudgets({ fiscal_year: budget.value.fiscal_year, seat_annual_krw: Number(bf.value.seat), api_annual_krw: Number(bf.value.api) }), '연간 예산을 저장했습니다.')
 const seatOver = computed(() => budget.value && budget.value.seat_monthly_cost_krw > Math.floor(bf.value.seat / 12))
 const apiOver = computed(() => budget.value && budget.value.project_budget_sum_krw > Math.floor(bf.value.api / 12))
+
+// 단계 이동은 저장과 무관하다. [저장]을 누르지 않고 옮기면 입력이 서버에 남지 않으므로 그때만 한 번 묻는다.
+const dirty = computed(() => ({
+  org: !!(newDept.value.trim() || csv.value.trim()),
+  assets: JSON.stringify(cf.value) !== JSON.stringify(blank()),
+  models: picked.value.length !== approved.value.length || picked.value.some((id) => !approved.value.some((m) => m.id === id)) || !!(pf.value.name.trim() || pf.value.purpose.trim()),
+  budget: !!budget.value && (Number(bf.value.seat) !== budget.value.seat_annual_krw || Number(bf.value.api) !== budget.value.api_annual_krw),
+})[step.value] ?? false)
+const leaveOk = () => !dirty.value || confirm(`'${STEPS[idx.value].label}'에 저장하지 않은 입력이 있어요. 저장하지 않고 이동할까요?`)
+onBeforeRouteLeave(leaveOk)
+const onUnload = (e) => { if (dirty.value) e.preventDefault() } // 새로고침·탭 닫기
+window.addEventListener('beforeunload', onUnload)
+onBeforeUnmount(() => window.removeEventListener('beforeunload', onUnload))
 
 // ── 5. 확인 ──
 const finish = () => save(async () => { await completeSetup(); router.push('/') }, '설정을 마쳤습니다.')
@@ -310,7 +323,6 @@ const canFinish = computed(() => CHECK.value?.filter((c) => c.required).every((c
 .stepper button.past .n { background: var(--lime); }
 .stepper button[aria-selected='true'] { background: var(--ink); color: var(--white); border-color: var(--ink); font-weight: 600; }
 .stepper button[aria-selected='true'] .n { background: var(--lime); color: var(--ink); }
-.status.err { background: var(--ink); color: var(--lime); }
 .body { gap: 18px; }
 .body h2:focus { outline: none; }
 .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 24px; align-items: start; }

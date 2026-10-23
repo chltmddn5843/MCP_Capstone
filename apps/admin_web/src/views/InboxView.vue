@@ -2,20 +2,22 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getPlans, approvePlan, rejectPlan } from '../api.js'
-import { RISK, PLAN_STATUS, onTabKeys } from '../labels.js'
+import { RISK, PLAN_STATUS, onTabKeys, revealOnMobile } from '../labels.js'
 import TaskApprovals from '../components/TaskApprovals.vue'
 
 const route = useRoute()
 const router = useRouter()
 const plans = ref([])
 const tab = ref('pending')
-const notice = ref('')
+const notice = ref({ text: '', err: false })
+const loaded = ref(false)
+const detailEl = ref(null)
 const busy = ref(false)
 const rejecting = ref(false) // 반려는 사유를 받은 뒤에만 보낸다
 const reason = ref('')
 const reasonEl = ref(null)
 
-const load = async () => { plans.value = await getPlans() }
+const load = async () => { plans.value = await getPlans(); loaded.value = true }
 onMounted(() => {
   load()
   // AI 의견이 아직 없는 승인 대기 건이 있으면 5초마다 다시 읽는다 (검토 에이전트가 붙이는 중)
@@ -29,14 +31,14 @@ watch(tab, () => router.replace({ query: {} }))
 watch(() => selected.value?.id, () => { rejecting.value = false; reason.value = '' })
 async function startReject() { rejecting.value = true; await nextTick(); reasonEl.value?.focus() }
 
-const select = (id) => router.replace({ query: { id } })
+const select = async (id) => { await router.replace({ query: { id } }); revealOnMobile(detailEl.value) }
 
 async function decide(fn, verb) {
   busy.value = true
   const p = selected.value
   let status
-  try { status = await fn(p.id) } catch (e) { notice.value = `${p.title} ${verb} 실패: ${e.message}`; busy.value = false; return }
-  notice.value = `${p.title} · ${p.subtitle} ${verb}: ${PLAN_STATUS[status ?? 'rejected']}`
+  try { status = await fn(p.id) } catch (e) { notice.value = { text: `${p.title} ${verb} 실패: ${e.message}`, err: true }; busy.value = false; return }
+  notice.value = { text: `${p.title} · ${p.subtitle} ${verb}: ${PLAN_STATUS[status ?? 'rejected']}`, err: false }
   await load()
   router.replace({ query: {} })
   busy.value = false
@@ -52,7 +54,7 @@ async function decide(fn, verb) {
     </div>
   </header>
 
-  <p v-if="notice" class="status" role="status">{{ notice }}</p>
+  <p v-if="notice.text" class="status" :class="{ err: notice.err }" :role="notice.err ? 'alert' : 'status'">{{ notice.text }}</p>
 
   <div v-if="list.length" class="row">
     <section class="col-1 stack" style="gap: 8px" aria-label="처리 요청 목록">
@@ -66,7 +68,7 @@ async function decide(fn, verb) {
       </button>
     </section>
 
-    <section v-if="selected" class="card col-3 detail" aria-labelledby="plan-h">
+    <section v-if="selected" ref="detailEl" class="card col-3 detail" aria-labelledby="plan-h">
       <div class="card-head" style="align-items: flex-start">
         <div style="gap: 6px">
           <span class="xs muted">처리 요청 {{ selected.id }} · 신청 {{ selected.requester }}</span>
@@ -129,6 +131,7 @@ async function decide(fn, verb) {
       <p v-else class="small muted" style="margin: 0">상태: {{ PLAN_STATUS[selected.status] }}</p>
     </section>
   </div>
+  <p v-else-if="!loaded" class="card small muted loading" aria-busy="true">처리 요청을 불러오는 중…</p>
   <p v-else class="card small muted">{{ tab === 'pending' ? '승인 대기 중인 요청이 없습니다.' : '처리 이력이 없습니다.' }}</p>
 
   <TaskApprovals />
