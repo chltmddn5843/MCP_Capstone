@@ -258,11 +258,14 @@ def test_worker_notifies_requester_after_web_decision(monkeypatch):
     assert worker.notify_plan_outcomes(slack) == [] and len(slack.posted) == 2  # 두 번 보내지 않음
     # 기동 뒤 새로 들어온 승인 대기 → 관리자 DM에 [승인]/[반려]
     plans.append({"id": "plan_full", "type": "seat_assign", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}],
-                  "evidence": [{"source": "inventory", "ref": "ctr_chatgpt_2026", "value": {"unassigned": 0, "on_approve": "1석 추가 구매(Mock) 후 배정"}}]})
+                  "evidence": [{"source": "inventory", "ref": "ctr_chatgpt_2026", "value": {"unassigned": 0, "shortage": 1, "note": "남은 좌석 없음 · 승인 불가, 반려 대상"}}]})
+    plans.append({"id": "plan_ok", "type": "seat_assign", "status": "pending_approval", "requested_by": "emp_md_01", "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]})
     worker.notify_plan_outcomes(slack)
-    ask = slack.posted[-1]
-    assert ask["channel"] == "D_U0ADMIN001" and "남은 좌석이 없어요" in ask["blocks"][0]["text"]["text"] and "1석 추가 구매" in ask["blocks"][0]["text"]["text"]
-    assert [b["action_id"] for b in ask["blocks"][1]["elements"]] == ["pl_yes", "pl_no"] and ask["blocks"][1]["elements"][0]["value"] == "plan_full"
+    full, ok = slack.posted[-2], slack.posted[-1]
+    assert full["channel"] == "D_U0ADMIN001" and "남은 좌석이 없어 승인할 수 없어요" in full["blocks"][0]["text"]["text"] and "추가 구매" in full["blocks"][0]["text"]["text"]
+    assert [b["action_id"] for b in full["blocks"][1]["elements"]] == ["pl_no"]  # 좌석이 없으면 [반려]만
+    assert "승인하면 남은 좌석에서 배정합니다" in ok["blocks"][0]["text"]["text"]
+    assert [b["action_id"] for b in ok["blocks"][1]["elements"]] == ["pl_yes", "pl_no"] and ok["blocks"][1]["elements"][0]["value"] == "plan_ok"
 
 
 def test_outcome_messages_cover_reclaim_holder_and_requester():
@@ -327,12 +330,12 @@ def test_menu_buttons_create_plans_directly(monkeypatch):
     slack.views_open = lambda **kw: slack.views.append(kw)
     calls = []
     monkeypatch.setattr(identity, "resolve", lambda uid: ("dev.emp_mkt_01", {"id": "emp_mkt_01", "role": "employee"}))
-    monkeypatch.setattr(api, "backend", lambda m, p, t, **kw: calls.append((m, p, kw["json"])) or {"status": "executed" if kw["json"]["type"] == "seat_assign" else "pending_approval"})
+    monkeypatch.setattr(api, "backend", lambda m, p, t, **kw: calls.append((m, p, kw["json"])) or {"status": "pending_approval", "evidence": []})
     body = {"user": {"id": "U1"}, "channel": {"id": "D1"}, "message": {"ts": "9.0", "blocks": [{"text": {"text": "*Claude API*\n…"}, "accessory": {"value": "tool_claude"}}]}, "trigger_id": "tr1"}
     bot.on_menu_seat(ack=lambda: None, body=body, action={"action_id": "menu_seat_assign", "value": "ctr_chatgpt_2026"}, client=slack)
     assert calls[-1] == ("POST", "/plans", {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}],
                                             "rationale": "Slack 메뉴에서 본인 신청", "evidence": []})
-    assert "바로 배정됐어요" in slack.posted[-1]["text"]
+    assert "관리자에게 신청을 전달했어요" in slack.posted[-1]["text"]  # 좌석이 있어도 승인 대기 (S4)
     bot.on_menu_api(ack=lambda: None, body=body, action={"value": "tool_claude"}, client=slack)
     view = slack.views[-1]["view"]
     assert view["private_metadata"] == "tool_claude|D1" and "Claude API" in view["blocks"][0]["label"]["text"]

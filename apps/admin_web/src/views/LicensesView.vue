@@ -128,8 +128,8 @@ async function ask(seat) {
         </section>
         <section class="card-dark small" aria-label="처리 규칙" style="line-height: 1.6">
           <strong style="color: var(--lime)">처리 규칙</strong>
-          <span>미배정 좌석이 있으면 바로 배정하고 기록만 남깁니다.</span>
-          <span>좌석이 없으면 AI가 재배정·추가 구매 의견을 붙여 승인 대기로 보냅니다.</span>
+          <span>신청은 AI 의견과 함께 승인 대기로 오고, 승인하면 미배정 좌석에서 배정합니다.</span>
+          <span>좌석이 없으면 승인할 수 없고 반려합니다. 추가 구매는 하지 않습니다.</span>
           <span>재배정은 대상자의 사용 의사 응답이 있어야 실행됩니다.</span>
         </section>
       </aside>

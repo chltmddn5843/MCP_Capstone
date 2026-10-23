@@ -101,9 +101,9 @@ def test_seat_assign_via_mcp_waits_for_admin(client):
 
 
 def test_employee_seat_request_through_mcp(client):
-    """좌석이 남아 있으면 신청 즉시 시스템이 배정한다."""
+    """좌석이 남아 있어도 신청은 관리자 승인 대기로 들어간다 (PRD S4)."""
     task_id = client.post("/ai/tasks", json={"input": "이용권 신청", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
     evs = events(client, task_id, EMP)
     ends = [e for e in evs if e["type"] == "TOOL_END"]
     assert [e["tool_call"]["name"] for e in ends] == ["create_action_plan"] and evs[-1]["type"] == "DONE"
-    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "executed"
+    assert json.loads(ends[0]["tool_call"]["output"])["status"] == "pending_approval"

@@ -150,7 +150,7 @@ const registerNew = () => run(async () => {
   if (f.desk) await putDesk(f.desk, emp.id)
   mode.value = ''; selectedId.value = emp.id
   floorId.value = desks.value.find((d) => d.id === f.desk)?.floor ?? floorId.value
-}, `${form.value.name} 님을 등록했어요${form.value.desk ? ` (${form.value.desk})` : ''}. Slack에서 이용권을 신청하면 남은 좌석이 있을 때 바로 배정돼요.`)
+}, `${form.value.name} 님을 등록했어요${form.value.desk ? ` (${form.value.desk})` : ''}. Slack에서 이용권을 신청하면 관리자 승인 뒤 배정돼요.`)
 const moveTo = ref('')
 // 앉힌 뒤에는 그 사람을 보여 준다 (빈 자리 패널이 그대로 남지 않게)
 const seat = (empId, desk) => run(async () => { await putDesk(desk, empId); deskId.value = ''; selectedId.value = empId }, `${byId.value.get(empId)?.name} 님 자리를 ${desk}(으)로 정했어요.`)

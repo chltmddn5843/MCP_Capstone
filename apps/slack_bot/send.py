@@ -104,9 +104,9 @@ def send_approval_request(client, channel: str, task: dict, web_url: str | None 
 def build_plan_request(plan: dict, who: str, product: str, web_url: str | None = None) -> list[dict]:
     """직원 신청이 승인 대기로 들어오면 관리자에게. 승인하면 실행까지, 결과 안내는 워커가 요청자에게 보낸다."""
     item = (plan.get("items") or [{}])[0]
+    short = plan["type"] == "seat_assign" and is_short(plan)
     if plan["type"] == "seat_assign":
-        buy = next((e["value"]["on_approve"] for e in plan.get("evidence", []) if isinstance(e.get("value"), dict) and e["value"].get("on_approve")), None)
-        head, what = "이용권 신청", f"남은 좌석이 없어요. 승인하면 {buy or '좌석을 추가 구매(Mock)한 뒤 배정'}합니다." if buy else "승인하면 바로 배정합니다."
+        head, what = "이용권 신청", "남은 좌석이 없어 승인할 수 없어요. 반려해 주세요. (추가 구매는 하지 않아요)" if short else "승인하면 남은 좌석에서 배정합니다."
     elif plan["type"] == "api_access":
         head, what = "API 사용 신청", f"용도: {item.get('purpose', '-')}\n승인하면 개인 테스트 프로젝트와 키를 만들고, 키는 본인만 한 번 볼 수 있는 링크로 보냅니다."
     elif plan["type"] == "seat_reclaim":
@@ -117,8 +117,13 @@ def build_plan_request(plan: dict, who: str, product: str, web_url: str | None =
     link = f"\n<{web_url}|웹 콘솔에서 자세히 보기>" if web_url else ""
     return [
         _section(f"*{head}* · {who} → {product}\n{what}" + (f"\nAI 의견: {opinion}" if opinion else "") + link),
-        _buttons([("승인", "pl_yes", plan["id"], "primary"), ("반려", "pl_no", plan["id"], "danger")]),
+        _buttons(([] if short else [("승인", "pl_yes", plan["id"], "primary")]) + [("반려", "pl_no", plan["id"], "danger")]),
     ]
+
+
+def is_short(plan: dict) -> bool:
+    """좌석 신청이 생성 때 남은 좌석 부족으로 표시됐는지 (근거의 inventory.shortage)."""
+    return any(isinstance(e.get("value"), dict) and e["value"].get("shortage") for e in plan.get("evidence", []))
 
 
 # ---------- 4-2. 이용권 메뉴 (F4, 규칙 경로: AI를 거치지 않는다) ----------
@@ -135,7 +140,7 @@ def build_menu(tools: list[dict], mine: set[str]) -> list[dict]:
         elif t["id"] in mine:
             label, aid, value, note = "반납", "menu_seat_reclaim", c["id"], "쓰고 있어요"
         else:
-            label, aid, value, note = "신청", "menu_seat_assign", c["id"], "남은 좌석이 있으면 바로 배정돼요"
+            label, aid, value, note = "신청", "menu_seat_assign", c["id"], "관리자가 승인하면 배정돼요"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*{t['product']}*\n{note}"},
                        "accessory": {"type": "button", "text": {"type": "plain_text", "text": label}, "action_id": aid, "value": value}})
     return blocks

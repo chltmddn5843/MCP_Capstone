@@ -56,11 +56,14 @@ def test_suggestion_requires_relevance_unless_on_hold():
     assert client.post("/suggestions", json={**hold, "hold_reason": ""}, headers=SYS).status_code == 422
 
 
-def test_seat_request_auto_when_seats_left_else_admin():
-    """F4: 좌석이 남으면 시스템이 바로 배정, API 사용·반납은 승인 대기."""
+def test_seat_request_waits_for_admin_approval():
+    """F3(PRD S4): 좌석이 남아 있어도 신청은 승인 대기, 관리자 승인 뒤 배정. API 사용·반납도 승인 대기."""
     body = {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], "rationale": "사용 신청", "evidence": []}
     d = client.post("/plans", json=body, headers=EMP).json()["data"]
-    assert d["status"] == "executed" and d["approver_id"] == "sys" and d["executed_at"]
+    assert d["status"] == "pending_approval" and d["approver_id"] is None and not d["executed_at"]
+    assert client.post(f"/plans/{d['id']}/approve", json={"reason": "승인"}, headers=ASSET).status_code == 200
+    done = client.post(f"/plans/{d['id']}/execute", headers={**ASSET, "Idempotency-Key": "s4"}).json()["data"]["plan"]
+    assert done["status"] == "executed" and done["approver_id"] == "emp_asset_01"
     api = {"type": "api_access", "items": [{"tool_id": "tool_claude", "purpose": "세일즈 데이터 자동 분석"}], "rationale": "API 사용 신청", "evidence": []}
     d = client.post("/plans", json=api, headers=EMP).json()["data"]
     assert d["status"] == "pending_approval"

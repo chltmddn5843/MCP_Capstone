@@ -27,7 +27,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from apps.slack_bot import client as api
 from apps.slack_bot import identity, worker
-from apps.slack_bot.send import build_answer, build_api_purpose_modal, build_approval_request, build_menu
+from apps.slack_bot.send import build_answer, build_api_purpose_modal, build_approval_request, build_menu, is_short
 
 log = logging.getLogger("slack_bot")
 WEB_URL = os.getenv("WEB_URL", "http://localhost:5173")
@@ -119,8 +119,8 @@ def on_plan_decision(ack, body, action, client):
 
 # ---------- 규칙 메뉴 (AI 없이 처리 요청을 바로 만든다. 승인 DM·결과 안내는 워커가 보낸다) ----------
 MENU_WORDS = {"메뉴", "이용권", "신청", "반납", "menu"}
-PLAN_DONE = {("seat_assign", "executed"): "바로 배정됐어요. 로그인 방법은 DM으로 보내드릴게요.",
-             ("seat_assign", "pending_approval"): "남은 좌석이 없어 관리자 승인이 필요해요. 결정되면 알려드릴게요.",
+PLAN_DONE = {("seat_assign", "pending_approval"): "관리자에게 신청을 전달했어요. 승인되면 로그인 방법을 DM으로 보내드릴게요.",
+             ("seat_assign", "short"): "지금 남은 좌석이 없어 관리자가 확인한 뒤 결과를 알려드릴게요.",
              ("seat_reclaim", "pending_approval"): "반납 요청을 관리자에게 전달했어요.",
              ("api_access", "pending_approval"): "관리자에게 전달했어요. 승인되면 키를 받을 수 있는 링크를 DM으로 보내드릴게요."}
 
@@ -136,11 +136,12 @@ def _create_plan(token: str, typ: str, item: dict, rationale: str) -> str:
         plan = api.backend("POST", "/plans", token, json={"type": typ, "items": [item], "rationale": rationale, "evidence": []})
     except api.ApiError as exc:
         return friendly(exc)
-    return PLAN_DONE.get((typ, plan["status"]), "요청을 전달했어요. 결정되면 알려드릴게요.")
+    status = "short" if typ == "seat_assign" and is_short(plan) else plan["status"]
+    return PLAN_DONE.get((typ, status), "요청을 전달했어요. 결정되면 알려드릴게요.")
 
 
 def on_menu_seat(ack, body, action, client):
-    """[신청]/[반납] → 본인 좌석 처리 요청. 남은 좌석이 있으면 백엔드가 바로 배정한다."""
+    """[신청]/[반납] → 본인 좌석 처리 요청. 둘 다 관리자 승인 대기로 들어간다."""
     ack()
     user, channel = body["user"]["id"], body["channel"]["id"]
     typ = action["action_id"].removeprefix("menu_")
