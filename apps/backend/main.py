@@ -94,6 +94,7 @@ from schemas.rest import (
     RelevantTaskCandidate,
     SeatPace,
     SeatPaceDetail,
+    TeamUsage,
     Desk,
     DeskAssign,
     DeskCreate,
@@ -291,7 +292,7 @@ def assign_desk(desk_id: str, body: DeskAssign, user: Employee = Depends(require
 
 @app.post("/desks", response_model=Envelope[list[Desk]], status_code=201, tags=["F4"])
 def add_desks(body: DeskCreate, user: Employee = Depends(require(Role.admin))):
-    """부서 구역 끝에 책상을 붙인다 (빈 자리가 모자랄 때)."""
+    """부서 구역 끝에 책상을 붙인다. 그 층에 그 부서 구역이 없으면 새 구역(새 층)이 된다."""
     if not db.one("SELECT 1 AS x FROM departments WHERE id = :d", d=body.dept_id):
         raise ApiError(ErrorCode.invalid, f"없는 부서: {body.dept_id}")
     with db.tx() as c:
@@ -301,6 +302,39 @@ def add_desks(body: DeskCreate, user: Employee = Depends(require(Role.admin))):
             c.execute(db.text("INSERT INTO desks (id, floor, dept_id, seq) VALUES (:id, :f, :d, :s)"), dict(id=i, f=body.floor, d=body.dept_id, s=last + k + 1))
         _audit(c, user, "desk.add", body.dept_id, None, {"floor": body.floor, "added": ids})
     return ok([Desk(**r) for r in db.rows(f"SELECT {DESK_COLS} FROM desks WHERE id = ANY(:ids) ORDER BY seq", ids=ids)])
+
+
+@app.delete("/desks/{desk_id}", response_model=Envelope[Desk], tags=["F4"])
+def remove_desk(desk_id: str, user: Employee = Depends(require(Role.admin))):
+    """빈 책상 하나를 없앤다. 앉은 사람이 있으면 먼저 옮기거나 비워야 한다."""
+    with db.tx() as c:
+        d = db.one(f"SELECT {DESK_COLS} FROM desks WHERE id = :id FOR UPDATE", c, id=desk_id)
+        if not d:
+            raise ApiError(ErrorCode.not_found, f"책상 없음: {desk_id}")
+        if d["employee_id"]:
+            who = db.one("SELECT name FROM employees WHERE id = :e", c, e=d["employee_id"])["name"]
+            raise ApiError(ErrorCode.conflict, f"{desk_id}에는 {who} 님이 앉아 있습니다. 먼저 옮기거나 비워 주세요")
+        c.execute(db.text("DELETE FROM desks WHERE id = :id"), dict(id=desk_id))
+        _audit(c, user, "desk.remove", desk_id, d, None)
+    return ok(Desk(**d))
+
+
+@app.delete("/desks", response_model=Envelope[list[Desk]], tags=["F4"])
+def remove_desks(floor: str, dept_id: str | None = None, user: Employee = Depends(require(Role.admin))):
+    """구역(층+부서) 또는 층 전체의 책상을 없앤다. 한 자리라도 사람이 앉아 있으면 아무것도 지우지 않는다."""
+    with db.tx() as c:
+        ds = db.rows(f"SELECT {DESK_COLS} FROM desks WHERE floor = :f AND (CAST(:d AS varchar) IS NULL OR dept_id = :d) ORDER BY dept_id, seq FOR UPDATE",
+                     c, f=floor, d=dept_id)
+        if not ds:
+            raise ApiError(ErrorCode.not_found, f"책상 없음: {floor} {dept_id or ''}".strip())
+        seated = [r["employee_id"] for r in ds if r["employee_id"]]
+        if seated:
+            names = [r["name"] for r in db.rows("SELECT name FROM employees WHERE id = ANY(:ids) ORDER BY name", c, ids=seated)]
+            more = f" 외 {len(names) - 3}명" if len(names) > 3 else ""
+            raise ApiError(ErrorCode.conflict, f"앉아 있는 직원 {len(names)}명({', '.join(names[:3])}{more})을 먼저 옮기거나 비워 주세요")
+        c.execute(db.text("DELETE FROM desks WHERE id = ANY(:ids)"), dict(ids=[r["id"] for r in ds]))
+        _audit(c, user, "desk.remove", dept_id or floor, {"floor": floor, "removed": [r["id"] for r in ds]}, None)
+    return ok([Desk(**r) for r in ds])
 
 
 @app.post("/contracts", response_model=Envelope[Contract], status_code=201, tags=["setup"])
@@ -741,6 +775,40 @@ def _seat_paces(now: datetime, employee_id: str | None = None) -> list[SeatPace]
 @app.get("/usage/seats", response_model=Envelope[list[SeatPace]], tags=["F3"])
 def seat_paces(user: Employee = Depends(require(Role.admin, Role.system))):
     return ok(_seat_paces(_now()))
+
+
+@app.get("/usage/teams", response_model=Envelope[list[TeamUsage]], tags=["F3"])
+def team_usage(user: Employee = Depends(require(Role.admin, Role.system))):
+    """팀별 오늘 사용량. 좌석 토큰은 _seat_paces를 팀으로 합치고, API 비용은 팀 프로젝트의 오늘·이번 달 사용 기록."""
+    now = _now()
+    d0 = _day_start(now)
+    k = now + KST
+    m0 = datetime(k.year, k.month, 1, tzinfo=UTC) - KST
+    dept_of = {r["id"]: r["dept_id"] for r in db.rows("SELECT id, dept_id FROM employees")}
+    paces: dict[str, list[SeatPace]] = {}
+    for p in _seat_paces(now):
+        paces.setdefault(dept_of[p.employee_id], []).append(p)
+    api = {r["dept_id"]: r for r in db.rows(
+        "SELECT p.dept_id, coalesce(sum(u.requests) FILTER (WHERE u.period_start >= :d0), 0)::int AS req_today,"
+        " coalesce(sum(u.cost_krw) FILTER (WHERE u.period_start >= :d0), 0)::int AS today, coalesce(sum(u.cost_krw), 0)::int AS month,"
+        " max(u.period_start) AS last"
+        " FROM usage_records u JOIN projects p ON p.id = u.project_id WHERE u.period_start >= :m0 AND u.period_start <= :n GROUP BY 1",
+        d0=d0, m0=m0, n=now)}
+    out = []
+    for d in db.rows("SELECT d.id, d.name, (SELECT count(*) FROM employees e WHERE e.dept_id = d.id AND e.role <> 'system' AND e.status <> 'resigned')::int AS headcount,"
+                     " (SELECT coalesce(sum(monthly_budget_krw), 0) FROM projects p WHERE p.dept_id = d.id)::int AS budget FROM departments d ORDER BY d.id"):
+        ps, a = paces.get(d["id"], []), api.get(d["id"], {})
+        if not d["headcount"] and not ps and not a:
+            continue
+        projected, avg = sum(p.projected_today for p in ps), sum(p.peer_avg_daily for p in ps)
+        lasts = [t for t in [*(p.last_activity_at for p in ps), a.get("last")] if t]
+        out.append(TeamUsage(dept_id=d["id"], dept_name=d["name"], headcount=d["headcount"], seats_tracked=len(ps),
+                             tokens_today=sum(p.tokens_today for p in ps), projected_today=projected, peer_avg_daily=avg,
+                             ratio=round(projected / avg, 2) if avg else 0.0,
+                             seats_over=sum(p.level == PaceLevel.over for p in ps), seats_caution=sum(p.level == PaceLevel.caution for p in ps),
+                             api_requests_today=a.get("req_today", 0), api_cost_today_krw=a.get("today", 0), api_cost_month_krw=a.get("month", 0),
+                             api_budget_month_krw=d["budget"], last_activity_at=max(lasts) if lasts else None))
+    return ok(sorted(out, key=lambda t: (-t.seats_over, -t.ratio, -t.api_cost_today_krw)))
 
 
 @app.get("/usage/seats/{employee_id}", response_model=Envelope[SeatPaceDetail], tags=["F3"])

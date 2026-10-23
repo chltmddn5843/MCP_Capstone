@@ -337,6 +337,25 @@ class SeatPaceDetail(BaseModel):
     by_model: list[BreakdownRow] = []
 
 
+class TeamUsage(BaseModel):
+    """팀(부서)별 오늘 사용량 요약. 좌석 토큰은 /usage/seats를 팀으로 합치고, API 비용은 그 팀 프로젝트의 사용 기록이다."""
+    dept_id: str
+    dept_name: str
+    headcount: int = Field(description="재직·휴직 직원 수 (퇴사 제외)")
+    seats_tracked: int = Field(description="토큰 사용량을 받는 좌석 수")
+    tokens_today: int
+    projected_today: int
+    peer_avg_daily: int = Field(description="팀 좌석들의 평균 하루 사용량 합")
+    ratio: float = Field(description="팀 예상 ÷ 팀 평균 합. 좌석이 없으면 0")
+    seats_over: int = Field(description="평균의 2배 이상 좌석 수")
+    seats_caution: int
+    api_requests_today: int
+    api_cost_today_krw: int
+    api_cost_month_krw: int
+    api_budget_month_krw: int = Field(description="이 팀 API 프로젝트 월 예산 합")
+    last_activity_at: datetime | None = None
+
+
 class KeyReveal(BaseModel):
     """API 사용 승인 뒤 발급한 키를 본인이 한 번만 보는 링크의 결과. 열고 나면 서버에서 키 값을 지운다."""
     product: str
@@ -432,13 +451,16 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("POST", "/employees", "직원 여러 명 추가 (비밀번호 없음 = 로그인 전)", [Role.admin]),
     ("GET", "/desks", "책상 목록과 앉은 직원 (좌석 배치도)", [Role.admin, Role.system]),
     ("PUT", "/desks/{desk_id}", "책상에 직원 앉히기·옮기기·비우기", [Role.admin]),
-    ("POST", "/desks", "부서 구역에 책상 추가", [Role.admin]),
+    ("POST", "/desks", "부서 구역에 책상 추가 (없는 층·구역이면 새로 만든다)", [Role.admin]),
+    ("DELETE", "/desks/{desk_id}", "빈 책상 하나 없애기", [Role.admin]),
+    ("DELETE", "/desks", "구역(층+부서) 또는 층 전체의 책상 없애기 (모두 비어 있을 때만)", [Role.admin]),
     ("POST", "/contracts", "구독 제품·계약 등록", [Role.admin]),
     ("PUT", "/models/approved", "쓸 AI 모델 승인 목록 교체", [Role.admin]),
     ("POST", "/projects", "API 프로젝트 등록", [Role.admin]),
     ("GET", "/budgets", "연간 예산과 월 배분", [Role.admin, Role.system]),
     ("PUT", "/budgets", "연간 예산 설정", [Role.admin]),
     ("GET", "/usage/seats", "좌석별 오늘 토큰 소비 속도", [Role.admin, Role.system]),
+    ("GET", "/usage/teams", "팀별 오늘 사용량 요약 (좌석 토큰 + API 비용)", [Role.admin, Role.system]),
     ("GET", "/usage/seats/{employee_id}", "좌석 소비 속도 상세 (직원은 본인만)", [Role.employee, Role.admin, Role.system]),
     ("POST", "/keys/handoff/{handoff_id}/reveal", "발급된 API 키를 본인이 한 번만 확인 (24시간)", [Role.employee, Role.admin]),
     ("GET", "/plans", "조치안 목록", [Role.employee, Role.admin, Role.system]),

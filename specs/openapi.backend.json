@@ -982,7 +982,7 @@
           "F4"
         ],
         "summary": "Add Desks",
-        "description": "부서 구역 끝에 책상을 붙인다 (빈 자리가 모자랄 때).",
+        "description": "부서 구역 끝에 책상을 붙인다. 그 층에 그 부서 구역이 없으면 새 구역(새 층)이 된다.",
         "operationId": "add_desks_desks_post",
         "parameters": [
           {
@@ -1014,6 +1014,119 @@
         },
         "responses": {
           "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_Desk__"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "F4"
+        ],
+        "summary": "Remove Desks",
+        "description": "구역(층+부서) 또는 층 전체의 책상을 없앤다. 한 자리라도 사람이 앉아 있으면 아무것도 지우지 않는다.",
+        "operationId": "remove_desks_desks_delete",
+        "parameters": [
+          {
+            "name": "floor",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Floor"
+            }
+          },
+          {
+            "name": "dept_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dept Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -1121,6 +1234,103 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Desk_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "F4"
+        ],
+        "summary": "Remove Desk",
+        "description": "빈 책상 하나를 없앤다. 앉은 사람이 있으면 먼저 옮기거나 비워야 한다.",
+        "operationId": "remove_desk_desks__desk_id__delete",
+        "parameters": [
+          {
+            "name": "desk_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Desk Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3796,6 +4006,96 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Envelope_list_SeatPace__"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/usage/teams": {
+      "get": {
+        "tags": [
+          "F3"
+        ],
+        "summary": "Team Usage",
+        "description": "팀별 오늘 사용량. 좌석 토큰은 _seat_paces를 팀으로 합치고, API 비용은 팀 프로젝트의 오늘·이번 달 사용 기록.",
+        "operationId": "team_usage_usage_teams_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_TeamUsage__"
                 }
               }
             }
@@ -8076,6 +8376,26 @@
         ],
         "title": "Envelope[list[TeamAdoption]]"
       },
+      "Envelope_list_TeamUsage__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TeamUsage"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[list[TeamUsage]]"
+      },
       "Envelope_list_ToolWithPlan__": {
         "properties": {
           "data": {
@@ -9968,6 +10288,103 @@
           "active_ratio"
         ],
         "title": "TeamAdoption"
+      },
+      "TeamUsage": {
+        "properties": {
+          "dept_id": {
+            "type": "string",
+            "title": "Dept Id"
+          },
+          "dept_name": {
+            "type": "string",
+            "title": "Dept Name"
+          },
+          "headcount": {
+            "type": "integer",
+            "title": "Headcount",
+            "description": "재직·휴직 직원 수 (퇴사 제외)"
+          },
+          "seats_tracked": {
+            "type": "integer",
+            "title": "Seats Tracked",
+            "description": "토큰 사용량을 받는 좌석 수"
+          },
+          "tokens_today": {
+            "type": "integer",
+            "title": "Tokens Today"
+          },
+          "projected_today": {
+            "type": "integer",
+            "title": "Projected Today"
+          },
+          "peer_avg_daily": {
+            "type": "integer",
+            "title": "Peer Avg Daily",
+            "description": "팀 좌석들의 평균 하루 사용량 합"
+          },
+          "ratio": {
+            "type": "number",
+            "title": "Ratio",
+            "description": "팀 예상 ÷ 팀 평균 합. 좌석이 없으면 0"
+          },
+          "seats_over": {
+            "type": "integer",
+            "title": "Seats Over",
+            "description": "평균의 2배 이상 좌석 수"
+          },
+          "seats_caution": {
+            "type": "integer",
+            "title": "Seats Caution"
+          },
+          "api_requests_today": {
+            "type": "integer",
+            "title": "Api Requests Today"
+          },
+          "api_cost_today_krw": {
+            "type": "integer",
+            "title": "Api Cost Today Krw"
+          },
+          "api_cost_month_krw": {
+            "type": "integer",
+            "title": "Api Cost Month Krw"
+          },
+          "api_budget_month_krw": {
+            "type": "integer",
+            "title": "Api Budget Month Krw",
+            "description": "이 팀 API 프로젝트 월 예산 합"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dept_id",
+          "dept_name",
+          "headcount",
+          "seats_tracked",
+          "tokens_today",
+          "projected_today",
+          "peer_avg_daily",
+          "ratio",
+          "seats_over",
+          "seats_caution",
+          "api_requests_today",
+          "api_cost_today_krw",
+          "api_cost_month_krw",
+          "api_budget_month_krw"
+        ],
+        "title": "TeamUsage",
+        "description": "팀(부서)별 오늘 사용량 요약. 좌석 토큰은 /usage/seats를 팀으로 합치고, API 비용은 그 팀 프로젝트의 사용 기록이다."
       },
       "ToolApprovalStatus": {
         "type": "string",
