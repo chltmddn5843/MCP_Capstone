@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { createTask, getTasks, errorLabel } from '../request.js'
 import { QUICK, TASK_STATUS } from '../labels.js'
 import TaskStream from '../components/TaskStream.vue'
+import Md from '../components/Md.vue'
 
 const route = useRoute()
 const text = ref(''), newThread = ref(false), threadId = ref(null), tasks = ref([]), history = ref([]), notice = ref(''), sending = ref(false)
@@ -51,7 +52,7 @@ onMounted(() => {
     <h2 id="hist-h">내 요청</h2>
     <details v-for="t in history" :key="t.task_id" class="small">
       <summary>{{ t.created_at.slice(5, 16).replace('T', ' ') }} · {{ TASK_STATUS[t.status] ?? t.status }} · {{ t.input.slice(0, 60) }}</summary>
-      <p v-if="t.result" style="white-space: pre-wrap; line-height: 1.6">{{ t.result.answer }}</p>
+      <Md v-if="t.result" :text="t.result.answer" style="padding: 8px 0" />
       <p v-if="t.error" style="color: #b00020">{{ t.error }}</p>
     </details>
     <p v-if="!history.length" class="small muted" style="margin: 0">아직 요청이 없습니다.</p>
