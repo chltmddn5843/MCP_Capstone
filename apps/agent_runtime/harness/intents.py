@@ -35,7 +35,7 @@ TOOLS_BY_INTENT = {
 PROCEDURE = {
     "access_request": """[이번 요청의 의도: 사용 신청] 반드시 아래 순서로 행동한다. 상담으로 빠지지 않는다.
 1. get_my_profile로 본인 정보(employee_id)와 이미 쓰는 제품을 본다. list_approved_tools로 승인 제품 목록을 본다.
-2. 요청한 제품이 승인 제품 목록에 없으면(사내 미도입) request_unlisted_product(product_name: 요청한 제품 이름, purpose: 한 줄 용도)를 부르고, 반려 결과가 오면 "[제품명]은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다."라고만 답한다. 구매·도입 예정을 약속하지 않는다. 목록에 있는 제품이면 아래로.
+2. 요청한 제품이 승인 제품 목록에 없으면(사내 미도입) request_unlisted_product(product_name: 요청한 제품 이름, purpose: 한 줄 용도)를 부르고, 결과(status=rejected, reject_reason=사내 미도입)가 오면 "이 요청은 미도입 제품 신청입니다. [제품명]은 현재 사내 제공 대상이 아니에요. 신청 내용은 기록했고, 결과는 DM으로 안내해 드릴게요."라고만 답한다. 도구를 부르지 않고 "승인된 제품으로는 어렵다"고만 답하지 않는다. 결과가 conflict(등록 제품)면 아래 사용 신청 절차로 간다. 구매·도입 예정을 약속하지 않는다. 목록에 있는 제품이면 아래로.
    어떤 제품인지 분명하면 바로 처리 요청을 만든다. 분명하지 않으면 승인 제품 이름을 2~3개 보여 주고 "어느 것을 쓰고 싶은지" 딱 하나만 묻고 끝낸다 (조건·용도를 더 묻지 않는다).
 3. 처리 요청 만들기:
    - 좌석형 제품(채팅, 소프트웨어): create_action_plan(type=seat_assign, items=[{employee_id: 본인, contract_id: 그 제품의 계약 id}])
@@ -46,7 +46,7 @@ PROCEDURE = {
    - pending_approval이고 좌석형: "관리자에게 신청을 전달했어요. 승인되면 로그인 방법을 DM으로 보내드릴게요." 근거(evidence)에 남은 좌석 없음(shortage)이 있으면 "지금 남은 좌석이 없어 관리자가 확인한 뒤 결과를 알려드릴게요."
    - pending_approval이고 API: "관리자에게 전달했어요. 승인되면 키를 받을 수 있는 링크를 DM으로 보내드릴게요."
 비용 추정·모델 비교는 이 의도에서 하지 않는다.""",
-    "release_request": """[이번 요청의 의도: 반납·중단] 1) get_my_profile로 쓰는 제품을 확인한다. 2) 어느 제품인지 분명하면 create_action_plan(type=seat_reclaim, items=[{employee_id: 본인, contract_id}], rationale: "본인 반납 요청")을 만든다. 여러 개면 어느 것인지 하나만 묻는다. 3) 만들었으면 "반납 요청을 관리자에게 전달했어요."라고 답한다.""",
+    "release_request": """[이번 요청의 의도: 반납·중단] 1) get_my_profile로 쓰는 제품을 확인한다. 2) 어느 제품인지 분명하면 create_action_plan(type=seat_reclaim, items=[{employee_id: 본인, contract_id}], rationale: "본인 반납 요청")을 만든다. 여러 개면 어느 것인지 하나만 묻는다. 3) 본인 반납은 관리자 승인 없이 바로 처리된다. 결과 status가 executed면 "반납 처리됐어요. 다시 필요해지면 저에게 말씀해 주세요."라고 답한다. 요청을 만들지 못했으면 처리됐다고 말하지 않는다.""",
     "recommendation": """[이번 요청의 의도: 제품·모델 추천] 업무 조건(하루 건수, 입력 길이, 정확도 기준, 응답 시간, 채팅인지 API인지)이 부족하면 한 번에 묶어 묻는다. 승인 제품·모델 중에서 평가 결과와 비용으로 비교해 추천한다. 승인 제품 어느 것도 그 기능을 제공하지 않으면 "지금 승인된 제품으로는 어렵습니다"라고 솔직히 답한다. 추천 뒤 사용자가 쓰겠다고 하면 사용 신청 절차로 넘어간다고 안내한다 ("쓰고 싶다고 말씀해 주시면 관리자에게 전달할게요").""",
     "policy_question": """[이번 요청의 의도: 사용 가능 여부·정책] search_internal_policy와 list_approved_tools로 확인해 "돼요/안 돼요"와 조건을 짧게 답한다. 해당 기능이 승인 제품 플랜에 있는지도 본다.""",
     "status_or_other": """[이번 요청의 의도: 상태 문의·기타] 내 요청 상태는 get_plan_status, 업무 등록은 upsert_my_task를 쓴다. 인사·잡담은 짧게 답한다.""",

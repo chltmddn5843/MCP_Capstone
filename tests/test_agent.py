@@ -77,7 +77,7 @@ def test_employee_seat_request_waits_for_admin(client):
 
 
 def test_release_and_api_access_intents_create_plans(client):
-    # 반납 요청은 좌석이 있어야 승인 대기로 들어간다: 먼저 관리자가 배정을 승인·실행해 둔다
+    # 반납은 좌석이 있어야 한다: 먼저 관리자가 배정을 승인·실행해 둔다
     from apps.backend.main import app as backend_app
     from fastapi.testclient import TestClient as BackendClient
     bc = BackendClient(backend_app)
@@ -86,13 +86,14 @@ def test_release_and_api_access_intents_create_plans(client):
         pid = r["data"]["id"]
         bc.post(f"/plans/{pid}/approve", json={"reason": "t"}, headers=ASSET)
         bc.post(f"/plans/{pid}/execute", headers={**ASSET, "Idempotency-Key": f"k_{pid}"})
-    for text, plan_type in [("이제 안써요, 반납할게요", "seat_reclaim"), ("세일즈 분석용으로 B API 사용해야 해요", "api_access")]:
+    for text, plan_type, status in [("이제 안써요, 반납할게요", "seat_reclaim", "executed"),  # 본인 반납은 승인 없이 바로 처리
+                                    ("세일즈 분석용으로 B API 사용해야 해요", "api_access", "pending_approval")]:
         task_id = client.post("/ai/tasks", json={"input": text, "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
         evs = events(client, task_id, EMP)
         ends = [e for e in evs if e["type"] == "TOOL_END"]
         assert ends and ends[0]["tool_call"]["name"] == "create_action_plan", text
         assert ends[0]["tool_call"]["input"]["type"] == plan_type
-        assert json.loads(ends[0]["tool_call"]["output"])["status"] == "pending_approval"
+        assert json.loads(ends[0]["tool_call"]["output"])["status"] == status
 
 
 def test_claim_without_plan_is_corrected(client):
@@ -230,3 +231,15 @@ def test_model_release_simulation_makes_one_card(client):
     sugs = bc.get("/suggestions", params={"update_id": found["update_id"]}, headers=SYS).json()["data"]["items"]
     assert len(sugs) == 1 and sugs[0]["target_type"] == "all"
     assert "핵심 기능" in sugs[0]["body"] and "이렇게 써 보세요" in sugs[0]["body"] and "• " in sugs[0]["body"]
+
+
+def test_unlisted_request_guidance_says_it_is_an_unlisted_request():
+    """PRD S9: 승인 목록에 없는 제품 신청은 도구로 기록하고 '미도입 제품 신청'이라고 알린다. 옛 '도입 검토를 요청해 주세요'로 끝내지 않는다."""
+    from pathlib import Path
+
+    from apps.agent_runtime.harness.intents import PROCEDURE, TOOLS_BY_INTENT
+    role = (Path(__file__).resolve().parents[1] / "apps/agent_runtime/prompts/role_employee.md").read_text(encoding="utf-8")
+    assert "request_unlisted_product" in TOOLS_BY_INTENT["access_request"]
+    for text in (PROCEDURE["access_request"], role):
+        assert "이 요청은 미도입 제품 신청입니다" in text and "request_unlisted_product" in text
+    assert "도입 검토를 요청해 주세요" not in role

@@ -378,7 +378,8 @@ def test_fixed_reject_messages_and_checklist():
     assert short["emp_md_01"] == "ChatGPT Enterprise 사용 신청이 반려되었습니다. 현재 배정 가능한 이용권이 부족합니다."
     unlisted = worker.outcome_messages({"type": "purchase_review", "status": "rejected", "requested_by": "emp_md_01", "reject_reason": "사내 미도입",
                                         "items": [{"product_name": "Notion AI", "purpose": "회의록 정리"}]}, names)
-    assert unlisted["emp_md_01"] == "Notion AI은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다."
+    assert unlisted["emp_md_01"] == ("*[미도입 제품 신청]* Notion AI (회의록 정리)\n"
+                                     "Notion AI은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다.")
     text = send.build_seat_alert({"scope_id": "emp_md_01", "observed": 1, "baseline": 1, "ratio": 2.0})[0]["text"]["text"]
     assert text.count("점검해 보세요") == 3 and "알려 주실 필요는 없어요" in text and "모델 변경을 권해" not in text
     cost = send.build_cost_alert({"마케팅": 2, "영업": 1}, "http://web/cost/teams")[0]["text"]["text"]
@@ -405,3 +406,14 @@ def test_run_f3_sends_team_summary_to_admins(monkeypatch):
     admin = [m for m in slack.posted if m["channel"] == "D_U0ADMIN001"]
     assert len(admin) == 1 and "마케팅: 2석" in admin[0]["blocks"][0]["text"]["text"]
     assert worker.run_f3(slack, {"anomalies": ["anm_1", "anm_2"]}) == [] and len(slack.posted) == 1  # 이미 보낸 경보는 다시 안 보냄
+
+
+def test_self_return_is_not_announced_twice():
+    """직원 본인 반납(시스템 자동 승인)은 대화에서 이미 답했으므로 워커가 결과 DM을 다시 보내지 않는다. 관리자 회수는 알린다."""
+    from apps.slack_bot import worker
+    names = {"ctr_chatgpt_2026": "ChatGPT Enterprise"}
+    self_return = {"type": "seat_reclaim", "status": "executed", "requested_by": "emp_md_01", "approver_id": "sys",
+                   "items": [{"employee_id": "emp_md_01", "contract_id": "ctr_chatgpt_2026"}]}
+    assert worker.outcome_messages(self_return, names) == {}
+    by_admin = {**self_return, "requested_by": "emp_asset_01", "approver_id": "emp_asset_01"}
+    assert "반납 처리됐어요" in worker.outcome_messages(by_admin, names)["emp_md_01"]

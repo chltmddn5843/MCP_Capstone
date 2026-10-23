@@ -336,3 +336,19 @@ def test_department_suggestion_switch_patch():
     r = client.patch(f"/departments/{d['id']}", json={"suggestions_enabled": True, "slack_channel_id": ""}, headers=ADMIN)  # 빈 문자열 = 채널 지움
     assert r.json()["data"]["suggestions_enabled"] is True and r.json()["data"]["slack_channel_id"] is None
 
+
+
+def test_employee_self_return_skips_approval():
+    """직원 본인 반납은 관리자 승인 없이 바로 회수된다. 재배정 대상을 넣거나 남의 좌석이면 막는다."""
+    emp = {"Authorization": "Bearer dev.emp_mkt_02"}  # ChatGPT 좌석 보유
+    body = lambda **extra: {"type": "seat_reclaim", "rationale": "본인 반납", "evidence": [],
+                            "items": [{"employee_id": "emp_mkt_02", "contract_id": "ctr_chatgpt_2026", **extra}]}
+    assert client.post("/plans", headers=emp, json=body(reassign_to_employee_id="emp_mkt_01")).status_code == 403
+    before = unassigned()
+    p = client.post("/plans", headers=emp, json=body()).json()["data"]
+    assert p["status"] == "executed" and p["approver_id"] == "sys" and unassigned() == before + 1
+    assert [a["action"] for a in db.rows("SELECT action FROM audit_log WHERE target = :t ORDER BY created_at", t=p["id"])] == ["plan.create", "plan.auto_approve", "plan.execute"]
+    assert client.post("/plans", headers=emp, json=body()).status_code == 409  # 이미 반납해 좌석이 없다
+    admin = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "rationale": "회수", "evidence": [],
+                                                       "items": [{"employee_id": "emp_cs_01", "contract_id": "ctr_chatgpt_2026"}]}).json()["data"]
+    assert admin["status"] == "pending_approval"  # 관리자가 남의 좌석을 회수할 때는 그대로 승인 대기
