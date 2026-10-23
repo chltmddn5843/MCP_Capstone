@@ -1037,10 +1037,14 @@ def _seat_blocker(p: ActionPlan, buy: bool = False) -> str | None:
             return f"{i['employee_id']}는 이미 {i['contract_id']} 좌석이 있습니다"
         if p.type == PlanType.seat_reclaim and not has:
             return f"{i['employee_id']}에게 회수할 {i['contract_id']} 좌석이 없습니다"
-        if p.type == PlanType.seat_reclaim and i.get("confirmation_id"):  # 확인 요청을 붙였으면 반납·휴직 응답이 있어야 회수
-            a = db.one("SELECT answer FROM confirmations WHERE id = :id AND employee_id = :e", id=i["confirmation_id"], e=i["employee_id"])
-            if not a or a["answer"] not in ("return_seat", "on_leave"):
-                return f"{i['employee_id']}의 확인 응답이 반납·휴직이 아닙니다 ({a and a['answer'] or '무응답'})"
+        if p.type == PlanType.seat_reclaim and i.get("confirmation_id"):  # 확인 요청을 붙였으면 반납·휴직 응답이나 기한이 지난 무응답이어야 회수
+            a = db.one("SELECT answer, due_at < now() AS overdue FROM confirmations WHERE id = :id AND employee_id = :e", id=i["confirmation_id"], e=i["employee_id"])
+            if not a:
+                return f"{i['employee_id']}의 확인 요청이 없습니다 ({i['confirmation_id']})"
+            if a["answer"] is None and not a["overdue"]:
+                return f"{i['employee_id']}의 확인 응답 기한(5영업일)이 아직 지나지 않았습니다 (무응답)"
+            if a["answer"] is not None and a["answer"] not in ("return_seat", "on_leave"):
+                return f"{i['employee_id']}의 확인 응답이 반납·휴직이 아닙니다 ({a['answer']})"
         r = i.get("reassign_to_employee_id")
         if r and (db.one("SELECT status FROM employees WHERE id = :e", e=r) or {}).get("status") != "active":
             return f"재배정 대상 {r}이 재직 중이 아닙니다"
@@ -1243,8 +1247,44 @@ def audit_log(limit: int = 50, offset: int = 0, user: Employee = Depends(require
     return ok(Page(items=[AuditEntry(**r) for r in rs], total=total, limit=limit, offset=offset))
 
 
-JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "send_suggestions"}
+JOBS = {"collect_release_notes", "collect_usage", "check_thresholds", "send_suggestions", "reclaim_overdue"}
 WEEKLY_CAP = 2  # 알림 정책: 팀당 주 2건
+
+
+def _job_reclaim_overdue(user: Employee) -> dict:
+    """알림 정책: 사용 의사 확인 응답 기한(5영업일)이 지나도 무응답이면 그 좌석을 회수한다.
+    확인 요청이 붙은 승인 대기 회수 요청이 있으면 그것을, 없으면 새 회수 요청을 시스템 승인(sys)으로 실행해 이력을 남긴다.
+    기준 시각은 DB의 now()다 (_seat_blocker의 기한 검사와 같은 시계). 이미 좌석이 없으면 건너뛰므로 여러 번 돌려도 같다."""
+    reclaimed, skipped = [], []
+    for f in db.rows("SELECT id, plan_id, employee_id, due_at FROM confirmations WHERE answer IS NULL AND due_at < now() ORDER BY due_at"):
+        src = _plan(f["plan_id"])
+        cid = next((i["contract_id"] for i in (src.items if src else []) if i.get("employee_id") == f["employee_id"] and i.get("contract_id")), None)
+        if not cid:
+            skipped.append({"confirmation_id": f["id"], "reason": "확인 요청에 연결된 계약이 없습니다"})
+            continue
+        if not db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = :c AND employee_id = :e AND status = 'assigned'", c=cid, e=f["employee_id"]):
+            skipped.append({"confirmation_id": f["id"], "reason": "이미 회수된 좌석입니다"})
+            continue
+        reason = f"사용 의사 확인 무응답, 응답 기한({f['due_at']:%Y-%m-%d}) 경과"
+        with db.tx() as c:
+            if src.type == PlanType.seat_reclaim and src.status == PlanStatus.pending_approval:
+                pid = src.id
+            else:
+                pid = _new_id("plan")
+                items = [{"employee_id": f["employee_id"], "contract_id": cid, "confirmation_id": f["id"]}]
+                ev = [Evidence(source="confirmation", ref=f["id"], value={"answer": None, "due_at": f["due_at"].isoformat()}).model_dump()]
+                c.execute(db.text("INSERT INTO action_plans (id, type, risk_level, status, items, rationale, evidence, requested_by, created_at)"
+                                  " VALUES (:id, 'seat_reclaim', :rk, 'pending_approval', CAST(:it AS jsonb), :ra, CAST(:ev AS jsonb), 'sys', now())"),
+                          dict(id=pid, rk=RISK_BY_PLAN_TYPE[PlanType.seat_reclaim].value, it=db.js(items), ra=reason, ev=db.js(ev)))
+                _audit(c, user, "plan.create", pid, None, {"status": "pending_approval", "reason": reason})
+            c.execute(db.text("UPDATE action_plans SET status = 'approved', approver_id = 'sys', approved_at = now() WHERE id = :id"), dict(id=pid))
+            _audit(c, user, "plan.auto_approve", pid, {"status": "pending_approval"}, {"status": "approved", "reason": reason})
+        try:
+            _execute(_plan(pid), f"overdue_{f['id']}", user)
+            reclaimed.append({"confirmation_id": f["id"], "plan_id": pid, "employee_id": f["employee_id"], "contract_id": cid})
+        except ApiError as e:  # 실행 직전 재검증 실패는 조치안에 failed로 남는다
+            skipped.append({"confirmation_id": f["id"], "plan_id": pid, "reason": e.message})
+    return {"reclaimed": reclaimed, "skipped": skipped}
 
 
 def _job_check_thresholds(now: datetime) -> dict:
@@ -1406,6 +1446,8 @@ def run_job(job_name: str, now: datetime | None = Query(None, description="시�
         result = _job_collect_usage(now)
     elif job_name == "send_suggestions":
         result = _job_send_suggestions(now)
+    elif job_name == "reclaim_overdue":
+        result = _job_reclaim_overdue(user)
     else:
         result = _job_collect_release_notes(now, simulate)
     with db.tx() as c:
