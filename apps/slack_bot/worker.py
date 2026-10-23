@@ -162,15 +162,36 @@ def deliver_outbox(client) -> list[str]:
 
 
 # ---------- 3) F1 체인 ----------
+def plan_mismatch(upd: dict, tools: list[dict]) -> str | None:
+    """업데이트가 회사 플랜에 해당하는지 코드로 판정한다 (AI 없이). 해당하면 None, 아니면 보류 사유.
+    대상 플랜(affected_plans)이 회사 계약의 플랜명·제품명 어느 쪽과든 겹치면(부분 일치, 대소문자 무시) 해당. 대상 플랜이 비었으면 공급사만 본다.
+    ponytail: 문자열 부분 일치. 공급사가 플랜 이름을 바꾸면 놓칠 수 있다 → 계약에 공급사 플랜 코드를 두고 정확히 맞추는 것이 다음 단계."""
+    mine = [t for t in tools if t.get("contract") and t.get("vendor", "").lower() == upd.get("vendor", "").lower()]
+    if not mine:
+        return f"회사가 계약한 {upd.get('vendor', '')} 제품이 없음"
+    names = [n.lower() for t in mine for n in (t["product"], t["contract"]["plan_name"])]
+    plans = [a.lower() for a in upd.get("affected_plans") or []]
+    if plans and not any(a in n or n in a for a in plans for n in names):
+        return f"회사 플랜에 없는 기능: {', '.join(upd['affected_plans'])}"
+    return None
+
+
 def review_updates(wait: float = 180.0) -> list[dict]:
-    """제안이 하나도 없는 업데이트마다 시스템 계정으로 review_update 작업을 돌리고 끝날 때까지 기다린다."""
+    """제안이 하나도 없는 업데이트마다 시스템 계정으로 review_update 작업을 돌리고 끝날 때까지 기다린다.
+    회사 플랜에 해당하지 않는 업데이트는 에이전트를 부르지 않고 보류 사유만 남긴다 (규칙 판정)."""
     updates = api.backend("GET", "/updates", SYSTEM_TOKEN)["items"]
     reviewed = {s["update_id"] for s in api.backend("GET", "/suggestions", SYSTEM_TOKEN)["items"]}
+    tools = api.backend("GET", "/tools", SYSTEM_TOKEN)
     results = []
     for upd in updates:
         if upd["id"] in reviewed:
             continue
         card = upd.get("title", "").startswith("새 모델 출시")  # 새 모델은 카드 뉴스 전용 작업 (한 프롬프트 안의 분기는 실제 모델이 잘 못 따른다)
+        if not card and (why := plan_mismatch(upd, tools)):  # 새 모델은 승인 공급사만 감지 단계에서 걸렀다
+            api.backend("POST", "/suggestions", SYSTEM_TOKEN, json={"update_id": upd["id"], "target_type": "all", "status": "on_hold", "hold_reason": why})
+            results.append({"update_id": upd["id"], "status": "on_hold", "reason": why})
+            log.info("업데이트 보류(규칙) %s: %s", upd["id"], why)
+            continue
         created = api.agent("POST", "/ai/tasks", SYSTEM_TOKEN, json={
             "input": f"업데이트 {upd['id']}로 새 모델 카드 뉴스를 만들어줘" if card else f"업데이트 {upd['id']}를 검토해 관련 업무에 활용 제안을 만들어줘",
             "prompt_name": "draft_model_card" if card else "review_update", "prompt_args": {"update_id": upd["id"]}, "channel": "system"})

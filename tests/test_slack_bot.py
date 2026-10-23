@@ -168,7 +168,9 @@ def _fake_backend(calls, outbox_delivered):
             outbox_delivered.append(path)
             return {"id": "out_1", "delivered_at": "now"}
         if path == "/updates":
-            return {"items": [{"id": "upd_1"}, {"id": "upd_new"}]}
+            return {"items": [{"id": "upd_1"}, {"id": "upd_new", "vendor": "OpenAI", "title": "문서 비교", "affected_plans": ["Enterprise"]}]}
+        if path == "/tools":
+            return [{"id": "tool_chatgpt", "vendor": "OpenAI", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_chatgpt_2026", "plan_name": "Enterprise (seat + usage)"}}]
         if path.startswith("/internal/jobs/"):
             return {"result": {"stub": True}}
         raise AssertionError(f"예상 못 한 호출 {method} {path}")
@@ -301,3 +303,64 @@ def test_model_card_highlights_my_job():
     text = blocks[1]["text"]["text"]
     assert blocks[0]["type"] == "header" and "*핵심 기능*" in text and "*• 마케터: 카피 비교*  ← 내 직무" in text and "\n• 영업 담당: 견적 요약" in text
     assert [b["action_id"] for b in blocks[-1]["elements"]] == ["fb_useful", "fb_irrelevant", "fb_question"]
+
+
+def test_menu_word_shows_buttons_without_agent(monkeypatch):
+    """규칙 경로: '메뉴' 한 단어면 에이전트를 부르지 않고 제품별 버튼. 쓰는 좌석은 [반납], 아니면 [신청], API는 [사용 신청]."""
+    slack = FakeSlack()
+    monkeypatch.setattr(identity, "resolve", lambda uid: ("dev.emp_mkt_01", {"id": "emp_mkt_01", "role": "employee"}))
+    monkeypatch.setattr(api, "create_task", lambda *a, **k: (_ for _ in ()).throw(AssertionError("에이전트를 부르면 안 된다")))
+    tools = [{"id": "tool_chatgpt", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_chatgpt_2026", "billing_type": "seat_plus_usage"}},
+             {"id": "tool_canva", "product": "Canva Enterprise", "contract": {"id": "ctr_canva_2026", "billing_type": "seat_flat"}},
+             {"id": "tool_claude", "product": "Claude API", "contract": {"id": "ctr_claude_2026", "billing_type": "api_usage"}},
+             {"id": "tool_grok", "product": "Grok API", "approval_status": "under_review", "contract": None}]
+    monkeypatch.setattr(api, "backend", lambda m, p, t, **kw: tools if p == "/tools" else {"available_tools": [{"id": "tool_canva"}]})
+    bot._handle_request(slack, {"channel": "D1", "user": "U1", "ts": "1.0", "channel_type": "im"}, " 메뉴 ")
+    buttons = [(b["text"]["text"].split("\n")[0], b["accessory"]["action_id"], b["accessory"]["value"]) for b in slack.posted[-1]["blocks"] if "accessory" in b]
+    assert buttons == [("*ChatGPT Enterprise*", "menu_seat_assign", "ctr_chatgpt_2026"), ("*Canva Enterprise*", "menu_seat_reclaim", "ctr_canva_2026"),
+                       ("*Claude API*", "menu_api_access", "tool_claude")]
+
+
+def test_menu_buttons_create_plans_directly(monkeypatch):
+    slack = FakeSlack()
+    slack.views = []
+    slack.views_open = lambda **kw: slack.views.append(kw)
+    calls = []
+    monkeypatch.setattr(identity, "resolve", lambda uid: ("dev.emp_mkt_01", {"id": "emp_mkt_01", "role": "employee"}))
+    monkeypatch.setattr(api, "backend", lambda m, p, t, **kw: calls.append((m, p, kw["json"])) or {"status": "executed" if kw["json"]["type"] == "seat_assign" else "pending_approval"})
+    body = {"user": {"id": "U1"}, "channel": {"id": "D1"}, "message": {"ts": "9.0", "blocks": [{"text": {"text": "*Claude API*\n…"}, "accessory": {"value": "tool_claude"}}]}, "trigger_id": "tr1"}
+    bot.on_menu_seat(ack=lambda: None, body=body, action={"action_id": "menu_seat_assign", "value": "ctr_chatgpt_2026"}, client=slack)
+    assert calls[-1] == ("POST", "/plans", {"type": "seat_assign", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}],
+                                            "rationale": "Slack 메뉴에서 본인 신청", "evidence": []})
+    assert "바로 배정됐어요" in slack.posted[-1]["text"]
+    bot.on_menu_api(ack=lambda: None, body=body, action={"value": "tool_claude"}, client=slack)
+    view = slack.views[-1]["view"]
+    assert view["private_metadata"] == "tool_claude|D1" and "Claude API" in view["blocks"][0]["label"]["text"]
+    bot.on_menu_api_submit(ack=lambda: None, body={"user": {"id": "U1"}}, client=slack,
+                           view={"private_metadata": "tool_claude|D1", "state": {"values": {"purpose": {"v": {"value": " 문의 자동 분류 "}}}}})
+    assert calls[-1][2]["items"] == [{"tool_id": "tool_claude", "purpose": "문의 자동 분류"}] and "관리자에게 전달했어요" in slack.posted[-1]["text"]
+
+
+def test_plan_mismatch_is_rule_not_ai(monkeypatch):
+    """F1: 회사 플랜에 없는 업데이트는 코드가 판정해 보류만 남기고 에이전트를 부르지 않는다."""
+    from apps.slack_bot import worker
+    tools = [{"id": "tool_chatgpt", "vendor": "OpenAI", "product": "ChatGPT Enterprise", "contract": {"plan_name": "Enterprise (seat + usage)"}},
+             {"id": "tool_claude", "vendor": "Anthropic", "product": "Claude API", "contract": {"plan_name": "API pay-as-you-go"}},
+             {"id": "tool_grok", "vendor": "xAI", "product": "Grok API", "contract": None}]
+    assert worker.plan_mismatch({"vendor": "OpenAI", "affected_plans": ["Enterprise"]}, tools) is None
+    assert worker.plan_mismatch({"vendor": "OpenAI", "affected_plans": ["ChatGPT Enterprise"]}, tools) is None
+    assert worker.plan_mismatch({"vendor": "Anthropic", "affected_plans": ["API"]}, tools) is None
+    assert worker.plan_mismatch({"vendor": "Anthropic", "affected_plans": []}, tools) is None
+    assert worker.plan_mismatch({"vendor": "OpenAI", "affected_plans": ["Edu"]}, tools) == "회사 플랜에 없는 기능: Edu"
+    assert "계약한 xAI 제품이 없음" in worker.plan_mismatch({"vendor": "xAI", "affected_plans": []}, tools)
+    posted = []
+    def backend(method, path, token, **kw):
+        if method == "POST":
+            posted.append(kw["json"])
+            return {}
+        return {"/updates": {"items": [{"id": "upd_edu", "vendor": "OpenAI", "title": "교육 플랜 기능", "affected_plans": ["Edu"]}]},
+                "/suggestions": {"items": []}, "/tools": tools}[path]
+    monkeypatch.setattr(api, "backend", backend)
+    monkeypatch.setattr(api, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("에이전트를 부르면 안 된다")))
+    assert worker.review_updates(wait=1) == [{"update_id": "upd_edu", "status": "on_hold", "reason": "회사 플랜에 없는 기능: Edu"}]
+    assert posted == [{"update_id": "upd_edu", "target_type": "all", "status": "on_hold", "hold_reason": "회사 플랜에 없는 기능: Edu"}]

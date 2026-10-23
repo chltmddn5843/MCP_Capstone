@@ -5,7 +5,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
   getSetupStatus, completeSetup, getDepartments, createDepartment, createEmployees, getEmployees, getContracts, createContract,
-  getModelCatalog, approveModels, getProjects, createProject, getBudgets, setBudgets,
+  getModelCatalog, approveModels, importSeats, getProjects, createProject, getBudgets, setBudgets,
 } from '../api.js'
 import { BILLING, won, onTabKeys } from '../labels.js'
 import { errorLabel } from '../request.js'
@@ -47,10 +47,11 @@ onMounted(load)
 
 // 저장 공통: 성공 문구 또는 오류를 한 곳(role=status/alert)에 보인다
 const ok = ref(true)
+const errLines = ref([])
 async function save(fn, done) {
-  busy.value = true; msg.value = ''
-  try { await fn(); await load(); ok.value = true; msg.value = done }
-  catch (e) { ok.value = false; msg.value = e.message ? `${e.message}` : errorLabel(e) }
+  busy.value = true; msg.value = ''; errLines.value = []
+  try { const r = await fn(); await load(); ok.value = true; msg.value = typeof done === 'function' ? done(r) : done }
+  catch (e) { ok.value = false; msg.value = e.message ? `${e.message}` : errorLabel(e); errLines.value = e.details?.errors ?? [] }
   finally { busy.value = false }
 }
 
@@ -87,11 +88,24 @@ const cfError = computed(() => !cf.value.vendor.trim() || !cf.value.product.trim
   : !isApi.value && cf.value.seats_purchased < 1 ? '좌석 과금 제품은 좌석 수가 1 이상이어야 합니다' : '')
 const addContract = () => save(async () => { await createContract({ ...cf.value, seats_purchased: isApi.value ? 0 : Number(cf.value.seats_purchased), seat_price_krw: Number(cf.value.seat_price_krw) }); cf.value = blank() }, '구독 제품을 등록했습니다.')
 const seatMonthly = (c) => c.billing_type === 'api_usage' ? null : c.seats_purchased * c.seat_price_krw
+// 이미 쓰던 회사: 공급사 관리 화면에서 내려받은 좌석 배정 목록을 그대로 넣는다 (MVP는 CSV, 후속은 SCIM)
+const seatContracts = computed(() => contracts.value.filter((c) => c.billing_type !== 'api_usage'))
+const sf = ref({ contract: '', csv: '' })
+const readSeatFile = async (e) => { const f = e.target.files?.[0]; if (f) sf.value.csv = await f.text() }
+const doImportSeats = () => save(() => importSeats(sf.value.contract, sf.value.csv).then((r) => { sf.value.csv = ''; return r }),
+  (r) => `좌석 ${r.imported}석을 넣었습니다 (배정 ${r.assigned}/${r.purchased}석${r.skipped.length ? `, 이미 있던 ${r.skipped.length}명 건너뜀` : ''}).`)
 
 // ── 3. AI 모델·프로젝트 ──
 const picked = ref([])
 const apiVendors = computed(() => new Set(contracts.value.filter((c) => c.billing_type === 'api_usage').map((c) => c.vendor.toLowerCase())))
-const saveModels = () => save(() => approveModels(picked.value), `모델 ${picked.value.length}개를 승인 목록으로 저장했습니다.`)
+// 새로 감지된 API 모델은 단가가 0(미확인)으로 들어온다. 승인하려면 공급사 가격표의 단가를 넣어야 한다 (안 넣으면 비용 추정이 0원)
+const unpriced = (m) => !m.input_usd_per_mtok && !m.output_usd_per_mtok && apiVendors.value.has(m.vendor.toLowerCase())
+const prices = ref({})
+const needPrice = computed(() => catalog.value.filter((m) => picked.value.includes(m.id) && unpriced(m)))
+watch(needPrice, (ms) => ms.forEach((m) => { prices.value[m.id] ??= { input_usd_per_mtok: null, output_usd_per_mtok: null } }), { immediate: true })
+const priceMissing = computed(() => needPrice.value.some((m) => !(prices.value[m.id]?.input_usd_per_mtok > 0 && prices.value[m.id]?.output_usd_per_mtok > 0)))
+const saveModels = () => save(() => approveModels(picked.value, Object.fromEntries(needPrice.value.map((m) => [m.id, prices.value[m.id]]))),
+  `모델 ${picked.value.length}개를 승인 목록으로 저장했습니다.`)
 const approved = computed(() => catalog.value.filter((m) => m.approved))
 const pf = ref({ name: '', dept_id: '', owner_id: '', purpose: '', model_id: '', environment: 'test', monthly_budget_krw: 0 })
 const owners = computed(() => people.value.filter((p) => p.dept_id === pf.value.dept_id && p.status === 'active'))
@@ -148,6 +162,7 @@ const canFinish = computed(() => CHECK.value?.filter((c) => c.required).every((c
   </ol>
 
   <p v-if="msg" :class="ok ? 'status' : 'status err'" :role="ok ? 'status' : 'alert'">{{ msg }}</p>
+  <ul v-if="errLines.length" class="errs" role="alert"><li v-for="l in errLines" :key="l">{{ l }}</li></ul>
 
   <section v-if="status" class="card body" role="tabpanel">
     <h2 ref="headEl" tabindex="-1">{{ idx + 1 }}. {{ STEPS[idx].label }}</h2>
@@ -199,6 +214,20 @@ const canFinish = computed(() => CHECK.value?.filter((c) => c.required).every((c
       </div>
       <p v-else class="inset small" style="margin: 0">아직 등록한 제품이 없습니다. 아래에서 첫 제품을 등록하세요.</p>
 
+      <form v-if="seatContracts.length" class="stack form" @submit.prevent="doImportSeats">
+        <strong class="small">이미 쓰던 좌석 가져오기 <span class="muted">· 공급사 관리 화면에서 내려받은 사용자 목록. 넣지 않으면 모든 좌석이 비어 있는 것으로 보여 신청 즉시 배정됩니다</span></strong>
+        <div class="grid">
+          <label class="field">제품
+            <select id="seat-contract" v-model="sf.contract"><option value="" disabled>고르세요</option><option v-for="c in seatContracts" :key="c.id" :value="c.id">{{ c.product }} · {{ c.seats_purchased }}석</option></select>
+          </label>
+          <label class="field">CSV 파일<input id="seat-file" type="file" accept=".csv,text/csv" @change="readSeatFile" /></label>
+        </div>
+        <label class="field" for="seat-csv">또는 붙여넣기 <span class="xs muted">첫 줄 머리글 email,last_activity_at · 마지막 사용일(YYYY-MM-DD)을 비우면 '기록 없음(확인 필요)'</span>
+          <textarea id="seat-csv" v-model="sf.csv" rows="4" placeholder="email,last_activity_at&#10;minseo@company.co.kr,2026-10-20&#10;jiho@company.co.kr," />
+        </label>
+        <button type="submit" class="btn" style="align-self: flex-start" :disabled="busy || !sf.contract || !sf.csv.trim()">좌석 가져오기</button>
+      </form>
+
       <form class="stack form" @submit.prevent="addContract">
         <div class="tags" role="group" aria-label="자주 쓰는 제품으로 채우기">
           <span class="small muted" style="align-self: center">빠르게 채우기</span>
@@ -236,11 +265,17 @@ const canFinish = computed(() => CHECK.value?.filter((c) => c.required).every((c
               <span>{{ m.name }} <span class="xs muted">{{ m.vendor }}</span></span>
               <span>{{ m.capabilities }}</span>
             </span>
-            <span class="price small">입력 ${{ m.input_usd_per_mtok }} · 출력 ${{ m.output_usd_per_mtok }}</span>
+            <span v-if="unpriced(m)" class="pill pill-neutral">새로 감지 · 단가 미확인</span>
+            <span v-else class="price small">입력 ${{ m.input_usd_per_mtok }} · 출력 ${{ m.output_usd_per_mtok }}</span>
             <span v-if="!apiVendors.has(m.vendor.toLowerCase())" class="pill pill-neutral">API 계약 없음</span>
           </label>
         </fieldset>
-        <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy">승인 목록 저장 ({{ picked.length }}개)</button>
+        <div v-for="m in needPrice.filter((x) => prices[x.id])" :key="m.id" class="grid">
+          <label class="field">{{ m.name }} 입력 단가 (100만 토큰당 $)<input :id="`in-${m.id}`" v-model.number="prices[m.id].input_usd_per_mtok" type="number" min="0" step="0.01" inputmode="decimal" /></label>
+          <label class="field">{{ m.name }} 출력 단가 (100만 토큰당 $)<input :id="`out-${m.id}`" v-model.number="prices[m.id].output_usd_per_mtok" type="number" min="0" step="0.01" inputmode="decimal" /></label>
+        </div>
+        <p v-if="priceMissing" class="xs muted" style="margin: 0">새로 감지된 API 모델은 공급사 가격표의 단가를 넣어야 승인할 수 있습니다.</p>
+        <button type="submit" class="btn btn-dark" style="align-self: flex-start" :disabled="busy || priceMissing">승인 목록 저장 ({{ picked.length }}개)</button>
       </form>
 
       <hr />

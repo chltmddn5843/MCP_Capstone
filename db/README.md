@@ -12,6 +12,7 @@ PostgreSQL 16, 스키마 `app`(업무)·`agent`(LangGraph, 라이브러리가 �
 
 ```bash
 db/reset.sh        # postgres 컨테이너 기동 → schema.sql 적용 → seed.py 더미 적재 → 테이블별 행 수 출력
+uv run python scripts/seed_team.py --yes   # 대신 실제 Slack 계정 6명 테스트 회사 (셋팅 API로 생성, 관리자 최승우만 웹 로그인)
 ```
 
 DBeaver 접속: PostgreSQL · Host `localhost` · Port `5432` · DB `capstone` · User `capstone` · Password `capstone`(개발용, `.env`로 변경 가능) → 스키마 `app`.

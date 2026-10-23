@@ -242,6 +242,16 @@ async def test_prompts_carry_design_principles(monkeypatch, name, args, principl
     assert principle in rendered.messages[0].content.text
 
 
+def test_agent_prompts_fill_arguments():
+    """에이전트 system prompt와 MCP Prompt는 같은 md를 쓴다. 중괄호를 이스케이프하지 않으면 format이 실패해 인자가 안 채워진다."""
+    from schemas.mcp_tools import PROMPTS
+
+    from apps.agent_runtime.harness.instructions import build_system_prompt
+    for name, args in PROMPTS.items():
+        text = build_system_prompt("system", name, {a: f"<{a}>" for a in args})
+        assert all(f"<{a}>" in text for a in args) and "{" + args[0] + "}" not in text, name
+
+
 async def test_prompts_only_mention_registered_tools():
     """Prompt가 안내하는 도구 이름이 실제 명세에 있어야 한다 (명세에서 도구 이름이 바뀌면 여기서 걸린다)."""
     import re

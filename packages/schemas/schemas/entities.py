@@ -154,6 +154,7 @@ class EvalResult(Base):
     avg_output_tokens: int
     latency_ms: int
     evaluated_at: datetime
+    eligible: bool = Field(False, description="추천 후보 여부 (코드 판정): 품질 기준 통과 + 사내 승인 모델")
 
 
 class Project(Base):
@@ -239,6 +240,7 @@ class OpinionAsset(Base):
 class PlanOpinion(Base):
     """승인 대기 건에 붙는 AI 검토 의견. 관리자가 읽는 글이므로 전부 자연어·이름 기준(id·컬럼명 없음)."""
 
+    # requester·asset·changes는 서버가 DB에서 채운다(AI가 보낸 값은 덮어쓴다). AI는 권고·요약·위험·대안만 판단한다
     recommendation: str = Field(description="approve | reject | alternative")
     summary: str = Field(description="한 줄 권장 사유")
     requester: OpinionRequester | None = None
