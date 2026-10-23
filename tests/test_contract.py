@@ -231,6 +231,11 @@ def test_employee_profile_and_plan_opinion():
     assert r.status_code == 200 and r.json()["data"]["ai_opinion"]["recommendation"] == "approve"
     got = client.get(f"/plans/{pid}", headers=ASSET).json()["data"]
     assert got["ai_opinion"]["summary"].startswith("미배정") and got["ai_opinion"]["generated_at"]
+    # 사실 칸은 서버가 DB로 채운다: AI가 보낸 '박서준'·60석은 덮어쓰고, 판단(권고·요약·위험)은 그대로
+    req, asset = got["ai_opinion"]["requester"], got["ai_opinion"]["asset"]
+    assert (req["name"], req["dept"]) == ("박지후", "마케팅") and asset["product"] == "ChatGPT Enterprise" and asset["purchased"] == 60
+    assert asset["assigned"] + asset["unassigned"] == 60 and got["ai_opinion"]["changes"][0][1].startswith("박지후")
+    assert got["ai_opinion"]["facts"] == ["60석 중 1석 남음"]
     assert client.patch(f"/plans/{pid}/opinion", json=op, headers=EMP).status_code == 403
 
 
@@ -248,3 +253,54 @@ def test_confirmations_list_and_outbox_delivered_mark():
         again = client.patch(f"/notify-outbox/{rows[0]['id']}/delivered", headers=SYS).json()["data"]
         assert r["delivered_at"] and again["delivered_at"] == r["delivered_at"]
     assert client.patch("/notify-outbox/out_nope/delivered", headers=SYS).status_code == 404
+
+
+def test_import_existing_seats_csv():
+    """이미 쓰던 회사 셋팅: 좌석 배정 CSV. 한 줄이라도 틀리면 전부 거절, 이미 있는 사람은 건너뜀, 좌석 수를 넘기지 않는다."""
+    from apps.backend import db
+    url = "/contracts/ctr_canva_2026/seats/import"  # 15석 중 마케팅 9명 + 영업 2명 = 11석 배정
+    bad = client.post(url, json={"csv": "email\nnobody@hanbit.example\nhana.kim@hanbit.example"}, headers=ASSET)
+    assert bad.status_code == 422 and "2행" in bad.json()["error"]["details"]["errors"][0]
+    from datetime import date, timedelta
+    recent, old = (date.today() - timedelta(days=3)).isoformat(), (date.today() - timedelta(days=40)).isoformat()
+    r = client.post(url, json={"csv": "﻿email,last_activity_at\njihoo.park@hanbit.example,2026-10-20\n"
+                                      f"hana.kim@hanbit.example,{recent}\nJIHO.RYU@hanbit.example,"}, headers=ASSET)
+    assert r.status_code == 201, r.text
+    d = r.json()["data"]
+    assert (d["imported"], d["skipped"], d["assigned"]) == (2, ["jihoo.park@hanbit.example"], 13)
+    inv = client.get("/inventory", params={"contract_id": "ctr_canva_2026"}, headers=ASSET).json()["data"][0]
+    assert inv["assigned"] == 13  # 빈 마지막 사용일 = 기록 없음(확인 필요) → 저사용 후보에 잡힌다
+    low = {c["employee_id"]: c["flag"] for c in inv["low_usage_candidates"]}
+    assert low["emp_hrd_05"] == "no_record" and low.get("emp_hrd_01") is None  # 3일 전 사용 → 표시 없음
+    stale = client.post(url, json={"csv": f"email,last_activity_at\nsiwoo.park@hanbit.example,{old}"}, headers=ASSET).json()["data"]
+    assert stale["imported"] == 1 and db.one("SELECT flag FROM seat_assignments WHERE contract_id = 'ctr_canva_2026' AND employee_id = 'emp_hrd_03'")["flag"] == "unused"  # 30일 넘게 미사용
+    over = client.post(url, json={"csv": "email\nhyunwoo.lim@hanbit.example\nnayeon.yoon@hanbit.example\njiho.hwang@hanbit.example"}, headers=ASSET)
+    assert over.status_code == 409  # 14 + 3 > 15
+    assert client.post("/contracts/ctr_claude_2026/seats/import", json={"csv": "email\nhana.kim@hanbit.example"}, headers=ASSET).status_code == 422
+    assert client.post(url, json={"csv": "email\nhana.kim@hanbit.example"}, headers=EMP).status_code == 403
+
+
+def test_detected_model_needs_price_to_approve():
+    """수집 배치가 새로 감지한 모델(approved=false, 단가 0)도 승인 목록에 오른다. API 모델은 단가를 넣어야 승인된다."""
+    from apps.backend import db
+    with db.tx() as c:
+        c.execute(db.text("INSERT INTO models (id, tool_id, vendor, name, input_usd_per_mtok, output_usd_per_mtok, approved, allowed_data_class)"
+                          " VALUES ('anthropic:claude-new-9', 'tool_claude', 'Anthropic', 'Claude New 9', 0, 0, false, 'internal')"))
+    catalog = client.get("/setup/model-catalog", headers=ASSET).json()["data"]
+    assert "anthropic:claude-new-9" in {m["id"] for m in catalog}
+    ids = [m["id"] for m in catalog if m["approved"]] + ["anthropic:claude-new-9"]
+    r = client.put("/models/approved", json={"model_ids": ids}, headers=ASSET)
+    assert r.status_code == 422 and r.json()["error"]["details"]["unpriced"] == ["anthropic:claude-new-9"]
+    r = client.put("/models/approved", json={"model_ids": ids, "prices": {"anthropic:claude-new-9": {"input_usd_per_mtok": 3, "output_usd_per_mtok": 15}}}, headers=ASSET)
+    m = next(x for x in r.json()["data"] if x["id"] == "anthropic:claude-new-9")
+    assert m["approved"] and (m["input_usd_per_mtok"], m["output_usd_per_mtok"]) == (3, 15)
+
+
+def test_rule_results_for_agent():
+    """AI가 다시 판정하지 않도록 코드가 계산해 주는 값: 직무 집계(많은 순), 추천 후보(품질 통과 + 사내 승인)."""
+    rel = client.get("/updates/upd_chatgpt_doc_compare/relevant-tasks", headers=SYS).json()["data"]
+    counts = [j["task_count"] for j in rel["jobs"]]
+    assert counts == sorted(counts, reverse=True) and sum(counts) == len(rel["candidates"]) and list(rel)[:2] == ["update", "jobs"]
+    ev = {r["model_id"]: r for r in client.get("/eval-results", params={"task_type": "customer_inquiry_classification"}, headers=EMP).json()["data"]}
+    assert ev["anthropic:claude-sonnet-5-5"]["eligible"] and not ev["anthropic:claude-haiku-5-5"]["eligible"]  # 0.87 < 기준
+    assert all(r["eligible"] == (r["passed"] and r["model_id"] != "xai:grok-4.7") for r in ev.values())  # grok-4.7은 미통과

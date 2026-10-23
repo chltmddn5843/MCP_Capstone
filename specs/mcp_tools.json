@@ -764,6 +764,33 @@
         },
         "outputSchema": {
           "$defs": {
+            "JobSummary": {
+              "description": "직무별 등록 업무 집계 (코드가 센다). 카드 뉴스 '이렇게 써 보세요'는 이 순서대로 위에서 3~6개를 쓴다.",
+              "properties": {
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "task_count": {
+                  "title": "Task Count",
+                  "type": "integer"
+                },
+                "task_titles": {
+                  "description": "그 직무의 등록 업무 제목, 최대 3개",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Task Titles",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "job_title",
+                "task_count"
+              ],
+              "title": "JobSummary",
+              "type": "object"
+            },
             "RelevantTaskCandidate": {
               "description": "관리자에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다. 시스템 계정만 개인을 본다.",
               "properties": {
@@ -868,6 +895,14 @@
           "properties": {
             "update": {
               "$ref": "#/$defs/VendorUpdate"
+            },
+            "jobs": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/JobSummary"
+              },
+              "title": "Jobs",
+              "type": "array"
             },
             "candidates": {
               "items": {
@@ -1245,6 +1280,12 @@
                   "format": "date-time",
                   "title": "Evaluated At",
                   "type": "string"
+                },
+                "eligible": {
+                  "default": false,
+                  "description": "추천 후보 여부 (코드 판정): 품질 기준 통과 + 사내 승인 모델",
+                  "title": "Eligible",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -2739,7 +2780,7 @@
       },
       {
         "name": "create_action_plan",
-        "description": "처리 요청을 만든다. 모든 요청은 관리자 승인 대기로 들어가고(status=pending_approval), 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.",
+        "description": "처리 요청을 만든다. 남은 좌석이 있는 seat_assign은 서버가 바로 배정하고(status=executed), 나머지는 관리자 승인 대기로 들어간다(status=pending_approval). 에이전트가 직접 실행하지 않는다. 직원은 seat_assign(본인 이용권), seat_reclaim(본인 반납), api_access(API 제품 사용 신청), model_change(본인 소유 프로젝트, test 환경)를 만들 수 있다.",
         "inputSchema": {
           "$defs": {
             "Evidence": {

@@ -2,6 +2,7 @@
 
 수신: DM(message.im)과 멘션(app_mention) → 에이전트 작업 → 진행 상황을 한 메시지에 갱신 → 답변.
       승인이 필요하면 관리자에게 DM으로 확인 요청 버튼을 보내고, 결정 뒤 이어서 처리한다.
+규칙 메뉴: DM에 '메뉴'·'이용권'·'신청'·'반납'만 보내면 AI를 거치지 않고 제품별 [신청]/[반납]/[사용 신청] 버튼 → 백엔드 POST /plans
 버튼: 좌석 토큰 경보 [현재 작업 분석] → 에이전트 analyze_seat_usage (본인 권한)
       제안 반응(도움 됨·관련 없음·질문) → 백엔드 /suggestions/{id}/feedback
       사용 의사(계속 필요·반납·휴직) → 백엔드 /confirmations/{id}/answer
@@ -26,7 +27,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from apps.slack_bot import client as api
 from apps.slack_bot import identity, worker
-from apps.slack_bot.send import build_answer, build_approval_request
+from apps.slack_bot.send import build_answer, build_api_purpose_modal, build_approval_request, build_menu
 
 log = logging.getLogger("slack_bot")
 WEB_URL = os.getenv("WEB_URL", "http://localhost:5173")
@@ -116,6 +117,64 @@ def on_plan_decision(ack, body, action, client):
     client.chat_update(channel=channel, ts=body["message"]["ts"], text=done.get(plan["status"], plan["status"]), blocks=[])
 
 
+# ---------- 규칙 메뉴 (AI 없이 처리 요청을 바로 만든다. 승인 DM·결과 안내는 워커가 보낸다) ----------
+MENU_WORDS = {"메뉴", "이용권", "신청", "반납", "menu"}
+PLAN_DONE = {("seat_assign", "executed"): "바로 배정됐어요. 로그인 방법은 DM으로 보내드릴게요.",
+             ("seat_assign", "pending_approval"): "남은 좌석이 없어 관리자 승인이 필요해요. 결정되면 알려드릴게요.",
+             ("seat_reclaim", "pending_approval"): "반납 요청을 관리자에게 전달했어요.",
+             ("api_access", "pending_approval"): "관리자에게 전달했어요. 승인되면 키를 받을 수 있는 링크를 DM으로 보내드릴게요."}
+
+
+def show_menu(client, channel: str, token: str, thread_ts: str | None = None) -> None:
+    tools = api.backend("GET", "/tools", token)
+    mine = {t["id"] for t in api.backend("GET", "/me", token)["available_tools"]}
+    client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="이용권 메뉴", blocks=build_menu(tools, mine))
+
+
+def _create_plan(token: str, typ: str, item: dict, rationale: str) -> str:
+    try:
+        plan = api.backend("POST", "/plans", token, json={"type": typ, "items": [item], "rationale": rationale, "evidence": []})
+    except api.ApiError as exc:
+        return friendly(exc)
+    return PLAN_DONE.get((typ, plan["status"]), "요청을 전달했어요. 결정되면 알려드릴게요.")
+
+
+def on_menu_seat(ack, body, action, client):
+    """[신청]/[반납] → 본인 좌석 처리 요청. 남은 좌석이 있으면 백엔드가 바로 배정한다."""
+    ack()
+    user, channel = body["user"]["id"], body["channel"]["id"]
+    typ = action["action_id"].removeprefix("menu_")
+    try:
+        token, emp = identity.resolve(user)
+    except api.ApiError as exc:
+        client.chat_postEphemeral(channel=channel, user=user, text=friendly(exc))
+        return
+    text = _create_plan(token, typ, {"employee_id": emp["id"], "contract_id": action["value"]},
+                        "Slack 메뉴에서 본인 신청" if typ == "seat_assign" else "Slack 메뉴에서 본인 반납")
+    client.chat_postMessage(channel=channel, thread_ts=body["message"]["ts"], text=text)
+
+
+def on_menu_api(ack, body, action, client):
+    """[사용 신청] → 용도를 묻는 창. API는 용도가 있어야 관리자가 판단한다."""
+    ack()
+    product = next((b["text"]["text"].split("\n")[0].strip("*") for b in body["message"]["blocks"]
+                    if b.get("accessory", {}).get("value") == action["value"]), "API")
+    client.views_open(trigger_id=body["trigger_id"], view=build_api_purpose_modal(action["value"], product, body["channel"]["id"]))
+
+
+def on_menu_api_submit(ack, body, view, client):
+    ack()
+    tool_id, channel = view["private_metadata"].split("|", 1)
+    purpose = view["state"]["values"]["purpose"]["v"]["value"].strip()
+    user = body["user"]["id"]
+    try:
+        token, emp = identity.resolve(user)
+    except api.ApiError as exc:
+        client.chat_postMessage(channel=channel, text=friendly(exc))
+        return
+    client.chat_postMessage(channel=channel, text=_create_plan(token, "api_access", {"tool_id": tool_id, "purpose": purpose}, f"Slack 메뉴에서 API 사용 신청: {purpose}"))
+
+
 def on_seat_analyze(ack, body, action, client):
     """경보 DM의 [현재 작업 분석] → 본인 권한으로 에이전트 analyze_seat_usage를 돌려 같은 스레드에 답한다."""
     ack()
@@ -163,6 +222,10 @@ def create_app(verify_token: bool = True) -> App:
     app.action("seat_analyze")(on_seat_analyze)
     for aid in ("pl_yes", "pl_no"):
         app.action(aid)(on_plan_decision)
+    for aid in ("menu_seat_assign", "menu_seat_reclaim"):
+        app.action(aid)(on_menu_seat)
+    app.action("menu_api_access")(on_menu_api)
+    app.view("menu_api_submit")(on_menu_api_submit)
     return app
 
 
@@ -182,6 +245,12 @@ def _handle_request(client, event, text: str) -> None:
         token, emp = identity.resolve(user)
     except api.ApiError as exc:
         client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=friendly(exc))
+        return
+    if text.strip().lower() in MENU_WORDS:  # 규칙 경로: 메뉴 단어 하나면 AI를 부르지 않는다
+        try:
+            show_menu(client, channel, token, thread_ts if event.get("channel_type") != "im" else None)
+        except api.ApiError as exc:
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=friendly(exc))
         return
     key = f"{channel}:{thread_ts if event.get('channel_type') != 'im' else user}"
     try:

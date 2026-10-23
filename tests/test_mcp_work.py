@@ -225,7 +225,8 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
 
 @pytest.mark.parametrize("name, args, principle", [
     ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "추정하고 단정하지 않는다"),
-    ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "기한 전 무응답은 회수 사유로 쓰지 않는다"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "응답 기한(5영업일)이 지나도 무응답이면 회수·재배정한다"),
     ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "보류하지 않는다"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
@@ -239,6 +240,16 @@ async def test_prompts_carry_design_principles(monkeypatch, name, args, principl
     async with connect(mcp, monkeypatch, "asset") as c:
         rendered = await c.get_prompt(name, args)
     assert principle in rendered.messages[0].content.text
+
+
+def test_agent_prompts_fill_arguments():
+    """에이전트 system prompt와 MCP Prompt는 같은 md를 쓴다. 중괄호를 이스케이프하지 않으면 format이 실패해 인자가 안 채워진다."""
+    from schemas.mcp_tools import PROMPTS
+
+    from apps.agent_runtime.harness.instructions import build_system_prompt
+    for name, args in PROMPTS.items():
+        text = build_system_prompt("system", name, {a: f"<{a}>" for a in args})
+        assert all(f"<{a}>" in text for a in args) and "{" + args[0] + "}" not in text, name
 
 
 async def test_prompts_only_mention_registered_tools():

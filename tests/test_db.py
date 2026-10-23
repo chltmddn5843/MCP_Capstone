@@ -227,6 +227,30 @@ def test_team_usage_sums_seat_paces_by_team():
     assert client.get("/usage/teams", headers={"Authorization": "Bearer dev.emp_mkt_01"}).status_code == 403
 
 
+def test_live_model_list_finds_only_recent_chat_models(monkeypatch):
+    """F1_MODEL_SOURCE=live: 승인 공급사의 /v1/models 응답에서 최근 나온 대화 모델만 새 모델로 잡는다.
+    날짜 스냅샷은 별칭으로 묶고, 이미 아는 모델·옛 모델·임베딩은 거른다. 키가 없는 공급사는 errors로 알린다."""
+    import httpx
+
+    from apps.backend import main
+    lists = {
+        "https://api.openai.com/v1/models": {"data": [
+            {"id": "gpt-5.7-2026-10-19", "created": 1792368000}, {"id": "gpt-5.7", "created": 1792368000},  # 2026-10-19
+            {"id": "gpt-5.5", "created": 1792368000},                       # 이미 아는 모델
+            {"id": "text-embedding-4", "created": 1792368000},              # 대화 모델 아님
+            {"id": "gpt-4o", "created": 1715000000}]},                      # 2024년, 기간 밖
+    }
+    monkeypatch.setenv("F1_MODEL_SOURCE", "live")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(main.httpx, "get", lambda url, **kw: httpx.Response(200, json=lists[url], request=httpx.Request("GET", url)))
+    res = run("collect_release_notes", WORK_HOUR)
+    assert [x["model_id"] for x in res["new_models"]] == ["openai:gpt-5.7"]
+    assert res["errors"] == [{"vendor": "Anthropic", "error": "ANTHROPIC_API_KEY 없음"}]
+    assert db.one("SELECT approved, tool_id FROM models WHERE id = 'openai:gpt-5.7'") == {"approved": False, "tool_id": "tool_chatgpt"}
+    assert run("collect_release_notes", WORK_HOUR)["new_models"] == []   # 한 번만 알린다
+
+
 def test_model_release_detected_once_per_model_and_card_sent_to_all():
     """새 모델 감지: 평소 폴링은 새것 없음, 시뮬레이션마다 승인 공급사 모델 하나씩. 승인 전 공급사(xAI)는 알리지 않는다.
     전사 카드는 팀 주간 상한 없이 업무 시간에 발송함으로 간다."""
@@ -242,3 +266,32 @@ def test_model_release_detected_once_per_model_and_card_sent_to_all():
                                                          "body": "핵심 기능\n1. a\n2. b\n3. c\n이렇게 써 보세요\n• 마케터: x"}).json()["data"]["id"]
     sent = run("send_suggestions", WORK_HOUR)["sent"]
     assert any(x["suggestion_id"] == sid and x["dept_id"] is None for x in sent)
+
+
+def test_overdue_no_response_reclaims_seat():
+    """알림 정책: 사용 의사 확인 응답 기한(5영업일)이 지나도 무응답이면 회수한다. 기한 전 무응답이나 '계속 필요' 응답은 회수하지 않는다."""
+    held = lambda e: db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = 'ctr_chatgpt_2026' AND employee_id = :e AND status = 'assigned'", e=e)
+    reclaim = lambda e, **extra: client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "rationale": "저사용",
+                                                                             "items": [{"employee_id": e, "contract_id": "ctr_chatgpt_2026", **extra}], "evidence": []})
+    plan = reclaim("emp_mkt_02").json()["data"]
+    cfm = client.post("/confirmations", headers=ADMIN, json={"plan_id": plan["id"], "employee_id": "emp_mkt_02", "question": "계속 쓰시나요?"}).json()["data"]
+    keep = client.post("/confirmations", headers=ADMIN, json={"plan_id": reclaim("emp_cs_01").json()["data"]["id"], "employee_id": "emp_cs_01",
+                                                              "question": "계속 쓰시나요?"}).json()["data"]
+    client.post(f"/confirmations/{keep['id']}/answer", headers={"Authorization": "Bearer dev.emp_cs_01"}, json={"answer": "still_needed"})
+
+    r = reclaim("emp_mkt_02", confirmation_id=cfm["id"])  # 기한 전 무응답은 회수 요청부터 막는다
+    assert r.status_code == 409 and "기한" in r.json()["error"]["message"]
+    assert run("reclaim_overdue", WORK_HOUR)["reclaimed"] == [] and held("emp_mkt_02")
+
+    with db.tx() as c:  # 두 확인 요청 모두 기한이 지난 상태로
+        c.execute(db.text("UPDATE confirmations SET due_at = now() - interval '1 day' WHERE id IN (:a, :b)"), dict(a=cfm["id"], b=keep["id"]))
+    done = run("reclaim_overdue", WORK_HOUR)
+    assert [x["employee_id"] for x in done["reclaimed"]] == ["emp_mkt_02"]  # '계속 필요'로 답한 emp_cs_01은 그대로
+    assert done["reclaimed"][0]["plan_id"] == plan["id"]  # 승인 대기였던 회수 요청을 시스템이 승인·실행
+    assert not held("emp_mkt_02") and held("emp_cs_01")
+    p = db.one("SELECT status, approver_id FROM action_plans WHERE id = :id", id=plan["id"])
+    assert p["status"] == "executed" and p["approver_id"] == "sys"
+    actions = [a["action"] for a in db.rows("SELECT action FROM audit_log WHERE target = :t ORDER BY created_at", t=plan["id"])]
+    assert actions[-2:] == ["plan.auto_approve", "plan.execute"]
+    again = run("reclaim_overdue", WORK_HOUR)  # 다시 돌려도 두 번 회수하지 않는다
+    assert again["reclaimed"] == [] and again["skipped"][0]["reason"] == "이미 회수된 좌석입니다"

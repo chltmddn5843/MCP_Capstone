@@ -307,7 +307,10 @@ export const getTeamUsage = () => get('/usage/teams')
 export const getModels = () => get('/models')
 export const createContract = (body) => post('/contracts', body)
 export const getModelCatalog = () => get('/setup/model-catalog')
-export const approveModels = (ids) => put('/models/approved', { model_ids: ids })
+/** prices: 새로 감지돼 단가를 모르는 API 모델의 { id: { input_usd_per_mtok, output_usd_per_mtok } } */
+export const approveModels = (ids, prices = {}) => put('/models/approved', { model_ids: ids, prices })
+/** 이미 쓰던 회사: 기존 좌석 배정 CSV(머리글 email[,last_activity_at]) */
+export const importSeats = (contractId, csv) => post(`/contracts/${encodeURIComponent(contractId)}/seats/import`, { csv })
 export const createProject = (body) => post('/projects', body)
 export const getBudgets = (year) => get('/budgets', year ? { fiscal_year: year } : undefined)
 export const setBudgets = (body) => put('/budgets', body)
