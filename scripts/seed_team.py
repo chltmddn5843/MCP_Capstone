@@ -25,18 +25,18 @@ sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
 DOMAIN = "hanbit.example"
-ADMIN = ("최승우", "U0BGP8ALR6F", "seungwoo.choi", "HRD", "자산관리 담당 · 과장")
+ADMIN = ("최승우", "U0CAZ73D1NG", "seungwoo.choi", "HRD", "자산관리 담당 · 과장")
 # 이름, Slack 회원 ID, 이메일 앞부분, 부서, 직무 · 직급, 등록 업무(제목, 설명, 주기, 쓰는 제품)
 TEAM = [
     ("이용주", "U0CAP67KQKV", "yongju.lee", "마케팅", "브랜드 마케팅 · 대리",
      ("경쟁사 보도자료 비교", "경쟁사 보도자료 여러 건을 비교해 메시지 차이를 정리", "weekly", ["ChatGPT Enterprise"])),
-    ("유정연", "U0BGE4Q95QF", "jeongyeon.yoo", "영업", "영업 담당 · 사원",
+    ("유정연", "U0CBLALS88H", "jeongyeon.yoo", "영업", "영업 담당 · 사원",
      ("견적서 요약 검토", "고객 견적서 PDF를 요약해 영업 메모로 정리", "daily", ["Acrobat Pro"])),
-    ("정서현", "U0BHPR7Q0MN", "seohyun.jung", "고객지원", "CS 상담 · 주임",
+    ("정서현", "U0CAF7Z7PRD", "seohyun.jung", "고객지원", "CS 상담 · 주임",
      ("응대 매뉴얼 갱신", "자주 묻는 문의를 모아 응대 매뉴얼 문구를 고침", "weekly", ["ChatGPT Enterprise", "Claude API"])),
-    ("정윤지", "U0BJ8K67WRE", "yunji.jung", "상품기획·MD", "상품기획 · 과장",
+    ("정윤지", "U0CARE0JF29", "yunji.jung", "상품기획·MD", "상품기획 · 과장",
      ("신제품 고객 리뷰 분석", "온라인몰·SNS 리뷰 파일 여러 개에서 불만·요청을 분류해 기획 보고서에 반영", "weekly", ["ChatGPT Enterprise"])),
-    ("채석현", "U0BGS6KN6E9", "seokhyun.chae", "생산관리", "생산 계획 · 대리",
+    ("채석현", "U0CAF8HD3L7", "seokhyun.chae", "생산관리", "생산 계획 · 대리",
      ("생산 일정 변경 공지", "라인별 일정 변경 사항을 공지문으로 정리", "weekly", [])),
 ]
 YEAR = date.today().year
