@@ -1006,6 +1006,8 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
         raise ApiError(ErrorCode.forbidden, f"{user.role.value} 역할은 {body.type.value} 조치안을 만들 수 없습니다")
     if user.role == Role.employee and body.type in (PlanType.seat_assign, PlanType.seat_reclaim) and any(i.get("employee_id") != user.id for i in body.items):
         raise ApiError(ErrorCode.forbidden, "직원은 본인 이용권만 신청·반납할 수 있습니다")
+    if user.role == Role.employee and body.type == PlanType.seat_reclaim and any(i.get("reassign_to_employee_id") for i in body.items):
+        raise ApiError(ErrorCode.forbidden, "직원 반납에는 재배정 대상을 넣을 수 없습니다. 재배정은 관리자가 합니다")
     if user.role == Role.employee and body.type == PlanType.model_change:  # 시나리오 B: 본인 프로젝트의 테스트 환경만
         for i in body.items:
             prj = db.one("SELECT owner_id FROM projects WHERE id = :id", id=i.get("project_id", ""))
@@ -1043,6 +1045,12 @@ def create_plan(body: PlanCreate, user: Employee = Depends(require(Role.employee
         with db.tx() as c:
             c.execute(db.text("UPDATE action_plans SET evidence = evidence || CAST(:ev AS jsonb) WHERE id = :id"), dict(ev=db.js([e.model_dump() for e in note]), id=pid))
         plan = _plan(pid)
+    elif plan.type == PlanType.seat_reclaim and user.role == Role.employee:
+        # 직원 본인 반납은 관리자 승인 없이 바로 회수한다 (본인 좌석만 만들 수 있고, 재배정 대상은 넣을 수 없다)
+        with db.tx() as c:
+            c.execute(db.text("UPDATE action_plans SET status = 'approved', approver_id = 'sys', approved_at = now() WHERE id = :id"), dict(id=pid))
+            _audit(c, user, "plan.auto_approve", pid, {"status": status.value}, {"status": "approved", "reason": "본인 반납"})
+        plan = _execute(_plan(pid), f"auto_{pid}", user).plan
     elif risk == RiskLevel.low:  # 자동 처리 유형(현재 없음)만 즉시 실행
         plan = _execute(plan, f"auto_{pid}", user).plan
     return ok(plan)

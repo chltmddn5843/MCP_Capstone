@@ -121,7 +121,7 @@ def on_plan_decision(ack, body, action, client):
 MENU_WORDS = {"메뉴", "이용권", "신청", "반납", "menu"}
 PLAN_DONE = {("seat_assign", "pending_approval"): "관리자에게 신청을 전달했어요. 승인되면 로그인 방법을 DM으로 보내드릴게요.",
              ("seat_assign", "short"): "지금 남은 좌석이 없어 관리자가 확인한 뒤 결과를 알려드릴게요.",
-             ("seat_reclaim", "pending_approval"): "반납 요청을 관리자에게 전달했어요.",
+             ("seat_reclaim", "executed"): "반납 처리됐어요. 다시 필요해지면 저에게 말씀해 주세요.",
              ("api_access", "pending_approval"): "관리자에게 전달했어요. 승인되면 키를 받을 수 있는 링크를 DM으로 보내드릴게요."}
 
 

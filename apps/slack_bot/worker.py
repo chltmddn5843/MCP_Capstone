@@ -272,7 +272,9 @@ def outcome_messages(plan: dict, names: dict[str, str], emails: dict[str, str] |
         if why == SEAT_SHORTAGE_REASON:  # PRD S5 정형 안내문 (처리 이력의 사유와 같다)
             out[req] = f"{product} 사용 신청이 반려되었습니다. 현재 배정 가능한 이용권이 부족합니다."
         elif why == UNLISTED_REASON:  # PRD S9 정형 안내문
-            out[req] = f"{product}은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다."
+            purpose = f" ({item['purpose']})" if item.get("purpose") else ""
+            out[req] = (f"*[미도입 제품 신청]* {product}{purpose}\n"
+                        f"{product}은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다.")
         else:
             out[req] = f"{product} 요청이 반려됐어요." + (f" 사유: {why}" if why else "") + " 궁금한 점은 저에게 물어봐 주세요."
     elif status == "failed":
@@ -284,6 +286,8 @@ def outcome_messages(plan: dict, names: dict[str, str], emails: dict[str, str] |
             if holder and holder != req:
                 out[req] = f"{product} 이용권 배정이 끝났어요."
         elif typ == "seat_reclaim":
+            if holder == req and plan.get("approver_id") == "sys":
+                return {}  # 직원 본인 반납은 바로 처리되고 대화에서 이미 답했다. 같은 안내를 다시 보내지 않는다
             if holder:
                 out[holder] = f"{product} 이용권이 반납 처리됐어요. 다시 필요해지면 저에게 말씀해 주세요."
             if req != holder:
