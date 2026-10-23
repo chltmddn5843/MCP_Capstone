@@ -225,7 +225,8 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
 
 @pytest.mark.parametrize("name, args, principle", [
     ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "추정하고 단정하지 않는다"),
-    ("review_seat_request", {"plan_id": "plan_002"}, "무응답은 회수 사유로 쓰지 않는다"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "기한 전 무응답은 회수 사유로 쓰지 않는다"),
+    ("review_seat_request", {"plan_id": "plan_002"}, "응답 기한(5영업일)이 지나도 무응답이면 회수·재배정한다"),
     ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "보류하지 않는다"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
