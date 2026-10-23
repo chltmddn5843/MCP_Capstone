@@ -131,7 +131,7 @@ insert("budgets", [{"fiscal_year": 2026, "category": "seat", "annual_krw": 63_60
 # 모델 id = "공급사:API 모델명". 에이전트 LLM_MODEL·projects·usage_records·eval_results가 같은 키로 이어진다
 insert("models", [{**m, "tool_id": {"anthropic": "tool_claude", "xai": "tool_grok", "openai": "tool_chatgpt"}[m["id"].split(":")[0]]}
                   for m in dump(fx.MODELS.values())])
-insert("eval_results", dump(fx.EVAL_RESULTS))
+insert("eval_results", dump(fx.EVAL_RESULTS, drop=("eligible",)))  # eligible은 조회 때 계산하는 값
 # 팀별 대표 업무 (F1 관련성 판단 근거). tools_used는 그 사람이 실제로 쓸 수 있는 도구만: ChatGPT 좌석 보유자 tool_chatgpt,
 # Claude API는 그 팀 프로젝트가 있을 때(고객지원·영업·경영지원·마케팅·생산관리)
 TEAM_TASKS = {

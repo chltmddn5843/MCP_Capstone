@@ -764,6 +764,33 @@
         },
         "outputSchema": {
           "$defs": {
+            "JobSummary": {
+              "description": "직무별 등록 업무 집계 (코드가 센다). 카드 뉴스 '이렇게 써 보세요'는 이 순서대로 위에서 3~6개를 쓴다.",
+              "properties": {
+                "job_title": {
+                  "title": "Job Title",
+                  "type": "string"
+                },
+                "task_count": {
+                  "title": "Task Count",
+                  "type": "integer"
+                },
+                "task_titles": {
+                  "description": "그 직무의 등록 업무 제목, 최대 3개",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Task Titles",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "job_title",
+                "task_count"
+              ],
+              "title": "JobSummary",
+              "type": "object"
+            },
             "RelevantTaskCandidate": {
               "description": "관리자에게는 employee_id 없이 팀 단위(team_id, job_title)로만 내려간다. 시스템 계정만 개인을 본다.",
               "properties": {
@@ -868,6 +895,14 @@
           "properties": {
             "update": {
               "$ref": "#/$defs/VendorUpdate"
+            },
+            "jobs": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/JobSummary"
+              },
+              "title": "Jobs",
+              "type": "array"
             },
             "candidates": {
               "items": {
@@ -1245,6 +1280,12 @@
                   "format": "date-time",
                   "title": "Evaluated At",
                   "type": "string"
+                },
+                "eligible": {
+                  "default": false,
+                  "description": "추천 후보 여부 (코드 판정): 품질 기준 통과 + 사내 승인 모델",
+                  "title": "Eligible",
+                  "type": "boolean"
                 }
               },
               "required": [

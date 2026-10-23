@@ -17,6 +17,7 @@ import psycopg  # noqa: E402
 # 앱 모듈을 import하기 전에 정한다 (load_dotenv는 이미 있는 값을 안 바꾼다)
 os.environ["APP_ENV"] = "dev"  # 테스트는 dev.<id> 토큰을 쓴다. .env가 prod여도
 os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", "postgresql+psycopg://capstone:capstone@localhost:5432/capstone_test")
+os.environ["F3_DEMO_HEAVY"] = "emp_md_01,emp_cs_01"  # 시드 기준. 로컬 .env(6명 테스트 회사 등)의 값이 테스트에 섞이지 않게
 
 
 def ensure_test_db(url: str) -> None:

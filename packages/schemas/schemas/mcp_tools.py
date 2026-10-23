@@ -42,6 +42,7 @@ from schemas.entities import (
 )
 from schemas.rest import (
     ContractInventory,
+    JobSummary,
     RelevantTaskCandidate,
     SeatPaceDetail,
     TaskCostEstimateResponse,
@@ -190,6 +191,7 @@ class ModelListOut(BaseModel):
 
 class FindRelevantTasksOut(BaseModel):
     update: VendorUpdate
+    jobs: list[JobSummary] = []  # candidates보다 앞: 결과가 4,000자에서 잘려도 직무 집계는 남는다
     candidates: list[RelevantTaskCandidate]
 
 

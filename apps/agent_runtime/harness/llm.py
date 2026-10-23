@@ -53,11 +53,14 @@ class ScriptedModel(BaseChatModel):
             elif names[-1] == "get_vendor_update":
                 msg = AIMessage(content="", tool_calls=[{"name": "find_relevant_tasks", "args": {"update_id": uid}, "id": _cid()}])
             elif names[-1] == "find_relevant_tasks":
-                found = _last_json()
-                cands = found.get("candidates") or []
-                upd = found.get("update") or {}
+                raw = tools_done[-1].content
+                found = _last_json()  # 결과가 길면 4,000자에서 잘려 JSON이 깨진다 → 아래 정규식으로 필요한 값만 뽑는다
+                cands = found.get("candidates") or [dict(zip(("task_id", "job_title", "team_id", "employee_id"), m)) for m in re.findall(
+                    r'"task_id": "([^"]+)", "job_title": "([^"]+)", "team_id": "([^"]+)", "employee_id": "([^"]*)"', raw)]
+                upd = found.get("update") or {"title": (re.search(r'"title": "([^"]*)"', raw) or [None, ""])[1]}
                 if upd.get("title", "").startswith("새 모델 출시"):
-                    jobs = list(dict.fromkeys(c.get("job_title") for c in cands if c.get("job_title")))[:4]
+                    jobs = [j["job_title"] for j in found.get("jobs") or []][:4] or list(dict.fromkeys(
+                        m for m in re.findall(r'\{"job_title": "([^"]+)", "task_count"', raw)))[:4]
                     body = "핵심 기능\n1. 긴 문서를 나누지 않고 요약·비교\n2. 표 정리와 차트 생성\n3. 이미지 속 표를 편집 가능한 표로\n이렇게 써 보세요\n" + "\n".join(f"• {j}: 등록 업무 자료를 한 번에 올려 정리해 보세요." for j in jobs)
                     args = {"update_id": uid, "target_type": "all", "relevance": f"승인 공급사 새 모델 · 직무 {len(jobs)}개 활용 예", "body": body}
                     msg = AIMessage(content="", tool_calls=[{"name": "save_suggestion", "args": args, "id": _cid()}])

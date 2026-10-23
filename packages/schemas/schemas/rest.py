@@ -107,8 +107,16 @@ class RelevantTaskCandidate(BaseModel):
     summary: str
 
 
+class JobSummary(BaseModel):
+    """직무별 등록 업무 집계 (코드가 센다). 카드 뉴스 '이렇게 써 보세요'는 이 순서대로 위에서 3~6개를 쓴다."""
+    job_title: str
+    task_count: int
+    task_titles: list[str] = Field(default_factory=list, description="그 직무의 등록 업무 제목, 최대 3개")
+
+
 class RelevantTasksResponse(BaseModel):
     update: VendorUpdate
+    jobs: list[JobSummary] = Field(default_factory=list, description="등록 업무가 많은 직무부터. 도구 결과가 길어 잘려도 남도록 candidates보다 앞에 둔다")
     candidates: list[RelevantTaskCandidate]
 
 
@@ -266,6 +274,7 @@ class ContractCreate(BaseModel):
     seat_price_krw: int = Field(ge=0)
     term_start: date
     term_end: date
+    daily_token_quota: int = Field(0, ge=0, description="좌석당 하루 토큰 한도. 0이면 좌석 토큰 경보(F3)를 하지 않는다")
 
 
 class ModelPrice(BaseModel):

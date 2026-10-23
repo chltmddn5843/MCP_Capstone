@@ -7384,6 +7384,13 @@
             "type": "string",
             "format": "date",
             "title": "Term End"
+          },
+          "daily_token_quota": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Daily Token Quota",
+            "description": "좌석당 하루 토큰 한도. 0이면 좌석 토큰 경보(F3)를 하지 않는다",
+            "default": 0
           }
         },
         "type": "object",
@@ -8646,6 +8653,12 @@
             "type": "string",
             "format": "date-time",
             "title": "Evaluated At"
+          },
+          "eligible": {
+            "type": "boolean",
+            "title": "Eligible",
+            "description": "추천 후보 여부 (코드 판정): 품질 기준 통과 + 사내 승인 모델",
+            "default": false
           }
         },
         "type": "object",
@@ -8743,6 +8756,33 @@
           "result"
         ],
         "title": "JobRunResponse"
+      },
+      "JobSummary": {
+        "properties": {
+          "job_title": {
+            "type": "string",
+            "title": "Job Title"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count"
+          },
+          "task_titles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Task Titles",
+            "description": "그 직무의 등록 업무 제목, 최대 3개"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_title",
+          "task_count"
+        ],
+        "title": "JobSummary",
+        "description": "직무별 등록 업무 집계 (코드가 센다). 카드 뉴스 '이렇게 써 보세요'는 이 순서대로 위에서 3~6개를 쓴다."
       },
       "KeyReveal": {
         "properties": {
@@ -9739,6 +9779,14 @@
         "properties": {
           "update": {
             "$ref": "#/components/schemas/VendorUpdate"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JobSummary"
+            },
+            "type": "array",
+            "title": "Jobs",
+            "description": "등록 업무가 많은 직무부터. 도구 결과가 길어 잘려도 남도록 candidates보다 앞에 둔다"
           },
           "candidates": {
             "items": {

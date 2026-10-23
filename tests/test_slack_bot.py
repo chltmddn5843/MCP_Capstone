@@ -168,7 +168,9 @@ def _fake_backend(calls, outbox_delivered):
             outbox_delivered.append(path)
             return {"id": "out_1", "delivered_at": "now"}
         if path == "/updates":
-            return {"items": [{"id": "upd_1"}, {"id": "upd_new"}]}
+            return {"items": [{"id": "upd_1"}, {"id": "upd_new", "vendor": "OpenAI", "title": "문서 비교", "affected_plans": ["Enterprise"]}]}
+        if path == "/tools":
+            return [{"id": "tool_chatgpt", "vendor": "OpenAI", "product": "ChatGPT Enterprise", "contract": {"id": "ctr_chatgpt_2026", "plan_name": "Enterprise (seat + usage)"}}]
         if path.startswith("/internal/jobs/"):
             return {"result": {"stub": True}}
         raise AssertionError(f"예상 못 한 호출 {method} {path}")
@@ -337,3 +339,28 @@ def test_menu_buttons_create_plans_directly(monkeypatch):
     bot.on_menu_api_submit(ack=lambda: None, body={"user": {"id": "U1"}}, client=slack,
                            view={"private_metadata": "tool_claude|D1", "state": {"values": {"purpose": {"v": {"value": " 문의 자동 분류 "}}}}})
     assert calls[-1][2]["items"] == [{"tool_id": "tool_claude", "purpose": "문의 자동 분류"}] and "관리자에게 전달했어요" in slack.posted[-1]["text"]
+
+
+def test_plan_mismatch_is_rule_not_ai(monkeypatch):
+    """F1: 회사 플랜에 없는 업데이트는 코드가 판정해 보류만 남기고 에이전트를 부르지 않는다."""
+    from apps.slack_bot import worker
+    tools = [{"id": "tool_chatgpt", "vendor": "OpenAI", "product": "ChatGPT Enterprise", "contract": {"plan_name": "Enterprise (seat + usage)"}},
+             {"id": "tool_claude", "vendor": "Anthropic", "product": "Claude API", "contract": {"plan_name": "API pay-as-you-go"}},
+             {"id": "tool_grok", "vendor": "xAI", "product": "Grok API", "contract": None}]
+    assert worker.plan_mismatch({"vendor": "OpenAI", "affected_plans": ["Enterprise"]}, tools) is None
+    assert worker.plan_mismatch({"vendor": "OpenAI", "affected_plans": ["ChatGPT Enterprise"]}, tools) is None
+    assert worker.plan_mismatch({"vendor": "Anthropic", "affected_plans": ["API"]}, tools) is None
+    assert worker.plan_mismatch({"vendor": "Anthropic", "affected_plans": []}, tools) is None
+    assert worker.plan_mismatch({"vendor": "OpenAI", "affected_plans": ["Edu"]}, tools) == "회사 플랜에 없는 기능: Edu"
+    assert "계약한 xAI 제품이 없음" in worker.plan_mismatch({"vendor": "xAI", "affected_plans": []}, tools)
+    posted = []
+    def backend(method, path, token, **kw):
+        if method == "POST":
+            posted.append(kw["json"])
+            return {}
+        return {"/updates": {"items": [{"id": "upd_edu", "vendor": "OpenAI", "title": "교육 플랜 기능", "affected_plans": ["Edu"]}]},
+                "/suggestions": {"items": []}, "/tools": tools}[path]
+    monkeypatch.setattr(api, "backend", backend)
+    monkeypatch.setattr(api, "agent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("에이전트를 부르면 안 된다")))
+    assert worker.review_updates(wait=1) == [{"update_id": "upd_edu", "status": "on_hold", "reason": "회사 플랜에 없는 기능: Edu"}]
+    assert posted == [{"update_id": "upd_edu", "target_type": "all", "status": "on_hold", "hold_reason": "회사 플랜에 없는 기능: Edu"}]
