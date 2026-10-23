@@ -119,6 +119,10 @@ async function decide(fn, verb) {
         <button type="button" class="btn" style="min-height: 48px" @click="rejecting = false">취소</button>
         <button type="submit" class="btn btn-dark" style="min-height: 48px" :disabled="busy || !reason.trim()">반려 확정</button>
       </form>
+      <div v-else-if="selected.status === 'pending_approval' && selected.short" class="foot">
+        <span class="xs muted" style="flex: 1 1 240px">남은 좌석이 없어 승인할 수 없어요. 반려하면 사유가 '좌석 부족'으로 기록되고 신청자에게 같은 사유가 안내됩니다. 추가 구매는 하지 않습니다.</span>
+        <button type="button" class="btn btn-dark" style="min-height: 48px; padding: 0 24px" :disabled="busy" @click="decide((id) => rejectPlan(id, '좌석 부족'), '반려')">좌석 부족으로 반려</button>
+      </div>
       <div v-else-if="selected.status === 'pending_approval'" class="foot">
         <span class="xs muted" style="flex: 1 1 240px">
           {{ selected.risk === 'high' ? '책임자 결정은 기록만 남기고, 구매·운영 변경은 시스템 밖에서 진행합니다.' : '승인하면 실행 직전 서버가 상태를 다시 확인합니다.' }}

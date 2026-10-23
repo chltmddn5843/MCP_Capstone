@@ -20,12 +20,12 @@ npx @modelcontextprotocol/inspector     # tools/list에 역할별 도구가 보�
 | --- | --- |
 | `server.py` | 진입점. 도구·Resource·Prompt 등록, 역할 미들웨어 |
 | `registry.py` | `ToolSpec` → FastMCP 도구. 입력 검증 → 어댑터 → `output_model` 검증 → structuredContent (문서 MCP도 사용) |
-| `adapters.py` | 도구 21개의 백엔드 REST 호출과 응답 모양 맞추기 |
+| `adapters.py` | 도구 22개의 백엔드 REST 호출과 응답 모양 맞추기 |
 | `backend.py` | httpx 호출. `Authorization`, `X-Trace-Id` 전달. 오류 봉투 `{"error": {...}}`를 그대로 MCP 오류로 올림 |
 | `auth.py` | 토큰 → 백엔드 `GET /me`로 역할 확인 → `tools/list`에서 숨기고 호출도 막음 |
 | `resources.py`, `prompts.py` | Resource 6개, Prompt 6개 (`RESOURCES`, `PROMPTS` 목록과 같음) |
 
-역할별로 보이는 도구 수: employee 10, admin 20, system 18. 토큰이 없으면 0개.
+역할별로 보이는 도구 수: employee 11, admin 20, system 18. 토큰이 없으면 0개.
 
 ## 확인
 ```bash

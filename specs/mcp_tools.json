@@ -2935,6 +2935,82 @@
         "x-backend": "POST /plans"
       },
       {
+        "name": "request_unlisted_product",
+        "description": "사내 등록 제품 목록(list_approved_tools)에 없는 제품 신청을 기록한다. 서버가 신청 이력에 남기고 '사내 미도입'으로 반려한다. 구매·도입 약속이 아니다. 등록된 제품이면 conflict로 거절되므로 create_action_plan으로 신청한다.",
+        "inputSchema": {
+          "properties": {
+            "product_name": {
+              "description": "사내 등록 제품 목록(list_approved_tools)에 없는 제품 이름",
+              "title": "Product Name",
+              "type": "string"
+            },
+            "purpose": {
+              "default": "",
+              "description": "신청 용도 한 줄",
+              "title": "Purpose",
+              "type": "string"
+            }
+          },
+          "required": [
+            "product_name"
+          ],
+          "title": "RequestUnlistedProductIn",
+          "type": "object"
+        },
+        "outputSchema": {
+          "$defs": {
+            "PlanStatus": {
+              "enum": [
+                "draft",
+                "pending_approval",
+                "approved",
+                "executed",
+                "failed",
+                "rejected"
+              ],
+              "title": "PlanStatus",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "plan_id": {
+              "title": "Plan Id",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/PlanStatus"
+            },
+            "reject_reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Reject Reason"
+            }
+          },
+          "required": [
+            "plan_id",
+            "status"
+          ],
+          "title": "RequestUnlistedProductOut",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false
+        },
+        "x-roles": [
+          "employee"
+        ],
+        "x-backend": "POST /requests/unlisted"
+      },
+      {
         "name": "get_plan_status",
         "description": "조치안 상태, 승인자, 결과.",
         "inputSchema": {

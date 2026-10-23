@@ -421,6 +421,17 @@ class PlanDecision(BaseModel):
     reason: str = Field(min_length=1, description="승인·반려 모두 사유 필수")
 
 
+SEAT_SHORTAGE_REASON = "좌석 부족"  # PRD S5: 남은 좌석이 없는 신청을 반려하면 서버가 이 사유로 기록한다
+UNLISTED_REASON = "사내 미도입"  # PRD S9: 사내 등록 제품 목록에 없는 제품 신청
+
+
+class UnlistedProductRequest(BaseModel):
+    """사내 등록 제품 목록에 없는 제품 신청 (PRD S9). 이력에 남기고 '사내 미도입'으로 반려한다. 구매·도입으로 이어지지 않는다."""
+
+    product_name: str = Field(min_length=1, max_length=80)
+    purpose: str = Field("", max_length=300)
+
+
 class PlanExecuteResponse(BaseModel):
     plan: ActionPlan
     result: dict
@@ -509,7 +520,8 @@ ROUTES: list[tuple[str, str, str, list[Role]]] = [
     ("PATCH", "/plans/{plan_id}/opinion", "AI 검토 의견 붙이기 (승인 대기 건)", [Role.system, Role.admin]),
     ("GET", "/employees/{employee_id}", "직원 프로필 (검토용)", [Role.system, Role.admin]),
     ("POST", "/plans/{plan_id}/approve", "승인", [Role.admin]),
-    ("POST", "/plans/{plan_id}/reject", "반려", [Role.admin]),
+    ("POST", "/plans/{plan_id}/reject", "반려. 남은 좌석이 없는 이용권 신청은 사유를 '좌석 부족'으로 기록", [Role.admin]),
+    ("POST", "/requests/unlisted", "사내 미도입 제품 신청: 이력에 남기고 '사내 미도입'으로 반려 (PRD S9)", [Role.employee, Role.admin]),
     ("POST", "/plans/{plan_id}/execute", "실행 (Idempotency-Key 필수)", [Role.admin, Role.system]),
     ("GET", "/confirmations", "사용 의사 확인 요청 목록 (answered=false: 미응답만). Slack 봇 워커가 DM 발송에 씀", [Role.admin, Role.system]),
     ("POST", "/confirmations", "사용 의사 확인 요청 생성 (due_at = 5영업일)", [Role.admin, Role.system]),

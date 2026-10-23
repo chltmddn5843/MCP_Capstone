@@ -27,7 +27,8 @@ from pathlib import Path
 
 from apps.slack_bot import client as api
 from apps.slack_bot import identity
-from apps.slack_bot.send import build_plan_request, send_confirmation, send_seat_alert, send_suggestion
+from apps.slack_bot.send import build_plan_request, send_confirmation, send_cost_alert, send_seat_alert, send_suggestion
+from schemas.rest import SEAT_SHORTAGE_REASON, UNLISTED_REASON
 
 log = logging.getLogger("slack_bot.worker")
 SYSTEM_TOKEN = os.getenv("SYSTEM_TOKEN", "dev.sys")
@@ -263,12 +264,17 @@ def outcome_messages(plan: dict, names: dict[str, str], emails: dict[str, str] |
     """처리 요청 결과를 받을 사람(직원 id) → 자연어 안내. 요청자와, 좌석이 바뀌는 당사자. emails: 직원 id → 회사 이메일(SSO 아이디)."""
     emails = emails or {}
     item = (plan.get("items") or [{}])[0]
-    product = names.get(item.get("contract_id") or item.get("tool_id") or "", "요청하신 제품")
+    product = item.get("product_name") or names.get(item.get("contract_id") or item.get("tool_id") or "", "요청하신 제품")
     status, typ, req = plan["status"], plan["type"], plan["requested_by"]
     out: dict[str, str] = {}
     if status == "rejected":
         why = plan.get("reject_reason")
-        out[req] = f"{product} 요청이 반려됐어요." + (f" 사유: {why}" if why else "") + " 궁금한 점은 저에게 물어봐 주세요."
+        if why == SEAT_SHORTAGE_REASON:  # PRD S5 정형 안내문 (처리 이력의 사유와 같다)
+            out[req] = f"{product} 사용 신청이 반려되었습니다. 현재 배정 가능한 이용권이 부족합니다."
+        elif why == UNLISTED_REASON:  # PRD S9 정형 안내문
+            out[req] = f"{product}은 현재 사내 제공 대상이 아니므로 사용 신청이 반려되었습니다. 요청 내용은 신청 이력에 기록되었습니다."
+        else:
+            out[req] = f"{product} 요청이 반려됐어요." + (f" 사유: {why}" if why else "") + " 궁금한 점은 저에게 물어봐 주세요."
     elif status == "failed":
         out[req] = f"{product} 요청을 처리하는 중 문제가 있어 관리자가 다시 확인할 예정이에요."
     elif status == "executed":
@@ -339,22 +345,32 @@ def ask_admins(client, plan: dict) -> None:
 
 # ---------- 5) F3 좌석 토큰 경보 ----------
 def run_f3(client, state: dict) -> list[str]:
-    """사용량 수집(지금은 더미) → 경보 배치 → 아직 안 보낸 경보를 본인에게 DM."""
+    """사용량 수집(지금은 더미) → 경보 배치 → 아직 안 보낸 경보를 본인에게 점검 안내 DM(PRD S2), 관리자에게 팀별 요약 + 대시보드 링크(S3)."""
     api.backend("POST", "/internal/jobs/collect_usage/run", SYSTEM_TOKEN)
     api.backend("POST", "/internal/jobs/check_thresholds/run", SYSTEM_TOKEN)
-    sent = []
+    sent, teams = [], {}
     for a in api.backend("GET", "/anomalies", SYSTEM_TOKEN, params={"status": "open"}):
         if a["scope_type"] != "employee" or a["id"] in state.setdefault("anomalies", []):
             continue
         try:
-            slack_id = slack_id_for(employee(a["scope_id"]))
+            emp = employee(a["scope_id"])
+            slack_id = slack_id_for(emp)
             if slack_id:
                 send_seat_alert(client, _dm(client, slack_id), a)
                 log.info("좌석 토큰 경보 DM: %s → %s", a["id"], a.get("scope_name"))
             state["anomalies"].append(a["id"])  # Slack 미연결 직원도 다시 시도하지 않는다 (웹 좌석 배치도에서 보임)
             sent.append(a["id"])
+            team = emp.get("dept_name") or "부서 미지정"
+            teams[team] = teams.get(team, 0) + 1
         except Exception as exc:  # noqa: BLE001
             log.warning("경보 %s 발송 실패: %s", a["id"], exc)
+    if teams:
+        for admin in identity.admin_slack_ids():
+            try:
+                send_cost_alert(client, _dm(client, admin), teams, f"{WEB_URL}/cost/teams")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("관리자 비용 알림 실패: %s", exc)
+        log.info("관리자 비용 알림: %s", teams)
     if sent:
         save_state(state)
     return sent

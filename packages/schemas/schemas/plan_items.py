@@ -50,6 +50,8 @@ class PurchaseReviewItem(BaseModel):
     contract_id: str | None = None
     quantity: int | None = None
     note: str | None = None
+    product_name: str | None = Field(None, description="사내 등록 제품 목록에 없는 제품 이름 (미도입 신청, PRD S9)")
+    purpose: str | None = Field(None, description="신청 용도")
 
 
 PLAN_ITEM_MODELS: dict[PlanType, type[BaseModel]] = {

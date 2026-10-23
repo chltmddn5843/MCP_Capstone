@@ -105,6 +105,9 @@ async def local_call(name: str, args: dict, client: httpx.AsyncClient):  # noqa:
         case "create_action_plan":
             d = await _call(client, "POST", "/plans", json_body=a)
             return d if "error" in d else {"plan_id": d["id"], "risk_level": d["risk_level"], "status": d["status"]}
+        case "request_unlisted_product":
+            d = await _call(client, "POST", "/requests/unlisted", json_body=a)
+            return d if "error" in d else {"plan_id": d["id"], "status": d["status"], "reject_reason": d.get("reject_reason")}
         case "get_plan_status":
             d = await _call(client, "GET", f"/plans/{a['plan_id']}")
             return d if "error" in d else {"plan": d}

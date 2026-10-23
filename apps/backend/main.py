@@ -116,7 +116,10 @@ from schemas.rest import (
     TaskCreate,
     TaskUpdate,
     TeamAdoption,
+    UnlistedProductRequest,
     UsageResponse,
+    SEAT_SHORTAGE_REASON,
+    UNLISTED_REASON,
 )
 
 ALL = (Role.employee, Role.admin, Role.system)
@@ -1109,7 +1112,36 @@ def approve_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(requ
 
 @app.post("/plans/{plan_id}/reject", response_model=Envelope[ActionPlan], tags=["plans"])
 def reject_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(require(Role.admin))):
+    """PRD S5: 남은 좌석이 없는 이용권 신청은 입력한 사유와 관계없이 '좌석 부족'으로 기록한다(직원 안내문과 같은 사유).
+    좌석이 남아 있는 신청에는 '좌석 부족' 사유를 붙이지 못한다."""
+    p = _plan(plan_id)
+    if p and p.status == PlanStatus.pending_approval and p.type == PlanType.seat_assign:
+        if _seat_shortage(p):
+            body = PlanDecision(reason=SEAT_SHORTAGE_REASON)
+        elif SEAT_SHORTAGE_REASON in body.reason:
+            raise ApiError(ErrorCode.conflict, "남은 좌석이 있어 '좌석 부족' 사유로 반려할 수 없습니다", {"plan_id": plan_id})
     return ok(_decide(plan_id, body, user, approve=False))
+
+
+@app.post("/requests/unlisted", response_model=Envelope[ActionPlan], status_code=201, tags=["plans"])
+def request_unlisted(body: UnlistedProductRequest, user: Employee = Depends(require(Role.employee, Role.admin))):
+    """PRD S9: 사내 등록 제품 목록에 없는 제품 신청. 신청 이력(purchase_review)에 남기고 시스템이 '사내 미도입'으로 바로 반려한다.
+    구매·도입·배정으로 이어지지 않는다. 등록된 제품이면 일반 사용 신청(POST /plans)을 쓰도록 409."""
+    name = body.product_name.strip()
+    hit = db.one("SELECT product FROM tools WHERE lower(product) = lower(:n) OR lower(:n) LIKE '%' || lower(product) || '%'"
+                 " OR lower(product) LIKE '%' || lower(:n) || '%' LIMIT 1", n=name)
+    if hit:
+        raise ApiError(ErrorCode.conflict, f"{hit['product']}는 사내 등록 제품입니다. 사용 신청으로 진행해 주세요", {"product": hit["product"]})
+    pid = _new_id("plan")
+    item = {"product_name": name, "purpose": body.purpose.strip() or None}
+    with db.tx() as c:
+        c.execute(db.text("INSERT INTO action_plans (id, type, risk_level, status, items, rationale, evidence, requested_by, approver_id, reject_reason, created_at)"
+                          " VALUES (:id, 'purchase_review', :rk, 'rejected', CAST(:it AS jsonb), :ra, '[]'::jsonb, :by, 'sys', :rs, now())"),
+                  dict(id=pid, rk=RISK_BY_PLAN_TYPE[PlanType.purchase_review].value, it=db.js([item]),
+                       ra=f"사내 미도입 제품 신청: {name}" + (f" ({item['purpose']})" if item["purpose"] else ""), by=user.id, rs=UNLISTED_REASON))
+        _audit(c, user, "plan.create", pid, None, {"status": "rejected", "type": "purchase_review", "product_name": name})
+        _audit(c, user, "plan.reject", pid, None, {"status": "rejected", "reason": UNLISTED_REASON})
+    return ok(_plan(pid))
 
 
 SEAT_SQL = {
