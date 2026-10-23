@@ -79,6 +79,37 @@ MOCK_RELEASES = [
      "tool_id": "tool_claude", "url": "https://www.anthropic.com/news/claude-sonnet-5-6", "plans": ["Claude API"],
      "summary": "Claude Sonnet 5.6 출시. (1) 같은 가격에 응답 속도 약 1.5배 (2) 분류·추출 정확도 향상으로 대량 문의 분류에 유리 "
                 "(3) 출력 형식(JSON) 지키기가 좋아져 자동화 파이프라인 오류 감소. API 모델 이름만 바꾸면 사용."},
+    # 시연에서 여러 번 누를 수 있게 넉넉히. OpenAI·Anthropic을 번갈아 두어 좌석형(ChatGPT)과 API형(Claude) 카드가 교대로 나온다.
+    {"model": Model(id="openai:gpt-5.6-mini", vendor="OpenAI", name="GPT-5.6 mini (ChatGPT)", capabilities="짧은 질의·초안·분류·요약 · 5.5 mini보다 정확하고 빠르다", input_usd_per_mtok=0, output_usd_per_mtok=0,
+                    allowed_data_class=DataClass.internal),
+     "tool_id": "tool_chatgpt", "url": "https://openai.com/index/gpt-5-6-mini/", "plans": ["ChatGPT Enterprise"],
+     "summary": "GPT-5.6 mini 출시. (1) 짧은 질의·초안 작성 응답이 5.5 mini보다 약 2배 빠름 (2) 분류·요약 정확도가 올라 가벼운 반복 업무에 큰 모델 대신 쓸 수 있음 "
+                "(3) 긴 대화에서도 맥락을 덜 잃어 반복 질문이 줄어듦. ChatGPT Enterprise 모델 선택에서 바로 사용."},
+    {"model": Model(id="anthropic:claude-haiku-5-6", vendor="Anthropic", name="Claude Haiku 5.6", capabilities="빠른 단순 분류·추출 · 긴 입력 단가 인하", input_usd_per_mtok=0.1, output_usd_per_mtok=0.5,
+                    allowed_data_class=DataClass.internal),
+     "tool_id": "tool_claude", "url": "https://www.anthropic.com/news/claude-haiku-5-6", "plans": ["Claude API"],
+     "summary": "Claude Haiku 5.6 출시. (1) 같은 단가에 분류·추출 정확도 향상 (2) 10만 토큰을 넘는 긴 입력도 추가 단가 없이 처리 "
+                "(3) 응답 지연이 절반으로 줄어 대량 문의 분류 파이프라인에 적합. API 모델 이름만 바꾸면 사용."},
+    {"model": Model(id="openai:gpt-5.6-pro", vendor="OpenAI", name="GPT-5.6 Pro (ChatGPT)", capabilities="복잡한 추론·다단계 분석 · 토큰을 많이 쓴다", input_usd_per_mtok=0, output_usd_per_mtok=0,
+                    allowed_data_class=DataClass.internal),
+     "tool_id": "tool_chatgpt", "url": "https://openai.com/index/gpt-5-6-pro/", "plans": ["ChatGPT Enterprise"],
+     "summary": "GPT-5.6 Pro 출시. (1) 여러 문서를 한 번에 비교해 차이점과 근거를 표로 정리 (2) 수치 데이터의 추세·이상치를 스스로 검산하며 분석 "
+                "(3) 긴 보고서 초안을 목차부터 본문까지 한 번에 작성. 깊은 분석이 필요한 일에만 쓰고 가벼운 일은 mini를 권장."},
+    {"model": Model(id="anthropic:claude-opus-5-6", vendor="Anthropic", name="Claude Opus 5.6", capabilities="복잡한 추론·긴 문서 분석·고품질 작성 (5.5보다 저렴)", input_usd_per_mtok=3.0, output_usd_per_mtok=15.0,
+                    allowed_data_class=DataClass.internal),
+     "tool_id": "tool_claude", "url": "https://www.anthropic.com/news/claude-opus-5-6", "plans": ["Claude API"],
+     "summary": "Claude Opus 5.6 출시. (1) 입력 단가가 5.5 대비 25% 인하 (2) 계약서·규정 같은 긴 문서에서 조항 간 모순을 찾는 정확도 향상 "
+                "(3) 코드 생성과 검토에서 테스트 통과율 상승. 품질이 중요한 업무의 API 모델로 검토할 만함."},
+    {"model": Model(id="openai:gpt-5.6-vision", vendor="OpenAI", name="GPT-5.6 Vision (ChatGPT)", capabilities="이미지·도면·스크린샷 이해", input_usd_per_mtok=0, output_usd_per_mtok=0,
+                    allowed_data_class=DataClass.internal),
+     "tool_id": "tool_chatgpt", "url": "https://openai.com/index/gpt-5-6-vision/", "plans": ["ChatGPT Enterprise"],
+     "summary": "GPT-5.6 Vision 출시. (1) 제품 사진·도면에서 치수와 부품 목록을 읽어 표로 정리 (2) 스크린샷 속 오류 메시지를 읽고 해결 순서 제안 "
+                "(3) 손글씨 메모·화이트보드 사진을 정리된 회의록으로 변환. ChatGPT Enterprise 모델 선택에서 바로 사용."},
+    {"model": Model(id="anthropic:claude-sonnet-5-7", vendor="Anthropic", name="Claude Sonnet 5.7", capabilities="범용 추론·분류·요약·코드 · 도구 호출 안정성 향상", input_usd_per_mtok=2.0, output_usd_per_mtok=10.0,
+                    allowed_data_class=DataClass.internal),
+     "tool_id": "tool_claude", "url": "https://www.anthropic.com/news/claude-sonnet-5-7", "plans": ["Claude API"],
+     "summary": "Claude Sonnet 5.7 출시. (1) 같은 가격에 도구 호출·JSON 출력 오류가 크게 감소 (2) 한국어 요약·분류 품질 향상 "
+                "(3) 긴 대화에서 앞 내용을 더 정확히 유지. 자동화 파이프라인의 API 모델 이름만 바꾸면 사용."},
     {"model": Model(id="xai:grok-5", vendor="xAI", name="Grok 5", capabilities="실시간 검색 연동", input_usd_per_mtok=3.0, output_usd_per_mtok=15.0,
                     allowed_data_class=DataClass.public),
      "tool_id": "tool_grok", "url": "https://x.ai/news/grok-5", "plans": [], "summary": "Grok 5 출시. 승인 전 공급사라 알리지 않는다."},
