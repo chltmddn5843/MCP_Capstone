@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 PLAN_TYPE = {"seat_assign": "이용권 배정", "seat_reclaim": "이용권 회수·재배정", "model_change": "모델 변경", "budget_review": "예산 검토", "purchase_review": "미도입 제품 신청"}
@@ -33,9 +35,19 @@ def _buttons(items: list[tuple[str, str, str, str | None]]) -> dict:
 MODEL_RELEASE = "새 모델 출시"
 
 
-def build_model_card(suggestion: dict, update: dict, job_title: str | None = None) -> list[dict]:
+MODEL_REC = re.compile(r"\s*\(추천 모델:\s*(?:[^()]|\([^()]*\))*\)\s*$")  # 모델 이름 안의 괄호 한 겹 허용: GPT-5.5 (ChatGPT)
+
+
+def card_model_name(update: dict) -> str:
+    """'새 모델 출시: X' 제목에서 이 카드의 모델 이름 X."""
+    return update.get("title", "").split(":", 1)[1].strip() if ":" in update.get("title", "") else ""
+
+
+def build_model_card(suggestion: dict, update: dict, job_title: str | None = None, approved: bool | None = None) -> list[dict]:
     """새 모델 카드 뉴스: 제목 + 핵심 기능 3개 + '이렇게 써 보세요'는 **받는 사람 직무 줄만**. 카드에 그 직무가 없으면 공통 한 줄.
-    전체 직무 목록은 관리자 화면(자동 제안 기록)에서만 본다. 카드 본문 형식은 prompt_draft_model_card.md가 정한다."""
+    정합성: 모든 직무 줄의 "(추천 모델: …)"은 이 업데이트의 새 모델 이름으로 맞춘다(모델이 다른 모델을 적어도 보내기 전에 고친다).
+    approved: 이 모델의 사내 승인 여부(None이면 표시 안 함). 승인 전이면 '승인되면 사용 가능'을 붙인다. 전체 직무 목록은 관리자 화면에서만 본다."""
+    model = card_model_name(update)
     head, jobs, section = [], [], "feat"
     for line in suggestion["body"].splitlines():
         s = line.strip()
@@ -46,6 +58,8 @@ def build_model_card(suggestion: dict, update: dict, job_title: str | None = Non
             continue
         if section == "jobs":
             if s:
+                if model:  # 추천 모델 괄호를 새 모델 이름으로 통일 (없으면 붙인다)
+                    s = MODEL_REC.sub("", s) + f" (추천 모델: {model})"
                 jobs.append(s)
         elif s:
             head.append(line.rstrip())
@@ -54,10 +68,11 @@ def build_model_card(suggestion: dict, update: dict, job_title: str | None = Non
         head.append("*이렇게 써 보세요*")
         head += [f"*{j}*  ← 내 직무" for j in mine] or ["• 내 직무 활용 예는 아직 없어요. 등록 업무를 적어 두면 다음 카드부터 맞춰 드려요."]
     cond = ", ".join(update.get("affected_plans") or []) or "회사 승인 제품"
+    status = "" if approved is None else (f" · {model} 사내 승인 완료, 모델 선택에서 바로 사용" if approved else f" · {model}은 사내 승인 전이라 관리자가 승인하면 쓸 수 있어요")
     return [
         {"type": "header", "text": {"type": "plain_text", "text": update["title"][:150]}},
         _section("\n".join(head)),
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"쓸 수 있는 곳: {cond} · 사내 데이터 사용은 회사 정책을 따라요 · <{update.get('url', '')}|원문 보기>"}]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"쓸 수 있는 곳: {cond}{status} · 사내 데이터 사용은 회사 정책을 따라요 · <{update.get('url', '')}|원문 보기>"}]},
         _buttons([("도움 됨", "fb_useful", suggestion["id"], "primary"), ("관련 없음", "fb_irrelevant", suggestion["id"], None), ("적용 방법 질문", "fb_question", suggestion["id"], None)]),
     ]
 
@@ -73,9 +88,9 @@ def build_suggestion(suggestion: dict, task_title: str | None, update: dict) -> 
     ]
 
 
-def send_suggestion(client, channel: str, suggestion: dict, task_title: str | None, update: dict, job_title: str | None = None) -> dict:
+def send_suggestion(client, channel: str, suggestion: dict, task_title: str | None, update: dict, job_title: str | None = None, approved: bool | None = None) -> dict:
     if update.get("title", "").startswith(MODEL_RELEASE):
-        blocks = build_model_card(suggestion, update, job_title)
+        blocks = build_model_card(suggestion, update, job_title, approved)
         return client.chat_postMessage(channel=channel, text=update["title"], blocks=blocks)
     blocks = build_suggestion(suggestion, task_title, update)
     return client.chat_postMessage(channel=channel, text=suggestion["body"][:200], blocks=blocks)

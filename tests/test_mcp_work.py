@@ -229,7 +229,8 @@ async def test_invalid_plan_items_rejected_by_backend(monkeypatch):
     ("review_seat_request", {"plan_id": "plan_002"}, "응답 기한(5영업일)이 지나도 무응답이면 회수·재배정한다"),
     ("review_update", {"update_id": "upd_chatgpt_doc_compare"}, "save_suggestion(status=on_hold, hold_reason)"),
     ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "보류하지 않는다"),
-    ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "(추천 모델: 모델 이름)"),
+    ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "(추천 모델: X)"),  # 추천 모델 = 이 업데이트의 새 모델 하나로 고정
+    ("draft_model_card", {"update_id": "upd_chatgpt_doc_compare"}, "다른 모델(이전 버전, 다른 공급사, 승인 목록의 모델)을 쓰지 않는다"),
     ("recommend_model", {"task_description": "문의 분류"}, "평가 결과가 없으면 추천하지 말고"),
     ("recommend_model", {"task_description": "문의 분류"}, "현재 모델도 estimate_task_cost로 계산"),
     ("analyze_seat_usage", {"employee_id": "emp_md_01"}, "list_approved_models에서 같은 좌석 안의 더 가벼운 모델"),
