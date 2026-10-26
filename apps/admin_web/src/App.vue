@@ -12,6 +12,11 @@ const company = ref('')
 setupStatus().then((s) => (company.value = s.company_name ?? '')).catch(() => {})
 const counts = ref({ inbox: 0, seats: 0 })
 const mainEl = ref(null)
+// 좁은 화면(900px 이하)에서는 메뉴를 접어 둔다. 넓은 화면은 CSS가 늘 펼친 상태로 두므로 이 값과 무관하다.
+const navOpen = ref(false)
+const navToggleEl = ref(null)
+const escNav = () => { if (navOpen.value) { navOpen.value = false; navToggleEl.value?.focus() } }
+const closeOnLink = (e) => { if (e.target.closest('a')) navOpen.value = false } // 같은 화면을 다시 눌러 주소가 안 바뀌어도 닫는다
 
 const groups = [
   { label: '운영', items: [
@@ -49,6 +54,7 @@ const signOut = () => { logout(); me.value = { name: '', role: '' }; router.push
 // 처리 요청을 승인·생성하면 배지가 바뀌므로 화면을 옮길 때마다 다시 센다. 로그인 화면에서는 부르지 않는다.
 watch(() => route.fullPath, async (_, prev) => {
   loadError.value = ''
+  navOpen.value = false
   if (route.meta.public || route.meta.bare || !loggedIn()) return
   if (!me.value.employee) getMe().then((v) => (me.value = v)).catch(() => {})
   counts.value = await getCounts()
@@ -62,49 +68,61 @@ watch(() => route.fullPath, async (_, prev) => {
   <template v-else>
   <a class="skip" href="#main">본문으로 건너뛰기</a>
   <div class="layout">
-    <nav class="sidebar" aria-label="관리자 메뉴">
-      <div class="brand">
-        <NodiLogo :size="28" :wordmark="false" />
-        <div><strong>nodi</strong><span>{{ company }}</span></div>
+    <nav class="sidebar" aria-label="관리자 메뉴" @keydown.esc="escNav">
+      <div class="sidebar-head">
+        <div class="brand">
+          <NodiLogo :size="28" :wordmark="false" />
+          <div><strong>nodi</strong><span>{{ company }}</span></div>
+        </div>
+        <button ref="navToggleEl" type="button" class="nav-toggle" :aria-expanded="navOpen" aria-controls="nav-panel" @click="navOpen = !navOpen">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <template v-if="navOpen"><path d="M6 6l12 12M18 6L6 18" /></template>
+            <template v-else><path d="M4 7h16M4 12h16M4 17h16" /></template>
+          </svg>
+          메뉴
+          <span v-if="!navOpen && counts.inbox" class="badge">{{ counts.inbox }}<span class="sr-only">건 승인 대기</span></span>
+        </button>
       </div>
 
-      <div v-for="g in groups" :key="g.label" class="group">
-        <span class="group-label">{{ g.label }}</span>
-        <template v-for="it in g.items" :key="it.to ?? it.label">
-          <RouterLink v-if="it.to" :to="it.to" class="nav-item">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
-            <span class="nav-label">{{ it.label }}</span>
-            <span v-if="it.tag" class="tag-soon">{{ it.tag }}</span>
-            <span v-if="it.badge && counts[it.badge]" class="badge">
-              {{ counts[it.badge] }}<span class="sr-only">건</span>
-            </span>
-          </RouterLink>
-          <div v-else class="nav-parent" :class="{ active: it.children.some((c) => route.path.startsWith(c.to)) }">
-            <div class="nav-item nav-head" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
+      <div id="nav-panel" class="nav-panel" :class="{ open: navOpen }" @click="closeOnLink">
+        <div v-for="g in groups" :key="g.label" class="group">
+          <span class="group-label">{{ g.label }}</span>
+          <template v-for="it in g.items" :key="it.to ?? it.label">
+            <RouterLink v-if="it.to" :to="it.to" class="nav-item">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
               <span class="nav-label">{{ it.label }}</span>
-            </div>
-            <RouterLink v-for="c in it.children" :key="c.to" :to="c.to" class="nav-item nav-child" :aria-label="`${it.label} · ${c.label}`">
-              <span class="nav-label">{{ c.label }}</span>
-              <span v-if="c.badge && counts[c.badge]" class="badge">
-                {{ counts[c.badge] }}<span class="sr-only">건</span>
+              <span v-if="it.tag" class="tag-soon">{{ it.tag }}</span>
+              <span v-if="it.badge && counts[it.badge]" class="badge">
+                {{ counts[it.badge] }}<span class="sr-only">건</span>
               </span>
             </RouterLink>
-          </div>
-        </template>
-      </div>
+            <div v-else class="nav-parent" :class="{ active: it.children.some((c) => route.path.startsWith(c.to)) }">
+              <div class="nav-item nav-head" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path v-for="d in it.icon" :key="d" :d="d" /></svg>
+                <span class="nav-label">{{ it.label }}</span>
+              </div>
+              <RouterLink v-for="c in it.children" :key="c.to" :to="c.to" class="nav-item nav-child" :aria-label="`${it.label} · ${c.label}`">
+                <span class="nav-label">{{ c.label }}</span>
+                <span v-if="c.badge && counts[c.badge]" class="badge">
+                  {{ counts[c.badge] }}<span class="sr-only">건</span>
+                </span>
+              </RouterLink>
+            </div>
+          </template>
+        </div>
 
-      <div class="foot">
-        <RouterLink to="/assistant" class="btn btn-primary ask">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
-          AI 비서에게 묻기
-        </RouterLink>
-        <div class="me">
-          <div class="avatar" aria-hidden="true">{{ me.name.slice(0, 1) }}</div>
-          <div><strong>{{ me.name }}</strong><span>{{ me.role }}</span></div>
-          <button type="button" class="signout" @click="signOut" aria-label="로그아웃" title="로그아웃">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h11" /></svg>
-          </button>
+        <div class="foot">
+          <RouterLink to="/assistant" class="btn btn-primary ask">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></svg>
+            AI 비서에게 묻기
+          </RouterLink>
+          <div class="me">
+            <div class="avatar" aria-hidden="true">{{ me.name.slice(0, 1) }}</div>
+            <div><strong>{{ me.name }}</strong><span>{{ me.role }}</span></div>
+            <button type="button" class="signout" @click="signOut" aria-label="로그아웃" title="로그아웃">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h11" /></svg>
+            </button>
+          </div>
         </div>
       </div>
     </nav>
@@ -127,8 +145,10 @@ watch(() => route.fullPath, async (_, prev) => {
 .skip:focus { top: 16px; }
 .main:focus { outline: none; }
 .load-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
-.load-error .btn { color: var(--ink); }
 .sidebar { background: var(--ink); color: var(--white); padding: 24px 16px; display: flex; flex-direction: column; gap: 28px; position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
+/* 넓은 화면에서는 묶음 상자가 없는 것처럼 둔다: 브랜드·메뉴 묶음·foot이 그대로 사이드바의 세로 항목이 된다 */
+.sidebar-head, .nav-panel { display: contents; }
+.nav-toggle { display: none; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
 .brand div:last-child, .me > div:nth-child(2) { display: flex; flex-direction: column; min-width: 0; }
 .brand strong { font-size: 17px; letter-spacing: -0.03em; }
@@ -152,14 +172,16 @@ watch(() => route.fullPath, async (_, prev) => {
 .me strong { font-size: 13px; }
 .avatar { width: 32px; height: 32px; border-radius: 999px; background: var(--white); color: var(--ink); font-size: 13px; font-weight: 700; display: grid; place-items: center; }
 @media (max-width: 900px) {
-  /* 모바일: 메뉴 그룹 제목(운영·활용 지원·관리)을 화면에서만 숨기고 메뉴를 한 묶음으로 이어 붙여, 본문이 첫 화면에 보이게 한다 */
-  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 12px; }
-  .brand { width: 100%; padding: 4px 8px 8px; }
-  .group { display: contents; }
-  .group-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .nav-item { padding: 0 10px; gap: 8px; }
-  .foot { width: 100%; margin-top: 8px; flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .ask { width: auto; }
-  .me { border-top: 0; padding: 0; }
+  /* 모바일: 메뉴를 접어 브랜드 줄만 남긴다. 펼치기 전에는 첫 화면이 본문 차지 (예전에는 메뉴가 첫 화면의 절반을 먹었다).
+     접었을 때도 승인 대기 건수는 토글에 남겨 둔다 — 관리자가 가장 먼저 봐야 하는 수다. */
+  .sidebar { position: static; height: auto; gap: 12px; padding: 12px; }
+  .sidebar-head { display: flex; align-items: center; gap: 12px; }
+  .brand { flex: 1; min-width: 0; padding: 0 4px; }
+  .nav-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.28); background: transparent; color: var(--white); font-size: 14px; font-weight: 600; }
+  .nav-toggle:hover { background: rgba(255, 255, 255, 0.08); }
+  .nav-panel { display: none; }
+  .nav-panel.open { display: flex; flex-direction: column; gap: 20px; }
+  .foot { margin-top: 4px; }
 }
 </style>

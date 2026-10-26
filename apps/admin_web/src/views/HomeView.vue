@@ -100,7 +100,7 @@ const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '
     <section class="card" aria-labelledby="prod-h">
       <div class="card-head">
         <h2 id="prod-h">구독 중인 제품</h2>
-        <RouterLink to="/licenses" class="small strong">전체 보기</RouterLink>
+        <RouterLink to="/licenses" class="small strong link">전체 보기</RouterLink>
       </div>
       <div class="table-wrap">
         <table v-if="products.length" class="table" style="min-width: 720px">
