@@ -70,23 +70,29 @@ button { cursor: pointer; }
 .pill-ok { background: var(--lime); color: var(--ink); }
 .pill-neutral { border-color: rgba(17, 17, 19, 0.24); }
 
-/* 버튼 */
-.btn { min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--white); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+/* 버튼: 배경을 칠하는 변형은 글자색도 같이 적는다. 안 적으면 어두운 사이드바·카드 안에서 흰 글자를 물려받아 라임 배경 위 1.26:1이 된다.
+   배경이 없는 .tag·.pill-neutral은 그대로 물려받는 게 맞다. */
+.btn { min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--white); color: var(--ink); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
 .btn:hover { border-color: var(--ink); }
-.btn-primary { background: var(--lime); border-color: var(--lime); font-weight: 700; }
+.btn-primary { background: var(--lime); border-color: var(--lime); color: var(--ink); font-weight: 700; }
 .btn-primary:hover { border-color: var(--ink); }
 .btn-dark { background: var(--ink); border-color: var(--ink); color: var(--white); }
 .btn-dark:hover { opacity: 0.88; }
 .btn-sm { min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.chip { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(17, 17, 19, 0.16); background: var(--white); font-size: 13px; }
+.chip { min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(17, 17, 19, 0.16); background: var(--white); color: var(--ink); font-size: 13px; }
 .chip[aria-pressed='true'], .chip[aria-selected='true'] { background: var(--ink); border-color: var(--ink); color: var(--white); font-weight: 600; }
 .chip-lg { min-height: 44px; padding: 0 18px; font-size: 14px; }
 .tag { padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(17, 17, 19, 0.16); font-size: 13px; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 글자만 있는 링크도 누를 수 있는 크기를 갖는다. 글자 크기·밑줄은 그대로 두고 닿는 상자만 키운다 (WCAG 2.5.8 24px, 터치 44px) */
+.link { display: inline-flex; align-items: center; min-height: 24px; }
+@media (pointer: coarse) { .link { min-height: 44px; } }
 
 /* 표 */
-.table-wrap { overflow-x: auto; }
+/* position: relative는 장식이 아니다. th·caption 안의 .sr-only가 absolute라 기준 상자가 없으면 문서 좌표에 놓여
+   가로 스크롤 영역 밖(표 오른쪽 끝)까지 문서를 늘린다. 그러면 화면 전체가 가로로 밀리고 모바일은 축소돼 열린다. */
+.table-wrap { position: relative; overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 10px 12px; }
 .table td { padding: 14px 12px; border-top: 1px solid var(--line); vertical-align: middle; }

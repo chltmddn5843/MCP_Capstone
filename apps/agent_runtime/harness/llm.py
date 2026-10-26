@@ -90,6 +90,8 @@ class ScriptedModel(BaseChatModel):
                 msg = AIMessage(content="미배정 좌석이 있어 바로 배정해도 됩니다.")
             return ChatResult(generations=[ChatGeneration(message=msg)])
         if not tools_done:
+            if "반납" in last_human and ("캔바" in last_human or "canva" in last_human.lower()):  # 보유하지 않은 제품: 처리 요청 없이 안내만 (TC-20)
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Canva Enterprise는 지금 쓰고 계시지 않아 반납할 게 없어요. 지금 쓰는 제품: ChatGPT Enterprise"))])
             if "안써" in last_human.replace(" ", "") or "반납" in last_human:
                 call = {"name": "create_action_plan", "args": {"type": "seat_reclaim", "items": [{"employee_id": "emp_mkt_01", "contract_id": "ctr_chatgpt_2026"}], "rationale": "본인 반납 요청", "evidence": []}, "id": _cid()}
             elif "api" in last_human.lower() and ("사용" in last_human or "써야" in last_human):
