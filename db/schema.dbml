@@ -114,13 +114,6 @@ Enum savings_kind {
   billing_reduced
   projected
 }
-Enum job_status {
-  queued
-  running
-  done
-  failed
-  dead
-}
 
 // ───────── 조직 ─────────
 Table departments {
@@ -449,22 +442,6 @@ Table notify_outbox {
   delivered_at timestamptz [note: 'Slack 봇이 보낸 뒤 채운다']
 }
 
-// ───────── 운영 (v3 대기열) ─────────
-Table job_runs {
-  id varchar [pk]
-  name varchar [not null, note: 'collect_usage | send_suggestion | execute_plan ...']
-  queue varchar [not null, note: 'batch | agent | notify']
-  status job_status [not null, default: 'queued']
-  attempt int [not null, default: 0]
-  idempotency_key varchar [not null, unique]
-  payload jsonb
-  last_error text
-  trace_id varchar
-  created_at timestamptz [not null]
-  finished_at timestamptz
-  indexes { (status, created_at) }
-}
-
 TableGroup org [color: #6c757d] {
   departments
   employees
@@ -499,7 +476,4 @@ TableGroup plan_audit [color: #dc3545] {
   confirmations
   savings_ledger
   audit_log
-}
-TableGroup ops [color: #b58900] {
-  job_runs
 }

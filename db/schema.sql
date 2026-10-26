@@ -26,7 +26,6 @@ CREATE TYPE plan_status AS ENUM ('draft', 'pending_approval', 'approved', 'execu
 CREATE TYPE risk_level AS ENUM ('low', 'medium', 'high');
 CREATE TYPE confirmation_answer AS ENUM ('still_needed', 'return_seat', 'on_leave');
 CREATE TYPE savings_kind AS ENUM ('purchase_avoided', 'renewal_reduced', 'billing_reduced', 'projected');
-CREATE TYPE job_status AS ENUM ('queued', 'running', 'done', 'failed', 'dead');
 
 -- 조직
 CREATE TABLE departments (
@@ -357,22 +356,6 @@ CREATE TABLE notify_outbox (
   created_at timestamptz NOT NULL,
   delivered_at timestamptz
 );
-
--- 운영 (대기열)
-CREATE TABLE job_runs (
-  id varchar PRIMARY KEY,
-  name varchar NOT NULL,
-  queue varchar NOT NULL,
-  status job_status NOT NULL DEFAULT 'queued',
-  attempt int NOT NULL DEFAULT 0,
-  idempotency_key varchar NOT NULL UNIQUE,
-  payload jsonb,
-  last_error text,
-  trace_id varchar,
-  created_at timestamptz NOT NULL,
-  finished_at timestamptz
-);
-CREATE INDEX ON job_runs (status, created_at);
 
 -- DBeaver 조회용: ID 대신 이름으로 본다 (코드에서는 쓰지 않는다)
 CREATE VIEW seat_assignments_named AS

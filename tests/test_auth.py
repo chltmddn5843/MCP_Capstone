@@ -24,6 +24,12 @@ def test_login_by_id_or_email_and_use_token():
     assert me["id"] == "emp_asset_01" and me["role"] == "admin"
 
 
+def test_demo_admin_login():
+    r = login("test", "demo1234")
+    assert r.status_code == 200
+    assert r.json()["data"]["employee"]["id"] == "test"
+
+
 def test_wrong_password_same_message_then_lock():
     auth._fails.clear()
     bad = login("emp_cs_01", "nope").json()["error"]

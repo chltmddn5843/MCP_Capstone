@@ -42,7 +42,6 @@ DBeaver 접속: PostgreSQL · Host `localhost` · Port `5432` · DB `capstone` �
 | `employees.password_hash` | 로그인 검증용. 응답에 절대 넣지 않는다 |
 | `usage_records`, `api_keys` | `UsageSummary`·`BreakdownRow`는 이 테이블을 집계한 결과. 대화 내용은 저장하지 않는다 |
 | `suggestion_holds` | "관련 없음 2회 → 4주 보류" 규칙 상태 |
-| `job_runs` | 큐 작업 상태·재시도·DLQ |
 | `action_plans.execution_key` | 지금 메모리(`fixtures.EXECUTIONS`)에 있는 멱등키를 DB로 |
 | `suggestions.target_employee_id`·`target_dept_id` | API의 다형 `target_id`를 FK 두 개로 나눠 무결성 확보. 응답에서 다시 `target_id`로 합친다 |
 | `models.tool_id` (선택) | 모델이 어느 API 제품 소속인지. 지금은 `vendor` 문자열뿐 |
@@ -58,7 +57,6 @@ DBeaver 접속: PostgreSQL · Host `localhost` · Port `5432` · DB `capstone` �
 | 한 직원은 한 계약에 좌석 하나 | `seat_assignments` 부분 UNIQUE `(contract_id, employee_id) WHERE status='assigned'` |
 | 같은 사용량 두 번 적재 금지 | `usage_records.vendor_record_id` UNIQUE |
 | 같은 릴리스 노트 두 번 수집 금지 | `vendor_updates.url` UNIQUE |
-| 처리 요청 중복 실행 금지 | `action_plans.execution_key`, `job_runs.idempotency_key` UNIQUE |
 | 한 사람 한 제안에 반응 하나 | `feedback (suggestion_id, employee_id)` UNIQUE |
 | 사용 의사 확인 중복 금지 | `confirmations (plan_id, employee_id)` UNIQUE |
 | 감사 로그 변경 금지 | 앱 DB 계정에 `audit_log` UPDATE·DELETE 권한 없음 |

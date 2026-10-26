@@ -1692,10 +1692,6 @@ def run_job(job_name: str, now: datetime | None = Query(None, description="ì‹œì—
         result = _job_reclaim_overdue(user)
     else:
         result = _job_collect_release_notes(now, simulate)
-    with db.tx() as c:
-        c.execute(db.text("INSERT INTO job_runs (id, name, queue, status, attempt, idempotency_key, payload, created_at, finished_at)"
-                          " VALUES (:id, :n, 'batch', 'done', 1, :k, CAST(:p AS jsonb), :t, now())"),
-                  dict(id=_new_id("job"), n=job_name, k=f"{job_name}:{uuid.uuid4().hex[:12]}", p=db.js(result), t=t))
     return ok(JobRunResponse(job=job_name, started_at=t, finished_at=_now(), result=result))
 
 

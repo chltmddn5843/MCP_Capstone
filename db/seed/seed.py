@@ -98,7 +98,10 @@ for i in range(1, 53):  # 페르소나 포함 사람 59명 → ChatGPT Enterpris
 # 시연용 로그인 비밀번호. 모든 사람 계정 공통(시스템 계정 sys는 비밀번호 없음 = 로그인 불가)
 DEMO_PASSWORD = "demo1234"
 pw = bcrypt.hashpw(DEMO_PASSWORD.encode(), bcrypt.gensalt(rounds=10)).decode()
-emps = dump(fx.EMPLOYEES.values(), drop=("dept_name",)) + gen_emps
+demo_admin = {"id": "test", "name": "테스트 관리자", "email": "test@hanbit.example",
+              "dept_id": "dept_mgmt", "role": "admin", "job_title": "시연 관리자",
+              "status": "active", "hire_date": NOW.date()}
+emps = dump(fx.EMPLOYEES.values(), drop=("dept_name",)) + gen_emps + [demo_admin]
 insert("employees", [{**e, "password_hash": None if e["id"] == "sys" else pw} for e in emps])
 humans = [e for e in list(fx.EMPLOYEES) + [g["id"] for g in gen_emps] if e != "sys"]
 emp_dept_of = {e["id"]: e["dept_id"] for e in emps}
@@ -282,14 +285,5 @@ insert("action_plans", plans)
 insert("confirmations", dump(fx.CONFIRMATIONS.values()))
 insert("savings_ledger", [{**s, "plan_id": "plan_000", "basis": "신규 입사자에게 미배정 좌석 배정, 추가 구매 회피 (월 45,000원 × 남은 2개월)"} for s in dump(fx.SAVINGS)])
 insert("audit_log", dump(fx.AUDIT))
-
-# ── 운영 ── 재시도 시연용
-insert("job_runs", [
-    {"id": "job_001", "name": "collect_usage", "queue": "batch", "status": "done", "attempt": 1, "idempotency_key": "collect_usage:2026-10-20T08",
-     "created_at": NOW - timedelta(hours=1), "finished_at": NOW - timedelta(minutes=59)},
-    {"id": "job_002", "name": "collect_usage", "queue": "batch", "status": "done", "attempt": 3, "idempotency_key": "collect_usage:2026-10-20T08:30",
-     "last_error": "503 from mock_vendor (2회 재시도 후 성공)", "created_at": NOW - timedelta(minutes=30), "finished_at": NOW - timedelta(minutes=28)},
-    {"id": "job_003", "name": "send_suggestion", "queue": "notify", "status": "dead", "attempt": 3, "idempotency_key": "send_suggestion:sug_001",
-     "payload": {"suggestion_id": "sug_001"}, "last_error": "Slack API timeout x3", "created_at": NOW - timedelta(minutes=10)}])
 
 print("COMMIT;")

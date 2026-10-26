@@ -1,8 +1,19 @@
-# 기업 AI 활용·운영 최적화 에이전트 (Capstone MVP)
+# 기업 AI 활용·운영 최적화 에이전트
 
-설계 문서: `docs/설계문서.md` (v2, 2026-10-21) · 아키텍처: `docs/아키텍처.md` · 추후 개발: `docs/추후개발.md` · 에이전트 설계: `apps/agent_runtime/AGENT_DESIGN.md` · 개발 규칙: `CONTRIBUTING.md`
+기업에서 사용하는 AI 제품·좌석·비용·사용량을 한 곳에서 관리하고, AI
+에이전트와 Slack으로 업무를 처리하는 Capstone MVP입니다.
 
-## 시작하기
+## 빠른 시작
+
+### 처음 한 번
+
+필요한 도구:
+
+- Docker Desktop
+- Python 3.12 이상
+- [uv](https://docs.astral.sh/uv/)
+- Node.js/npm
+- 외부 공개 시 [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
 
 Docker만 있으면 한 번에 (DB 스키마·시드도 처음 한 번 자동):
 
@@ -15,137 +26,254 @@ docker compose up -d --build  # DB·백엔드·MCP 2개·에이전트·화면 �
 코드를 고치며 바로 반영해 보는 개발 모드:
 
 ```bash
-uv sync                       # 전부 설치 (테스트 포함). pip라면: pip install -e ".[dev]"
-cp .env.example .env          # OPENAI_API_KEY 채우기 (키 없으면 LLM_MODEL=fake)
-scripts/run_all.sh            # 백엔드·MCP 2개·에이전트·관리자 화면을 한 번에. Ctrl+C로 종료
+uv sync
+cp .env.example .env
 ```
 
-통합 실행은 `apps/admin_web`의 Vue 관리자 화면을 사용한다. `scripts/run_all.sh`가
-필요하면 Node 의존성을 설치하고 백엔드·MCP·에이전트·Vite를 함께 실행한다.
+`.env`에 사용할 LLM API 키를 넣습니다. 키 없이 화면과 API 연결만 확인하려면:
 
-**관리자 화면은 백엔드(8000)가 떠 있어야 동작한다.** 따로 띄우려면:
+```dotenv
+LLM_MODEL=fake
+```
+
+### 외부 공개·전체 실행
+
+공개 시연은 아래 한 줄만 실행합니다.
 
 ```bash
-uv run uvicorn apps.backend.main:app --reload --port 8000         # http://localhost:8000/docs
-uv run uvicorn apps.agent_runtime.main:app --reload --port 8002   # http://localhost:8002/docs
-cd apps/admin_web && npm install && npm run dev                   # http://localhost:5173 (Vue 관리자 콘솔)
-uv run pytest                 # 계약 테스트 + 에이전트 테스트 (키 불필요)
-uv run python specs/export.py # specs/*.json 갱신
+scripts/run_public.sh
 ```
 
-에이전트는 `.env`의 `LLM_MODEL`로 모델을 고른다. 값은 `공급사:API 모델명`이다
-(기본 `openai:gpt-5.4-mini`, 예: `openai:gpt-5.4-nano`, `xai:grok-4.7`). 공급사별 API 키가 필요하다.
-에이전트 작업 이력과 LangGraph checkpoint는 같은 PostgreSQL의 `agent` 스키마(`agent.tasks` 등)에 쌓인다.
-키가 없으면 `LLM_MODEL=fake`로 배선만 확인할 수 있다. `MCP_WORK_URL`이 비어 있으면 백엔드 REST를
-직접 부르는 로컬 모드다. 설계는 `apps/agent_runtime/AGENT_DESIGN.md`.
+스크립트가 다음을 자동으로 처리합니다.
 
-## 로그인 (JWT)
+1. Docker PostgreSQL 실행 및 health check
+2. 스키마가 없으면 `db/schema.sql`과 시드 데이터 자동 적용
+3. backend, agent runtime, MCP 서버, 관리자 화면 실행
+4. Slack bot 실행
+5. Cloudflare Quick Tunnel 실행
+6. 고정 Workers 주소의 API 연결 대상 갱신 시도
 
-- 화면: `http://localhost:5173/login` → 사번 또는 회사 이메일 + 비밀번호. 로그인하지 않으면 모든 화면이 로그인으로 보낸다.
-- API: `POST /auth/login {login_id, password}` → `access_token` (HS256, 1시간). 이후 `Authorization: Bearer <token>`.
-- 시드 계정 비밀번호는 `db/seed/seed.py`의 `DEMO_PASSWORD` (시스템 계정 `sys`는 로그인 불가). 5번 틀리면 5분 잠금.
-- 개발 편의: `APP_ENV=dev`(기본)에서는 `/auth/dev-login`과 `dev.<직원id>` 토큰도 받는다. 로그인 화면의 "시연 계정" 버튼과 테스트가 쓴다. **운영(`APP_ENV=prod`)에서는 막히고 `JWT_SECRET`이 필수다.** 외부 공개(Cloudflare 터널) 때는 prod로 띄운다.
-- Slack 봇은 `SYSTEM_TOKEN`으로 `/auth/slack-exchange`를 불러 직원 토큰을 받는다. prod에서는 `SYSTEM_TOKEN`이 JWT여야 한다: `uv run python -m apps.backend.auth`
+화면과 터널 주소는 실행 터미널 또는 로그에서 확인합니다.
 
 ```bash
-curl -s localhost:8000/auth/login -H 'content-type: application/json' -d '{"login_id":"emp_asset_01","password":"<DEMO_PASSWORD>"}'
-# 시드 직원: emp_asset_01(관리자) emp_mkt_01·emp_cs_01·emp_hrd_01(직원) sys(시스템)
+tail -f logs/cloudflare.log
 ```
 
-## 로컬 점검 (Cloudflare 공개 전에)
+브라우저에서 `https://<발급된-주소>.trycloudflare.com` 또는 설정된
+Cloudflare Workers 주소로 접속합니다.
+
+> Cloudflare가 DB에 직접 접속하는 구조는 아닙니다.
+>
+> `Cloudflare Worker → Quick Tunnel → admin_web → backend → Docker PostgreSQL`
+> 순서로 연결됩니다.
+
+### 로컬 개발 실행
+
+외부 공개 없이 개발할 때는 다음을 사용합니다.
 
 ```bash
-docker compose up -d postgres   # DB
-scripts/run_all.sh              # 서버 전부. 아래는 다른 터미널에서
+docker compose up -d --wait postgres
+scripts/run_all.sh
 ```
 
-**1. 자동 테스트**: LLM 키 없이 돈다(fake 모델). 승인 대기 → 승인 → 재개 같은 에이전트 흐름도 여기서 확인한다.
+MCP 서버 없이 backend REST를 직접 사용하는 모드:
 
 ```bash
-uv run pytest -q                       # 전부
-uv run pytest tests/test_agent.py -q   # 에이전트만 (test_agent_mcp.py: MCP 경유, test_relay.py: backend 중계)
+MCP=0 scripts/run_all.sh
 ```
 
-> 테스트는 별도 DB `capstone_test`를 쓴다(없으면 만든다). 서버가 떠 있어도 개발 DB(`capstone`)와 Slack 봇은 영향이 없다.
-
-**2. API 직접 호출**: 화면과 같은 경로(`:5173/api` → backend)로 부른다.
+Docker PostgreSQL만 실행하려면:
 
 ```bash
-B=localhost:5173/api
-TOKEN=$(curl -s $B/auth/login -H 'content-type: application/json' \
-  -d '{"login_id":"emp_asset_01","password":"<DEMO_PASSWORD>"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["access_token"])')
-H="Authorization: Bearer $TOKEN"
-curl -s $B/me -H "$H"          # 토큰 주인
-curl -s $B/inventory -H "$H"   # 업무 API (관리자). 전체 경로·모델은 http://localhost:8000/docs (호출은 위처럼 헤더를 붙여서)
+docker compose up -d
 ```
 
-**3. 에이전트(AI 비서)**: `.env`의 `LLM_MODEL` 키가 필요하다(없으면 `LLM_MODEL=fake`). backend `/ai/tasks`가 에이전트로 중계한다.
+### 중지
+
+`run_public.sh` 또는 `run_all.sh`를 실행한 터미널에서 `Ctrl+C`를 누릅니다.
+PostgreSQL까지 중지하려면:
 
 ```bash
-TASK=$(curl -s $B/ai/tasks -H "$H" -H 'content-type: application/json' \
-  -d '{"input":"이용권 현황 알려줘"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["task_id"])')
-curl -sN "$B/ai/tasks/$TASK/stream" -H "$H"   # TOOL_START → TOKEN… → DONE(또는 APPROVAL_REQUIRED·FAILED)에서 끝난다
-curl -s $B/ai/tasks/$TASK -H "$H"             # 상태·답변(result)·도구 호출
-# APPROVAL_REQUIRED로 멈췄다면: curl -s $B/ai/tasks/$TASK/approval -H "$H" -H 'content-type: application/json' -d '{"approved":true,"reason":"확인"}'
-tail -f logs/agent.log                        # LLM·키 오류는 여기
+docker compose down
 ```
 
-**4. 화면**: http://localhost:5173 에서 로그인 → AI 비서·승인함. 여기까지 되면 Cloudflare 터널로 공개한다(`docs/로컬실행.md`).
+## 현재 기능
 
-## DB (PostgreSQL)
+### 관리자 웹
+
+관리자 화면은 `apps/admin_web`의 Vue 3 애플리케이션입니다.
+
+시드 데이터에는 관리자 시연 계정이 포함되어 있습니다.
+
+```text
+아이디: test
+비밀번호: demo1234
+```
+
+| 경로 | 기능 |
+| --- | --- |
+| `/login` | 사번 또는 회사 이메일 로그인 |
+| `/setup` | 회사·부서·직원·좌석·구독 제품·AI 모델·예산 초기 설정 |
+| `/` | 홈, 지금 확인할 일 |
+| `/inbox` | 승인 대기, AI 의견, 처리 요청 확인 |
+| `/cost/vendors` | 벤더·모델·프로젝트별 비용과 예산 |
+| `/cost/teams` | 팀별 사용량, 층별 좌석 배치도, 사용량 경보 |
+| `/licenses` | 구독 제품과 이용권 |
+| `/suggestions` | 자동 제안, 모델 업데이트 카드, 출시 시뮬레이션 |
+| `/assistant` | AI 비서 대화, 진행 스트림, 내 요청 |
+| `/needs` | 미도입 제품 신청과 구매 검토 요청 |
+| `/key/:id` | 직원용 API 키 확인 |
+
+주요 화면 기능:
+
+- JWT 로그인과 권한별 화면·API 접근
+- 구독 제품, 이용권, 좌석 배치와 직원 관리
+- 벤더·팀·모델·프로젝트별 비용 및 사용량 조회
+- 토큰 소비 속도와 예산 초과 경보
+- 사용 의사 확인, 좌석 회수, 예산 검토 요청
+- AI 에이전트의 토큰·도구 호출·승인 대기 진행 표시
+- Slack에서 발생한 요청과 웹 요청 이력 통합 조회
+
+### AI 에이전트
+
+`apps/agent_runtime`은 LangGraph 기반 에이전트입니다.
+
+- 자연어 요청을 분류하고 적절한 업무 도구 선택
+- backend REST 또는 MCP 도구 호출
+- 조회 작업과 변경 작업 분리
+- 변경 전 사용자 승인 대기
+- SSE로 TOKEN, TOOL_START, APPROVAL_REQUIRED, DONE, FAILED 이벤트 전송
+- PostgreSQL `agent` 스키마에 작업·이벤트·checkpoint 저장
+
+예시 요청:
+
+- “이번 달 이용권 현황 알려줘”
+- “사용량이 많은 팀을 찾아줘”
+- “이 좌석을 회수해줘” → 승인 후 실행
+
+### backend API
+
+`apps/backend`는 FastAPI 기반 업무 API입니다.
+
+- PostgreSQL 기반 회사·부서·직원·좌석·계약·이용량 관리
+- JWT 인증, 역할 기반 권한, 로그인 실패 잠금
+- 제품·이용권·비용·사용량·승인·제안 API
+- AI 작업 생성·상태 조회·SSE 중계·승인 API
+- Slack 시스템 토큰 교환 API
+- OpenAPI 문서: `http://localhost:8000/docs`
+
+### Slack bot
+
+`apps/slack_bot`은 Slack Socket Mode로 메시지를 받고 backend와 agent를
+호출합니다.
+
+- Slack 사용자와 사내 직원 ID 연결
+- AI 작업 생성 및 결과 전달
+- 승인 필요한 작업의 승인 흐름 연결
+- F1 자동 제안 발송
+
+## 디렉터리
+
+```text
+apps/
+├── backend/          FastAPI 업무 API, 인증, PostgreSQL 접근
+├── agent_runtime/    LangGraph 에이전트와 작업·이벤트 API
+├── admin_web/        Vue 3 관리자 웹, Vite, Cloudflare Worker
+├── mcp_work/         업무 데이터 MCP 서버
+├── mcp_docs/         사내 문서 MCP 서버
+├── slack_bot/        Slack Socket Mode bot과 발송 worker
+└── mock_vendor/      외부 벤더 연동용 mock 영역
+
+packages/schemas/     backend·agent·MCP·frontend가 공유하는 Pydantic 스키마
+db/
+├── schema.sql        PostgreSQL 스키마
+├── schema.dbml       ERD 원본
+├── seed/seed.py      초기 데이터 생성
+└── reset.sh          DB를 초기 상태로 재생성
+scripts/
+├── run_public.sh     DB부터 Cloudflare까지 외부 공개 전체 실행
+├── run_all.sh        로컬 서비스 전체 실행
+└── tunnel.sh         터널만 다시 연결
+specs/                OpenAPI·MCP 도구 명세와 생성 스크립트
+tests/                계약·인증·DB·에이전트·MCP·Slack 테스트
+docs/                 설계·아키텍처·로컬 실행·추후 개발 문서
+logs/                 서비스별 실행 로그
+```
+
+## 서비스와 포트
+
+| 서비스 | 포트 | 설명 |
+| --- | ---: | --- |
+| PostgreSQL | 5432 | Docker DB |
+| backend | 8000 | FastAPI 업무 API |
+| mock_vendor | 8001 | 외부 벤더 mock 영역 |
+| agent_runtime | 8002 | AI 에이전트 API |
+| mcp_work | 8010 | 업무 MCP |
+| mcp_docs | 8011 | 문서 MCP |
+| admin_web | 5173 | Vue 개발 서버 |
+
+## DB 운영
+
+평소에는 `scripts/run_public.sh`가 PostgreSQL을 켜고, DB가 비어 있을 때만
+스키마와 시드 데이터를 자동으로 넣습니다. `db/reset.sh`를 매번 실행할
+필요는 없습니다.
 
 ```bash
-db/reset.sh        # postgres 컨테이너 기동 → db/schema.sql → 시드 적재 (DBeaver: localhost:5432 capstone/capstone, 스키마 app)
-uv run pytest      # 테스트는 같은 서버의 별도 DB capstone_test를 쓴다. 테스트마다 스키마·시드를 다시 넣는다
-```
-ERD 원본은 `db/schema.dbml`(dbdiagram.io), 점검 결과는 `db/README.md`.
-
-## 구조
-
-```
-packages/schemas/   공유 Pydantic 스키마 = 명세 (common, entities, rest, mcp_tools, agent)
-apps/backend/       FastAPI REST API (PostgreSQL 데이터·권한·승인·실행 규칙)
-apps/agent_runtime/ LangGraph 에이전트: graph.py(StateGraph) · harness/(8요소) · prompts/ · tasks.py(작업·이벤트) · main.py(/ai/tasks API)
-apps/admin_web/     Vue 3 관리자 콘솔 (화면은 backend만 호출, Vite `/api` 프록시 · nginx 이미지). apps/admin_web/README.md
-apps/slack_bot/     Slack 봇 (수신) + 발신 메시지 빌더 send.py. apps/slack_bot/README.md
-apps/mcp_work, apps/mcp_docs   MCP 서버 (schemas.mcp_tools.TOOLS를 순회해 등록)
-db/                스키마(schema.sql)·시드
-apps/mock_vendor, jobs/   (추후) Mock 벤더·대기열 배치 — docs/추후개발.md
-specs/              export.py가 생성하는 openapi·mcp_tools JSON
-tests/              계약 테스트
+# 데이터 초기화가 필요할 때만 사용: 기존 데이터 삭제
+db/reset.sh
 ```
 
-## 포트
+기본 접속 정보:
 
-| 서비스          | 포트 |
-| --------------- | ---- |
-| backend         | 8000 |
-| mock_vendor     | 8001 |
-| agent_runtime   | 8002 |
-| mcp_work        | 8010 |
-| mcp_docs        | 8011 |
-| admin_web (Vue) | 5173 |
+```text
+Host: localhost
+Port: 5432
+Database: capstone
+User: capstone
+Password: .env의 POSTGRES_PASSWORD
+```
 
-## 현재 연결 범위
+테스트는 개발 DB와 분리된 `capstone_test`를 사용합니다.
 
-Vue 화면은 `apps/admin_web/src/api.js`를 통해 백엔드 REST API를 호출한다.
+## 테스트와 명세
 
-- 로그인(JWT)·로그아웃, 만료·401이면 로그인 화면으로
-- 제품·이용권·승인 대기 조회
-- 좌석별 오늘 토큰 소비 속도 (배치도 색·호버, 2배 이상 경보)
-- 처리 요청 승인·반려·실행
-- 업데이트·제안·팀 활용 조회
-- 팀별 자동 발송 토글은 아직 백엔드 API(`PATCH /departments/{id}`)가 없어 읽기 전용이다.
-- AI 비서는 backend `/ai/tasks`가 에이전트로 중계한다(SSE 포함). 화면은 에이전트 주소를 모른다.
+```bash
+uv run pytest -q
+uv run pytest tests/test_agent.py -q
+uv run python specs/export.py
+```
 
-## 통신 구조
+LLM 키 없이도 대부분의 테스트를 실행할 수 있습니다.
 
-`docs/diagrams/`(PNG)와 `docs/architecture.drawio`. 요약: 브라우저 → admin_web(`/api/*`) → backend(JWT, 업무 규칙·DB) / agent(LLM·MCP). Slack 봇은 Socket Mode로 받아 backend·agent를 부르고, 제안 발송은 backend 발송함(`notify_outbox`)을 거친다.
+## 로그와 문제 해결
 
-## 팀원
+```bash
+tail -f logs/backend.log
+tail -f logs/agent.log
+tail -f logs/admin_web.log
+tail -f logs/cloudflare.log
+```
 
-| 이름   | 영역              |
-| ------ | ----------------- |
-| 최승우 | DB + 백엔드, 리드 |
-| 이용주 | Agent + 프론트    |
-| 유정연 | MCP               |
+Cloudflare 화면에서 `로컬 서버(터널)에 연결하지 못했습니다`가 표시되면
+로컬 서비스는 살아 있고 터널만 끊긴 경우가 많습니다.
+
+```bash
+scripts/tunnel.sh
+```
+
+처음부터 다시 시작할 때는 기존 실행을 `Ctrl+C`로 종료한 뒤 다음을
+실행합니다.
+
+```bash
+scripts/run_public.sh
+```
+
+## 참고 문서
+
+- [로컬 실행](docs/로컬실행.md)
+- [아키텍처](docs/아키텍처.md)
+- [설계 문서](docs/설계문서.md)
+- [에이전트 설계](apps/agent_runtime/AGENT_DESIGN.md)
+- [데이터베이스 README](db/README.md)
+- [관리자 웹 README](apps/admin_web/README.md)
+- [기여 규칙](CONTRIBUTING.md)
