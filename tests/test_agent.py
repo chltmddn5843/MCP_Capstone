@@ -255,3 +255,18 @@ def test_off_topic_is_refused_without_tools(client):
         assert wait_status(client, task_id, EMP, {"done"})["result"]["answer"] == OFF_TOPIC_ANSWER
     task_id = client.post("/ai/tasks", json={"input": "내 등록 업무 알려줘", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
     assert any(e["type"] == "TOOL_END" for e in events(client, task_id, EMP))
+
+
+def test_release_of_unheld_product_creates_no_plan(client):
+    """TC-20: 보유하지 않은 제품(캔바) 반납 요청은 처리 요청을 만들지 않고 안내만 한다. 다른 보유 제품을 대신 반납하지 않는다."""
+    from apps.backend.main import app as backend_app
+    from fastapi.testclient import TestClient as BackendClient
+    bc = BackendClient(backend_app)
+    before = len(bc.get("/plans", params={"type": "seat_reclaim"}, headers=ASSET).json()["data"]["items"])
+    task_id = client.post("/ai/tasks", json={"input": "캔바 반납할게요", "channel": "slack"}, headers=EMP).json()["data"]["task_id"]
+    evs = events(client, task_id, EMP)
+    assert not [e for e in evs if e["type"] == "TOOL_START" and e["tool_call"]["name"] == "create_action_plan"]
+    done = next(e for e in evs if e["type"] == "DONE")
+    assert "반납할 게 없어요" in done["result"]["answer"] and "처리됐" not in done["result"]["answer"]
+    assert len(bc.get("/plans", params={"type": "seat_reclaim"}, headers=ASSET).json()["data"]["items"]) == before
+
