@@ -359,3 +359,29 @@ def test_employee_self_return_skips_approval():
     admin = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "rationale": "회수", "evidence": [],
                                                        "items": [{"employee_id": "emp_cs_01", "contract_id": "ctr_chatgpt_2026"}]}).json()["data"]
     assert admin["status"] == "pending_approval"  # 관리자가 남의 좌석을 회수할 때는 그대로 승인 대기
+
+
+def test_web_reclaim_respects_confirmation_linked_by_plan_id():
+    """TC-18·22: 웹 [본인 확인 요청]은 회수 요청을 먼저 만들고 확인 요청을 plan_id로 뒤에 붙인다. items에 confirmation_id가 없어도
+    '계속 필요' 응답과 기한 전 무응답은 승인·실행 모두에서 막히고, 반납 응답이면 회수된다."""
+    held = lambda: db.one("SELECT 1 AS x FROM seat_assignments WHERE contract_id = 'ctr_chatgpt_2026' AND employee_id = 'emp_mkt_02' AND status = 'assigned'")  # noqa: E731
+    plan = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "rationale": "장기 미사용 이용권 사용 의사 확인",
+                                                      "items": [{"employee_id": "emp_mkt_02", "contract_id": "ctr_chatgpt_2026"}], "evidence": []}).json()["data"]
+    cfm = client.post("/confirmations", headers=ADMIN, json={"plan_id": plan["id"], "employee_id": "emp_mkt_02", "question": "계속 쓰시나요?"}).json()["data"]
+    r = client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "회수"})  # 기한 전 무응답
+    assert r.status_code == 409 and "기한" in r.json()["error"]["message"] and held()
+    client.post(f"/confirmations/{cfm['id']}/answer", headers={"Authorization": "Bearer dev.emp_mkt_02"}, json={"answer": "still_needed"})
+    r = client.post(f"/plans/{plan['id']}/approve", headers=ADMIN, json={"reason": "회수"})  # '계속 필요' 응답
+    assert r.status_code == 409 and "still_needed" in r.json()["error"]["message"] and held()
+    with db.tx() as c:  # 승인을 우회해 실행만 시도해도 재검증에서 막힌다
+        c.execute(db.text("UPDATE action_plans SET status = 'approved', approver_id = 'emp_asset_01', approved_at = now() WHERE id = :id"), dict(id=plan["id"]))
+    r = client.post(f"/plans/{plan['id']}/execute", headers={**ADMIN, "Idempotency-Key": "tc18-exec"})
+    assert r.status_code == 409 and held()
+    # 반납 응답이면 회수된다
+    plan2 = client.post("/plans", headers=ADMIN, json={"type": "seat_reclaim", "rationale": "사용 의사 확인",
+                                                       "items": [{"employee_id": "emp_mkt_02", "contract_id": "ctr_chatgpt_2026"}], "evidence": []}).json()["data"]
+    cfm2 = client.post("/confirmations", headers=ADMIN, json={"plan_id": plan2["id"], "employee_id": "emp_mkt_02", "question": "계속 쓰시나요?"}).json()["data"]
+    client.post(f"/confirmations/{cfm2['id']}/answer", headers={"Authorization": "Bearer dev.emp_mkt_02"}, json={"answer": "return_seat"})
+    assert client.post(f"/plans/{plan2['id']}/approve", headers=ADMIN, json={"reason": "반납 응답"}).status_code == 200
+    assert client.post(f"/plans/{plan2['id']}/execute", headers={**ADMIN, "Idempotency-Key": "tc18-exec2"}).json()["data"]["plan"]["status"] == "executed" and not held()
+

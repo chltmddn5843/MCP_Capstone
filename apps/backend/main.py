@@ -1138,6 +1138,10 @@ def approve_plan(plan_id: str, body: PlanDecision, user: Employee = Depends(requ
     p = _plan(plan_id)
     if p and p.status == PlanStatus.pending_approval and (short := _seat_shortage(p)):  # 승인 직전 좌석 재확인. 추가 구매는 하지 않는다
         raise ApiError(ErrorCode.conflict, "남은 좌석이 없어 승인할 수 없습니다. 반려해 주세요", {"plan_id": plan_id, "shortage": short})
+    if p and p.status == PlanStatus.pending_approval and p.type == PlanType.seat_reclaim:  # 회수는 본인 확인 응답·기한 조건을 승인 단계에서도 본다
+        for i in p.items:
+            if why := _reclaim_confirmation_blocker(p.id, i):
+                raise ApiError(ErrorCode.conflict, f"사용 의사 확인 조건을 만족하지 않아 승인할 수 없습니다: {why}", {"plan_id": plan_id})
     return ok(_decide(plan_id, body, user, approve=True))
 
 
@@ -1196,6 +1200,26 @@ def _seat_shortage(p: ActionPlan) -> dict[str, int]:
     return out
 
 
+def _reclaim_confirmation_blocker(plan_id: str, item: dict) -> str | None:
+    """회수 요청에 연결된 사용 의사 확인을 검사한다. 연결은 두 방향 모두 본다: items[].confirmation_id(에이전트·배치가 붙임) 또는
+    confirmations.plan_id = 이 요청(웹 [본인 확인 요청]이 회수 요청을 먼저 만들고 확인 요청을 뒤에 붙임).
+    반납·휴직 응답이나 기한이 지난 무응답이어야 회수한다. 기한 전 무응답과 '계속 필요' 응답은 승인·실행 모두에서 막는다(TC-18·22)."""
+    if item.get("confirmation_id"):
+        a = db.one("SELECT answer, due_at < now() AS overdue FROM confirmations WHERE id = :id AND employee_id = :e", id=item["confirmation_id"], e=item["employee_id"])
+        if not a:
+            return f"{item['employee_id']}의 확인 요청이 없습니다 ({item['confirmation_id']})"
+    else:
+        a = db.one("SELECT answer, due_at < now() AS overdue FROM confirmations WHERE plan_id = :p AND employee_id = :e ORDER BY due_at DESC LIMIT 1",
+                   p=plan_id, e=item["employee_id"])
+        if not a:
+            return None  # 확인 요청 없이 만든 회수(휴직·퇴사 등)는 그대로
+    if a["answer"] is None and not a["overdue"]:
+        return f"{item['employee_id']}의 확인 응답 기한(5영업일)이 아직 지나지 않았습니다 (무응답)"
+    if a["answer"] is not None and a["answer"] not in ("return_seat", "on_leave"):
+        return f"{item['employee_id']}의 확인 응답이 반납·휴직이 아닙니다 ({a['answer']})"
+    return None
+
+
 def _seat_blocker(p: ActionPlan, allow_short: bool = False) -> str | None:
     """좌석 조치안 재검증. 막을 이유가 없으면 None. allow_short=True면 좌석 부족은 막지 않는다(생성 때: 승인 대기로 두고 관리자가 반려).
     ponytail: 검사와 반영 사이 잠금이 없어 동시 배정 2건이 마지막 1석을 함께 통과할 수 있다. 필요하면 contracts 행을 FOR UPDATE로 잠근다."""
@@ -1220,14 +1244,8 @@ def _seat_blocker(p: ActionPlan, allow_short: bool = False) -> str | None:
             return f"{i['employee_id']}는 이미 {i['contract_id']} 좌석이 있습니다"
         if p.type == PlanType.seat_reclaim and not has:
             return f"{i['employee_id']}에게 회수할 {i['contract_id']} 좌석이 없습니다"
-        if p.type == PlanType.seat_reclaim and i.get("confirmation_id"):  # 확인 요청을 붙였으면 반납·휴직 응답이나 기한이 지난 무응답이어야 회수
-            a = db.one("SELECT answer, due_at < now() AS overdue FROM confirmations WHERE id = :id AND employee_id = :e", id=i["confirmation_id"], e=i["employee_id"])
-            if not a:
-                return f"{i['employee_id']}의 확인 요청이 없습니다 ({i['confirmation_id']})"
-            if a["answer"] is None and not a["overdue"]:
-                return f"{i['employee_id']}의 확인 응답 기한(5영업일)이 아직 지나지 않았습니다 (무응답)"
-            if a["answer"] is not None and a["answer"] not in ("return_seat", "on_leave"):
-                return f"{i['employee_id']}의 확인 응답이 반납·휴직이 아닙니다 ({a['answer']})"
+        if p.type == PlanType.seat_reclaim and (why := _reclaim_confirmation_blocker(p.id, i)):
+            return why
         r = i.get("reassign_to_employee_id")
         if r and (db.one("SELECT status FROM employees WHERE id = :e", e=r) or {}).get("status") != "active":
             return f"재배정 대상 {r}이 재직 중이 아닙니다"
