@@ -4,6 +4,16 @@
 
 ## 시작하기
 
+Docker만 있으면 한 번에 (DB 스키마·시드도 처음 한 번 자동):
+
+```bash
+cp .env.example .env          # OPENAI_API_KEY 채우기 (키 없으면 LLM_MODEL=fake)
+docker compose up -d --build  # DB·백엔드·MCP 2개·에이전트·화면 → http://localhost:5173
+# Slack 봇: --profile slack · 외부 공개(Cloudflare 고정 주소): --profile public  (docs/로컬실행.md)
+```
+
+코드를 고치며 바로 반영해 보는 개발 모드:
+
 ```bash
 uv sync                       # 전부 설치 (테스트 포함). pip라면: pip install -e ".[dev]"
 cp .env.example .env          # OPENAI_API_KEY 채우기 (키 없으면 LLM_MODEL=fake)

@@ -1,0 +1,13 @@
+.git
+.venv
+.env
+.env.*
+!.env.example
+logs
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+apps/admin_web/node_modules
+apps/admin_web/dist
+apps/admin_web/.wrangler
+db/*.sqlite
