@@ -218,8 +218,8 @@ watch(selectedId, () => { moveTo.value = '' })
           </button>
         </div>
         <div class="tags" style="gap: 12px; align-items: center">
-          <RouterLink to="/setup?step=org" class="xs muted">신입 등록 → 회사 설정 › 부서·직원</RouterLink>
-          <RouterLink to="/setup?step=desks" class="xs muted">층·책상 구조 → 회사 설정 › 좌석 구조</RouterLink>
+          <RouterLink to="/setup?step=org" class="xs muted link">신입 등록 → 회사 설정 › 부서·직원</RouterLink>
+          <RouterLink to="/setup?step=desks" class="xs muted link">층·책상 구조 → 회사 설정 › 좌석 구조</RouterLink>
         </div>
       </div>
       <div class="card-head">

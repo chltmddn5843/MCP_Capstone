@@ -64,7 +64,7 @@ const sentCount = (u) => u.teams.filter((t) => t.result === 'sent').length
             <h3>{{ u.title }}</h3>
             <span v-if="u.note" class="small">{{ u.note }}</span>
           </div>
-          <a v-if="u.sourceUrl" :href="u.sourceUrl" class="small" style="font-weight: 600">공식 원문</a>
+          <a v-if="u.sourceUrl" :href="u.sourceUrl" class="small link" style="font-weight: 600">공식 원문</a>
           <span v-else class="pill" :class="u.result === 'sent' ? 'pill-ok' : 'pill-alert'">{{ u.result === 'sent' ? '보냄' : '보류' }}</span>
         </div>
         <pre v-if="u.card" class="card-news">{{ u.card }}</pre>
