@@ -27,7 +27,7 @@ from pathlib import Path
 
 from apps.slack_bot import client as api
 from apps.slack_bot import identity
-from apps.slack_bot.send import build_plan_request, send_confirmation, send_cost_alert, send_seat_alert, send_suggestion
+from apps.slack_bot.send import MODEL_RELEASE, build_plan_request, card_model_name, send_confirmation, send_cost_alert, send_seat_alert, send_suggestion
 from schemas.rest import SEAT_SHORTAGE_REASON, UNLISTED_REASON
 
 log = logging.getLogger("slack_bot.worker")
@@ -140,6 +140,10 @@ def deliver_outbox(client) -> list[str]:
             continue
         try:
             upd = api.backend("GET", f"/updates/{sug['update_id']}", SYSTEM_TOKEN)
+            approved = None
+            if upd.get("title", "").startswith(MODEL_RELEASE):  # 새 모델 카드: 사내 승인 여부를 같이 알린다 (GET /models는 승인 모델만 준다)
+                name = card_model_name(upd)
+                approved = any(m.get("name") == name for m in api.backend("GET", "/models", SYSTEM_TOKEN))
             posted = 0
             for emp in _targets(sug):
                 slack_id = slack_id_for(emp)
@@ -149,7 +153,7 @@ def deliver_outbox(client) -> list[str]:
                 if sug.get("task_id"):
                     prof = api.backend("GET", f"/employees/{emp['id']}", SYSTEM_TOKEN)
                     title = next((t["title"] for t in prof.get("tasks", []) if t["id"] == sug["task_id"]), None)
-                send_suggestion(client, _dm(client, slack_id), {**sug, "body": row["text"] or sug["body"]}, title, upd, emp.get("job_title"))
+                send_suggestion(client, _dm(client, slack_id), {**sug, "body": row["text"] or sug["body"]}, title, upd, emp.get("job_title"), approved)
                 posted += 1
             if posted:
                 api.backend("PATCH", f"/notify-outbox/{row['id']}/delivered", SYSTEM_TOKEN)

@@ -231,6 +231,10 @@ def test_model_release_simulation_makes_one_card(client):
     sugs = bc.get("/suggestions", params={"update_id": found["update_id"]}, headers=SYS).json()["data"]["items"]
     assert len(sugs) == 1 and sugs[0]["target_type"] == "all"
     assert "핵심 기능" in sugs[0]["body"] and "이렇게 써 보세요" in sugs[0]["body"] and "• " in sugs[0]["body"]
+    upd = bc.get(f"/updates/{found['update_id']}", headers=SYS).json()["data"]
+    model = upd["title"].split(":", 1)[1].strip()  # 추천 모델은 이 업데이트의 새 모델 하나로 통일된다 (정합성)
+    job_lines = [l for l in sugs[0]["body"].splitlines() if l.startswith("• ")]
+    assert job_lines and all(l.endswith(f"(추천 모델: {model})") for l in job_lines), job_lines
 
 
 def test_unlisted_request_guidance_says_it_is_an_unlisted_request():

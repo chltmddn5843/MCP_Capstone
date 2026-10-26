@@ -61,7 +61,8 @@ class ScriptedModel(BaseChatModel):
                 if upd.get("title", "").startswith("새 모델 출시"):
                     jobs = [j["job_title"] for j in found.get("jobs") or []][:4] or list(dict.fromkeys(
                         m for m in re.findall(r'\{"job_title": "([^"]+)", "task_count"', raw)))[:4]
-                    body = "핵심 기능\n1. 긴 문서를 나누지 않고 요약·비교\n2. 표 정리와 차트 생성\n3. 이미지 속 표를 편집 가능한 표로\n이렇게 써 보세요\n" + "\n".join(f"• {j}: 등록 업무 자료를 한 번에 올려 정리해 보세요." for j in jobs)
+                    model = upd.get("title", "").split(":", 1)[1].strip() if ":" in upd.get("title", "") else "새 모델"
+                    body = "핵심 기능\n1. 긴 문서를 나누지 않고 요약·비교\n2. 표 정리와 차트 생성\n3. 이미지 속 표를 편집 가능한 표로\n이렇게 써 보세요\n" + "\n".join(f"• {j}: 등록 업무 자료를 한 번에 올려 정리해 보세요. (추천 모델: {model})" for j in jobs)
                     args = {"update_id": uid, "target_type": "all", "relevance": f"승인 공급사 새 모델 · 직무 {len(jobs)}개 활용 예", "body": body}
                     msg = AIMessage(content="", tool_calls=[{"name": "save_suggestion", "args": args, "id": _cid()}])
                     return ChatResult(generations=[ChatGeneration(message=msg)])

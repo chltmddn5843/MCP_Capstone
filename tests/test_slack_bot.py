@@ -302,14 +302,30 @@ def test_seat_alert_dm_has_analyze_button():
 def test_model_card_sends_only_my_job_line():
     """카드 뉴스는 핵심 기능은 그대로, '이렇게 써 보세요'는 받는 사람 직무 줄만 보낸다. 다른 직무 줄은 Slack에 나가지 않는다(관리자 화면에서만)."""
     upd = {"title": "새 모델 출시: GPT-5.6", "affected_plans": ["ChatGPT Enterprise"], "url": "https://x"}
-    body = "핵심 기능\n1. 긴 문서\n2. 표\n3. 이미지\n이렇게 써 보세요\n• 마케터: 카피 비교\n• 영업 담당: 견적 요약"
+    body = "핵심 기능\n1. 긴 문서\n2. 표\n3. 이미지\n이렇게 써 보세요\n• 마케터: 카피 비교 (추천 모델: GPT-5.6)\n• 영업 담당: 견적 요약 (추천 모델: GPT-5.6)"
     blocks = send.build_model_card({"id": "sug_x", "body": body}, upd, "마케터")
     text = blocks[1]["text"]["text"]
     assert blocks[0]["type"] == "header" and "*핵심 기능*" in text and "3. 이미지" in text
-    assert "*• 마케터: 카피 비교*  ← 내 직무" in text and "영업 담당" not in text
+    assert "*• 마케터: 카피 비교 (추천 모델: GPT-5.6)*  ← 내 직무" in text and "영업 담당" not in text
     assert [b["action_id"] for b in blocks[-1]["elements"]] == ["fb_useful", "fb_irrelevant", "fb_question"]
     other = send.build_model_card({"id": "sug_x", "body": body}, upd, "생산 계획 · 대리")[1]["text"]["text"]
     assert "마케터" not in other and "영업 담당" not in other and "내 직무 활용 예는 아직 없어요" in other  # 카드에 없는 직무: 공통 한 줄
+
+
+def test_model_card_recommends_the_released_model_and_shows_approval():
+    """정합성: 모델이 직무 줄에 다른 모델(이전 버전·다른 공급사)을 적거나 괄호를 빠뜨려도, 보낼 때 이 업데이트의 새 모델 이름으로 맞춘다.
+    사내 승인 전이면 '승인되면 쓸 수 있어요', 승인 뒤면 '바로 사용'을 붙인다."""
+    upd = {"title": "새 모델 출시: GPT-5.6", "affected_plans": ["ChatGPT Enterprise"], "url": "https://x"}
+    body = "핵심 기능\n1. a\n2. b\n3. c\n이렇게 써 보세요\n• 마케터: 카피 비교 (추천 모델: Claude Sonnet 5.5)\n• 영업 담당: 견적 요약 (추천 모델: GPT-5.5 (ChatGPT))\n• CS 상담: 문의 분류"
+    for job in ("마케터", "영업 담당", "CS 상담"):
+        text = send.build_model_card({"id": "s", "body": body}, upd, job, approved=False)[1]["text"]["text"]
+        assert f"{job}:" in text and "(추천 모델: GPT-5.6)" in text and "Claude" not in text and "GPT-5.5" not in text
+    ctx = send.build_model_card({"id": "s", "body": body}, upd, "마케터", approved=False)[2]["elements"][0]["text"]
+    assert "GPT-5.6은 사내 승인 전" in ctx
+    ctx = send.build_model_card({"id": "s", "body": body}, upd, "마케터", approved=True)[2]["elements"][0]["text"]
+    assert "GPT-5.6 사내 승인 완료" in ctx
+    ctx = send.build_model_card({"id": "s", "body": body}, upd, "마케터")[2]["elements"][0]["text"]
+    assert "승인" not in ctx
 
 
 def test_menu_word_shows_buttons_without_agent(monkeypatch):
