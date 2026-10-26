@@ -31,6 +31,11 @@ const projected = computed(() => (m.value.ongoing && m.value.dataDays ? Math.rou
 const partial = computed(() => !m.value.ongoing && m.value.dataDays && m.value.dataDays < m.value.monthDays)
 const over = computed(() => total.value > m.value.budget)
 const top = computed(() => rows.value[0])
+const xCost = (x) => x.models.reduce((s, row) => s + row.cost, 0)
+const xRequests = (x) => x.models.reduce((s, row) => s + row.requests, 0)
+const maxCost = computed(() => Math.max(...props.months.map(xCost), 1))
+const barHeight = (x) => Math.max(4, Math.round((xCost(x) / maxCost.value) * 100))
+const trendSummary = computed(() => props.months.map((x) => `${x.label} ${won(xCost(x))}, ${xRequests(x)}건`).join('; '))
 const summary = computed(() => `${m.value.label} API 비용 ${won(total.value)}, 월 예산 ${won(m.value.budget)}의 ${pct(total.value, m.value.budget)}%. `
   + rows.value.map((x) => `${x.name} ${won(x.cost)} ${x.share}%`).join(', '))
 </script>
@@ -84,6 +89,23 @@ const summary = computed(() => `${m.value.label} API 비용 ${won(total.value)},
       </div>
     </div>
 
+    <div v-if="months.length > 1" class="trend">
+      <div class="card-head">
+        <div><h3>월별 API 비용 추이</h3><span class="small muted">현재 컬럼 기준: 비용 · 요청 수</span></div>
+        <span class="small muted">최대 {{ won(maxCost) }}</span>
+      </div>
+      <div class="trend-chart" role="img" :aria-label="trendSummary">
+        <div v-for="x in months" :key="x.label" class="trend-column">
+          <span class="trend-value">{{ won(xCost(x)) }}</span>
+          <div class="trend-track">
+            <div class="trend-bar" :style="{ height: `${barHeight(x)}%` }" />
+          </div>
+          <strong>{{ x.label }}</strong>
+          <span class="xs muted">{{ xRequests(x).toLocaleString('ko-KR') }}건</span>
+        </div>
+      </div>
+    </div>
+
     <div v-if="top" class="inset insight">
       <span class="small"><strong>{{ top.name }}</strong> 모델이 비용의 <strong>{{ top.share }}%</strong>를 차지합니다 (요청 수로는 {{ top.reqShare }}%).
         <template v-if="top.share - top.reqShare >= 10"> 요청 비중보다 비용 비중이 커서 요청당 단가가 높은 모델입니다. 품질 기준을 통과하는 하위 모델이 있는지 검토할 만합니다.</template>
@@ -101,6 +123,13 @@ const summary = computed(() => `${m.value.label} API 비용 ${won(total.value)},
 .segment button[aria-selected='true'] { background: var(--ink); color: var(--white); font-weight: 600; }
 .card-head > .segment { flex-direction: row; }
 .body { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
+.trend { display: flex; flex-direction: column; gap: 14px; padding-top: 8px; border-top: 1px solid var(--line); }
+.trend-chart { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 14px; align-items: end; min-height: 190px; }
+.trend-column { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 13px; }
+.trend-value { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.trend-track { width: min(56px, 100%); height: 110px; display: flex; align-items: end; background: var(--track); border-radius: 8px 8px 3px 3px; overflow: hidden; }
+.trend-bar { width: 100%; min-height: 4px; background: var(--ink); border-radius: 8px 8px 3px 3px; }
+.trend-column:nth-child(odd) .trend-bar { background: var(--lime); }
 .donut { position: relative; margin: 0; width: 180px; height: 180px; flex: none; }
 .donut figcaption { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .donut figcaption strong { font-size: 30px; letter-spacing: -0.02em; }

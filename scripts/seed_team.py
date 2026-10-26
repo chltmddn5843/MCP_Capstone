@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 import sys
 from datetime import date, timedelta
@@ -200,10 +201,15 @@ def main() -> None:
     if len(password) < 8:  # 가입 API가 거절하면 스키마만 지워진 채 끝난다. 지우기 전에 막는다
         raise SystemExit("TEAM_ADMIN_PASSWORD는 8자 이상이어야 합니다. DB는 건드리지 않았습니다.")
     reset_schema()
-    out = build(TestClient(app), os.getenv("SYSTEM_TOKEN", "dev.sys"), password)
+    client = TestClient(app)
+    out = build(client, os.getenv("SYSTEM_TOKEN", "dev.sys"), password)
     print("만들었습니다:", out)
     print(f"웹 콘솔 로그인: {ADMIN[2]}@{DOMAIN}" + ("" if os.getenv("TEAM_ADMIN_PASSWORD") else f" / 비밀번호 {password} (이번 한 번만 보여 줍니다)"))
-    print(".env: SLACK_USER_MAP={} · SLACK_ADMIN_USER_IDS=" + ADMIN[1] + f" · F3_DEMO_HEAVY=yongju.lee@{DOMAIN}")
+    from apps.backend import db
+    slack_map = {r["slack_user_id"]: r["id"] for r in db.rows(
+        "SELECT id, slack_user_id FROM employees WHERE slack_user_id IS NOT NULL ORDER BY id")}
+    print("생성된 Slack 매핑:", json.dumps(slack_map, ensure_ascii=False))
+    print(".env 권장값: SLACK_USER_MAP=<위 매핑> · SLACK_ADMIN_USER_IDS=" + ADMIN[1] + f" · F3_DEMO_HEAVY=yongju.lee@{DOMAIN}")
 
 
 if __name__ == "__main__":
