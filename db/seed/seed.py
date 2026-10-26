@@ -61,7 +61,7 @@ def dump(objs, drop=(), **extra) -> list[dict]:
 
 
 NOW = fx.NOW
-DAY0 = NOW - timedelta(days=60)
+DAY0 = datetime(2026, 8, 1, 0, 0, tzinfo=NOW.tzinfo)
 print("SET search_path TO app;\nBEGIN;")
 
 # ── 조직 ──
@@ -207,7 +207,7 @@ TOKENS = {"0-2k": 1200, "2k-8k": 4500, "8k+": 12000}  # 구간별 요청당 입�
 MIX = {"prj_cs_classify": {"0-2k": 0.95, "2k-8k": 0.05}, "prj_faq": {"0-2k": 0.7, "2k-8k": 0.3},
        "prj_quote_summary": {"2k-8k": 0.7, "8k+": 0.3}, "prj_mkt_copy": {"0-2k": 0.4, "2k-8k": 0.6}, "prj_prod_report": {"0-2k": 0.9, "2k-8k": 0.1}}
 SPIKE_MIX = {"2k-8k": 0.2, "8k+": 0.8}  # 급증 구간: 긴 견적서 PDF가 몰림
-for d in range(60):
+for d in range((NOW - DAY0).days + 1):
     day = DAY0 + timedelta(days=d)
     for pid, reqs in base_reqs.items():
         p = PROJECTS[pid]
