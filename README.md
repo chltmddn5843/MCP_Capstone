@@ -268,6 +268,12 @@ scripts/tunnel.sh
 scripts/run_public.sh
 ```
 
+## 팀원 및 기여
+
+| 이름 | 역할 | 주요 기여 |
+| --- | --- | --- |
+| 채석현 | R1 - PM·PO / R5 - Frontend·Demo | 서비스 기획, HRD 관리자·실무진 페르소나 및 사용자 시나리오 작성, 관리자 웹 UI·UX 디자인, 시연 영상 촬영 |
+
 ## 참고 문서
 
 - [로컬 실행](docs/로컬실행.md)
